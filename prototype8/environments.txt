@@ -1,0 +1,4 @@
+#python go3.py MountainCar-v0 2 3
+#python go3.py CartPole-v0 4 2
+#python go3.py Acrobot-v1 6 3
+#python go3.py LunarLander-v2 8 4
