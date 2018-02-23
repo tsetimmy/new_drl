@@ -1,0 +1,9 @@
+sbatch embedding_adam_breakout.sh
+sbatch embedding_adam_frostbite.sh
+sbatch embedding_adam_pong.sh
+sbatch embedding_sgd_breakout.sh
+sbatch embedding_sgd_frostbite.sh
+sbatch embedding_sgd_pong.sh
+sbatch nature_replicate_breakout.sh
+sbatch nature_replicate_frostbite.sh
+sbatch nature_replicate_pong.sh
