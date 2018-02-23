@@ -50,9 +50,13 @@ def main():
     parser.add_argument("--pixel-feature", type=int, default=1)
     parser.add_argument("--padding", type=int, default=0)
 
+
+    parser.add_argument("--model", type=str, default='nature')
+
     args = parser.parse_args()
 
     args.input_shape = str2list(args.input_shape)
+    assert args.model in ['nature', 'gated']
     assert args.ep_greedy_speed in ['fast', 'slow']
     assert args.env_interface in ['gym', 'ale', 'custom_cart', 'custom_cartpole', 'ple']
     if args.env_interface in ['gym', 'ale']:
@@ -86,14 +90,11 @@ def main():
     memory = Memory(args.replay_mem_size, args.input_shape[1:])
 
     #Initialize neural net
-    qnet = network(args.input_shape, args.action_size, 'qnet')
-    tnet = network(args.input_shape, args.action_size, 'tnet')
-    update_ops = update_target_graph('qnet', 'tnet')
-    init = tf.initialize_all_variables()
+    qnet, tnet, update_ops = init_network(args.input_shape, args.action_size, args.model)
 
     #import time
     with tf.Session() as sess:
-        sess.run(init)
+        sess.run(tf.global_variables_initializer())
         sess.run(update_ops)
         for epoch in range(args.epochs):
             frame = env.reset()
@@ -137,10 +138,7 @@ def main():
                     states1 = np.concatenate(batch[:, 3], axis=0)
                     dones = batch[:, 4]
 
-                    Q1 = qnet.get_Q1(sess, states1, tnet)
-                    targetQ = rewards + (1. - dones) * args.learning_rate * np.amax(Q1, keepdims=False, axis=1)
-
-                    l = qnet.train(sess, states, actions, targetQ[..., np.newaxis])
+                    l = qnet.train(sess, states, actions, rewards, states1, dones, args.learning_rate, tnet)
                     total_losses += l
 
                 #Increase the frame steps counter
@@ -155,6 +153,21 @@ def main():
                     #print 'time:', time.time() - start
                     break
     env.close()
+
+def init_network(input_shape, action_size, model):
+    if model == 'nature':
+        qnet = network(input_shape, action_size, 'qnet')
+        tnet = network(input_shape, action_size, 'tnet')
+        update_ops = update_target_graph('qnet', 'tnet')
+    elif model == 'gated':
+        sys.path.append('../prototype8/gated')
+        sys.path.append('../prototype8/')
+        from gated_regularized_qnetwork import gated_regularized_qnetwork_visual_input
+        from utils import update_target_graph_vars
+        qnet = gated_regularized_qnetwork_visual_input(input_shape, action_size)
+        tnet = None
+        update_ops = update_target_graph_vars(qnet.qnet_vars, qnet.tnet_vars)
+    return qnet, tnet, update_ops
 
 if __name__ == '__main__':
     main()

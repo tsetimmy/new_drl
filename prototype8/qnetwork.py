@@ -31,12 +31,12 @@ class qnetwork2:
         self.b_fc2 = tf.Variable(tf.zeros([256]))
 
         #Value stream
-        self.w_V = tf.Variable(self.xavier_init([128, self.action_size]))
-        self.b_V = tf.Variable(tf.zeros([self.action_size]))
+        self.w_V = tf.Variable(self.xavier_init([128, 1]))
+        self.b_V = tf.Variable(tf.zeros([1]))
 
         #Action stream
-        self.w_A = tf.Variable(self.xavier_init([128, 1]))
-        self.b_A = tf.Variable(tf.zeros([1]))
+        self.w_A = tf.Variable(self.xavier_init([128, self.action_size]))
+        self.b_A = tf.Variable(tf.zeros([self.action_size]))
 
     def build_computational_graph(self, states):
         fc1 = tf.nn.relu(tf.matmul(states, self.w_fc1) + self.b_fc1)
@@ -50,6 +50,20 @@ class qnetwork2:
         Q = V + tf.subtract(A, tf.reduce_mean(A, axis=1, keep_dims=True))
 
         return Q
+
+    def build_computational_graph2(self, states):
+        fc1 = tf.nn.relu(tf.matmul(states, self.w_fc1) + self.b_fc1)
+        fc2 = tf.nn.relu(tf.matmul(fc1, self.w_fc2) + self.b_fc2)
+
+        streamA, streamV = tf.split(fc2, 2, 1)
+
+        A = tf.matmul(streamA, self.w_A) + self.b_A
+        V = tf.matmul(streamV, self.w_V) + self.b_V
+
+        Q = V + tf.subtract(A, tf.reduce_mean(A, axis=1, keep_dims=True))
+
+        return V, A, Q
+
 
 class qnetwork:
     def __init__(self, input_shape=[None, 4], action_size=2, scope=None):

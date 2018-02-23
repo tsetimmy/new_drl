@@ -140,7 +140,7 @@ def main():
 
     args = parser.parse_args()
 
-    assert args.model in ['gan', 'gated']
+    assert args.model in ['gan', 'gated', 'gated_reg']
     env = gym.make(args.environment)
     args.action_size = env.action_space.n
     args.input_shape = [None, env.observation_space.shape[0]]
@@ -226,6 +226,11 @@ def init_model(input_shape, action_size, latent_size, learning_rate, model):
         from gated.joint_dqn_gated import joint_dqn_gated
         from utils import update_target_graph_vars
         jqnet = joint_dqn_gated(input_shape, action_size, learning_rate)
+        update_ops = update_target_graph_vars(jqnet.qnet_vars, jqnet.tnet_vars)
+    elif model == 'gated_reg':
+        from gated_regularized_qnetwork import gated_regularized_qnetwork
+        from utils import update_target_graph_vars
+        jqnet = gated_regularized_qnetwork(input_shape, action_size, 256)
         update_ops = update_target_graph_vars(jqnet.qnet_vars, jqnet.tnet_vars)
     return jqnet, update_ops
 

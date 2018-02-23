@@ -38,9 +38,14 @@ class network():
         action = np.argmax(Q)
         return action
 
-    def train(self, sess, states, actions, targetQ):
-        _, l = sess.run([self.update_model, self.loss], feed_dict={self.image_in:states, self.actions:actions, self.targetQ:targetQ})
+    def train(self, sess, states, actions, rewards, states1, dones, learning_rate, tnet):
+        Q1 = self.get_Q1(sess, states1, tnet)
+        targetQ = rewards + (1. - dones) * learning_rate * np.amax(Q1, keepdims=False, axis=1)
+        _, l = sess.run([self.update_model, self.loss], feed_dict={self.image_in:states,
+                                                                   self.actions:actions,
+                                                                   self.targetQ:targetQ[..., np.newaxis]})
         return l
+
 
     def get_Q1(self, sess, states1, tnet):
         return sess.run(tnet.Q, feed_dict={tnet.image_in:states1})

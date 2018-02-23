@@ -3,7 +3,7 @@ import scipy.ndimage as ndimage
 import tensorflow as tf
 import blosc
 import random
-from prototype11.atari_environment_wrapper import atari_environment
+#from prototype11.atari_environment_wrapper import atari_environment
 from custom_environments.cart import Cart
 from custom_environments.cartpole import CartPole
 from custom_environments.pygames import ple_wrapper
