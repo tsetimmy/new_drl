@@ -133,8 +133,7 @@ def main():
                     sess.run(update_ops)
 
                 if done:
-                    print("Episode finished after {} timesteps".format(t+1))
-                    print epoch, total_reward
+                    print"Episode finished after {} timesteps".format(t+1), 'epoch', epoch, 'total_rewards', total_reward
                     break
 
     #env.close()

@@ -207,12 +207,11 @@ def main():
 
                 # Update?
                 if int(time_step) % args.target_update_freq == 0:
-                    print "Updating target..."
+                    #print "Updating target..."
                     sess.run(update_ops)
 
                 if done:
-                    print("Episode finished after {} timesteps".format(t+1))
-                    print epoch, total_reward
+                    print "Episode finished after {} timesteps".format(t+1), 'epoch', epoch, 'total_reward', total_reward
                     break
 
     env.close()

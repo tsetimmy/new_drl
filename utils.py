@@ -9,7 +9,7 @@ from custom_environments.cartpole import CartPole
 from custom_environments.pygames import ple_wrapper
 import gym
 #from matplotlib import pyplot as plt
-import pylab
+#import pylab
 import uuid
 
 def process_frame2(frame):
