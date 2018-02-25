@@ -9,12 +9,12 @@ from gated_env_modeler import environment_modeler_gated
 
 
 class joint_ddpg_gated:
-    def __init__(self, input_shape, action_size, learning_rate, action_bound):
+    def __init__(self, input_shape, action_size, learning_rate, action_bound_low, action_bound_high):
         self.lamb = 0.5
 
         var_len = 0
         #Initialize the networks
-        self.actor_source = actor(state_shape=input_shape, action_shape=[None, action_size], output_bound=action_bound[0], scope='actor_source')
+        self.actor_source = actor(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low, output_bound_high=action_bound_high, scope='actor_source')
         self.actor_source_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
         var_len += len(self.actor_source_vars)
 
@@ -22,7 +22,7 @@ class joint_ddpg_gated:
         self.critic_source_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)[var_len:]
         var_len += len(self.critic_source_vars)
 
-        self.actor_target = actor(state_shape=input_shape, action_shape=[None, action_size], output_bound=action_bound[0], scope='actor_target')
+        self.actor_target = actor(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low, output_bound_high=action_bound_high, scope='actor_target')
         self.actor_target_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)[var_len:]
         var_len += len(self.actor_target_vars)
 

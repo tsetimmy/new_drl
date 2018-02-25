@@ -21,7 +21,7 @@ def merge_two_dicts(x, y):
     return z
 
 class joint_ddpg():
-    def __init__(self, input_shape, action_size, latent_size, learning_rate, action_bound):
+    def __init__(self, input_shape, action_size, latent_size, learning_rate, action_bound_low, action_bound_high):
         #Parameters
         self.lamb = .5
         self.learning_rate = learning_rate
@@ -33,10 +33,10 @@ class joint_ddpg():
         self.cgan_reward = CGAN(input_shape=input_shape, action_size=action_size, latent_size=latent_size, gen_input_shape=[None, 1], continuous_action=True)
         self.cgan_reward.init_second_stream()
 
-        self.actor_source = actor(state_shape=input_shape, action_shape=[None, action_size], output_bound=action_bound[0], scope='actor_source')
+        self.actor_source = actor(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low, output_bound_high=action_bound_high, scope='actor_source')
         self.critic_source = critic(state_shape=input_shape, action_shape=[None, action_size], scope='critic_source')
 
-        self.actor_target = actor(state_shape=input_shape, action_shape=[None, action_size], output_bound=action_bound[0], scope='actor_target')
+        self.actor_target = actor(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low, output_bound_high=action_bound_high, scope='actor_target')
         self.critic_target = critic(state_shape=input_shape, action_shape=[None, action_size], scope='critic_target')
 
         #Placeholders for defining the loss functions
@@ -214,10 +214,15 @@ def main():
     args.state_dim = env.observation_space.shape[0]
     args.action_dim = env.action_space.shape[0]
     #assert args.action_dim == 1
-    args.action_bound = env.action_space.high
-    print(args)
+    args.action_bound_high = env.action_space.high
+    args.action_bound_low = env.action_space.low
 
-    jointddpg, update_target_actor, update_target_critic, copy_target_actor, copy_target_critic = init_model([None, args.state_dim], args.action_dim, args.latent_size, args.learning_rate, args.action_bound, args.tau, args.model)
+    assert len(args.action_bound_high) == len(args.action_bound_low)
+    for i in range(len(args.action_bound_high)):
+        assert args.action_bound_high[i] == -args.action_bound_low[i]
+    print(args)
+    
+    jointddpg, update_target_actor, update_target_critic, copy_target_actor, copy_target_critic = init_model([None, args.state_dim], args.action_dim, args.latent_size, args.learning_rate, args.action_bound_low, args.action_bound_high, args.tau, args.model)
 
     '''
     #Network
@@ -358,9 +363,9 @@ def main():
                     print 'epoch', epoch, 'total rewards', total_rewards
                     break
 
-def init_model(input_shape, action_size, latent_size, learning_rate, action_bound, tau, model):
+def init_model(input_shape, action_size, latent_size, learning_rate, action_bound_low, action_bound_high, tau, model):
     if model == 'gan':
-        jointddpg = joint_ddpg(input_shape, action_size, latent_size, learning_rate, action_bound)
+        jointddpg = joint_ddpg(input_shape, action_size, latent_size, learning_rate, action_bound_low, action_bound_high)
 
         # Update and copy operators
         update_target_actor = update_target_graph2('actor_source', 'actor_target', tau)
@@ -371,7 +376,7 @@ def init_model(input_shape, action_size, latent_size, learning_rate, action_boun
     elif model == 'gated':
         from gated.joint_ddpg_gated import joint_ddpg_gated
         from utils import update_target_graph3
-        jointddpg = joint_ddpg_gated(input_shape, action_size, learning_rate, action_bound)
+        jointddpg = joint_ddpg_gated(input_shape, action_size, learning_rate, action_bound_low, action_bound_high)
 
         # Update and copy operators
         update_target_actor = update_target_graph3(jointddpg.actor_source_vars, jointddpg.actor_target_vars, tau)

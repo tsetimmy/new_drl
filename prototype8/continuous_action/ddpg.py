@@ -14,16 +14,17 @@ from utils import update_target_graph2
 from utils import OrnsteinUhlenbeckActionNoise
 
 class actor:
-    def __init__(self, state_shape=[None, 100], action_shape=[None, 1], output_bound=1., scope=None):
+    def __init__(self, state_shape=[None, 100], action_shape=[None, 1], output_bound_low=[-1.], output_bound_high=[1.], scope=None):
         with tf.variable_scope(scope):
             self.scope = scope
+            self.action_bound = tf.constant(output_bound_high, dtype=tf.float32)
             self.states = tf.placeholder(shape=state_shape, dtype=tf.float32)
             batch_size = tf.cast(tf.shape(self.states)[0], tf.float32)
             fc1 = slim.fully_connected(self.states, 400, activation_fn=tf.nn.relu, scope='fc1')
             fc2 = slim.fully_connected(fc1, 300, activation_fn=tf.nn.relu, scope='fc2')
             self.W = tf.Variable(tf.random_uniform([300, action_shape[-1]], -3e-3, 3e-3))
             self.b = tf.Variable(tf.random_uniform([action_shape[-1]], -3e-3, 3e-3))
-            self.action = tf.nn.tanh(tf.matmul(fc2, self.W) + self.b)
+            self.action = tf.multiply(tf.nn.tanh(tf.matmul(fc2, self.W) + self.b), self.action_bound)
 
             # Optimizer
             self.dQ_by_da = tf.placeholder(shape=action_shape, dtype=tf.float32)
@@ -36,7 +37,7 @@ class actor:
     def get_action(self, states):
         fc1_ = slim.fully_connected(states, 400, activation_fn=tf.nn.relu, scope=self.scope + '/fc1', reuse=True)
         fc2_ = slim.fully_connected(fc1_, 300, activation_fn=tf.nn.relu, scope=self.scope + '/fc2', reuse=True)
-        return tf.nn.tanh(tf.matmul(fc2_, self.W) + self.b)
+        return tf.multiply(tf.nn.tanh(tf.matmul(fc2_, self.W) + self.b), self.action_bound)
 
 class critic:
     def __init__(self, state_shape=[None, 100], action_shape=[None, 1], scope=None):
@@ -94,13 +95,18 @@ def main():
     args.state_dim = env.observation_space.shape[0]
     args.action_dim = env.action_space.shape[0]
     #assert args.action_dim == 1
-    args.action_bound = env.action_space.high
+    args.action_bound_high = env.action_space.high
+    args.action_bound_low = env.action_space.low
+
+    assert len(args.action_bound_high) == len(args.action_bound_low)
+    for i in range(len(args.action_bound_high)):
+        assert args.action_bound_high[i] == -args.action_bound_low[i]
     print(args)
 
     # Networks
-    actor_source = actor(state_shape=[None, args.state_dim], action_shape=[None, args.action_dim], output_bound=args.action_bound[0], scope='actor_source')
+    actor_source = actor(state_shape=[None, args.state_dim], action_shape=[None, args.action_dim], output_bound_low=args.action_bound_low, output_bound_high=args.action_bound_high, scope='actor_source')
     critic_source = critic(state_shape=[None, args.state_dim], action_shape=[None, args.action_dim], scope='critic_source')
-    actor_target = actor(state_shape=[None, args.state_dim], action_shape=[None, args.action_dim], output_bound=args.action_bound[0], scope='actor_target')
+    actor_target = actor(state_shape=[None, args.state_dim], action_shape=[None, args.action_dim], output_bound_low=args.action_bound_low, output_bound_high=args.action_bound_high, scope='actor_target')
     critic_target = critic(state_shape=[None, args.state_dim], action_shape=[None, args.action_dim], scope='critic_target')
 
     # Update and copy operators
