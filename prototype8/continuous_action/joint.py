@@ -190,6 +190,8 @@ class joint_ddpg():
             feed_dict=merge_two_dicts(feed_dict_joint,
                 feed_dict_reward_model))
 
+def clip(action, high, low):
+    return np.minimum(np.maximum(action, low), high)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -255,6 +257,8 @@ def main():
                 # Choose an action
                 action = jointddpg.get_action(sess, state) + actor_noise()
                 #action = sess.run(jointddpg.actions_B, feed_dict={jointddpg.states:state[np.newaxis, ...]})[0] + actor_noise()
+                if args.environment == 'LunarLanderContinuous-v2':
+                    action = clip(action, args.action_bound_high, args.action_bound_low)
                 # Execute action
                 state1, reward, done, _ = env.step(action)
                 total_rewards += float(reward)

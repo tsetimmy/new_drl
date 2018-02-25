@@ -77,6 +77,9 @@ class critic:
             hidden = tf.nn.relu(tf.matmul(fc1, self.W_s) + tf.matmul(actions, self.W_a) + self.b_hidden)
             return tf.matmul(hidden, self.W) + self.b
 
+def clip(action, high, low):
+    return np.minimum(np.maximum(action, low), high)
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", type=str, default='Pendulum-v0')
@@ -134,6 +137,8 @@ def main():
                 #env.render()
                 # Choose an action
                 action = sess.run(actor_source.action, feed_dict={actor_source.states:state[np.newaxis, ...]})[0] + actor_noise()
+                if args.environment == 'LunarLanderContinuous-v2':
+                    action = clip(action, args.action_bound_high, args.action_bound_low)
                 # Execute action
                 state1, reward, done, _ = env.step(action)
                 total_rewards += float(reward)
