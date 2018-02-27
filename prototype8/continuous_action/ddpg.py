@@ -3,6 +3,8 @@ import numpy as np
 import gym
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
+import tflearn
+
 import argparse
 
 import random
@@ -20,8 +22,15 @@ class actor:
             self.action_bound = tf.constant(output_bound_high, dtype=tf.float32)
             self.states = tf.placeholder(shape=state_shape, dtype=tf.float32)
             batch_size = tf.cast(tf.shape(self.states)[0], tf.float32)
-            fc1 = slim.fully_connected(self.states, 400, activation_fn=tf.nn.relu, scope='fc1')
-            fc2 = slim.fully_connected(fc1, 300, activation_fn=tf.nn.relu, scope='fc2')
+
+            fc1 = slim.fully_connected(self.states, 400, activation_fn=None, scope='fc1')
+            fc1 = tflearn.layers.normalization.batch_normalization(fc1, scope='fc1_bn')
+            fc1 = tf.nn.relu(fc1)
+
+            fc2 = slim.fully_connected(fc1, 300, activation_fn=None, scope='fc2')
+            fc2 = tflearn.layers.normalization.batch_normalization(fc2, scope='fc2_bn')
+            fc2 = tf.nn.relu(fc2)
+
             self.W = tf.Variable(tf.random_uniform([300, action_shape[-1]], -3e-3, 3e-3))
             self.b = tf.Variable(tf.random_uniform([action_shape[-1]], -3e-3, 3e-3))
             self.action = tf.multiply(tf.nn.tanh(tf.matmul(fc2, self.W) + self.b), self.action_bound)
@@ -35,8 +44,14 @@ class actor:
             self.opt = tf.train.AdamOptimizer(1e-4).apply_gradients(zip(self.grads_normalized, self.parameters))
 
     def get_action(self, states):
-        fc1_ = slim.fully_connected(states, 400, activation_fn=tf.nn.relu, scope=self.scope + '/fc1', reuse=True)
-        fc2_ = slim.fully_connected(fc1_, 300, activation_fn=tf.nn.relu, scope=self.scope + '/fc2', reuse=True)
+        fc1_ = slim.fully_connected(states, 400, activation_fn=None, scope=self.scope + '/fc1', reuse=True)
+        fc1_ = tflearn.layers.normalization.batch_normalization(fc1_, scope=self.scope + '/fc1_bn', reuse=True)
+        fc1_ = tf.nn.relu(fc1_)
+
+        fc2_ = slim.fully_connected(fc1_, 300, activation_fn=None, scope=self.scope + '/fc2', reuse=True)
+        fc2_ = tflearn.layers.normalization.batch_normalization(fc2_, scope=self.scope + '/fc2_bn', reuse=True)
+        fc2_ = tf.nn.relu(fc2_)
+
         return tf.multiply(tf.nn.tanh(tf.matmul(fc2_, self.W) + self.b), self.action_bound)
 
 class critic:
@@ -45,7 +60,11 @@ class critic:
             self.scope = scope
             self.states = tf.placeholder(shape=state_shape, dtype=tf.float32)
             self.actions = tf.placeholder(shape=action_shape, dtype=tf.float32)
-            fc1 = slim.fully_connected(self.states, 400, activation_fn=tf.nn.relu, scope='fc1')
+
+            fc1 = slim.fully_connected(self.states, 400, activation_fn=None, scope='fc1')
+            fc1 = tflearn.layers.normalization.batch_normalization(fc1, scope='fc1_bn')
+            fc1 = tf.nn.relu(fc1)
+
 
             xavier_init = tf.contrib.layers.xavier_initializer()
 
@@ -73,7 +92,10 @@ class critic:
             self.grads = tf.gradients(self.Q, self.actions)
 
     def get_Q(self, states, actions):
-            fc1 = slim.fully_connected(states, 400, activation_fn=tf.nn.relu, scope=self.scope + '/fc1', reuse=True)
+            fc1 = slim.fully_connected(states, 400, activation_fn=None, scope=self.scope + '/fc1', reuse=True)
+            fc1 = tflear.layers.normalization.batch_normalization(fc1, scope=self.scope + '/fc1_bn', reuse=True)
+            fc1 = tf.nn.relu(fc1)
+
             hidden = tf.nn.relu(tf.matmul(fc1, self.W_s) + tf.matmul(actions, self.W_a) + self.b_hidden)
             return tf.matmul(hidden, self.W) + self.b
 
