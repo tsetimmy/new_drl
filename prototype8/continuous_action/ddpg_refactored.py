@@ -17,12 +17,19 @@ from utils import OrnsteinUhlenbeckActionNoise
 
 class actorcritic:
     def __init__(self, state_shape=[None, 100], action_shape=[None, 1], output_bound_low=[-1.], output_bound_high=[1.]):
-        self.actor = actor(state_shape, action_shape, output_bound_low, output_bound_high)
-        self.critic = critic(state_shape, action_shape)
+        self.actor_src = actor(state_shape, action_shape, output_bound_low, output_bound_high, 'actor_src')
+        self.critic_src = critic(state_shape, action_shape, 'critic_src')
+        self.actor_tar = actor(state_shape, action_shape, output_bound_low, output_bound_high, 'actor_tar')
+        self.critic_tar = critic(state_shape, action_shape, 'critic_tar')
 
         self.states = tf.placeholder(shape=state_shape, dtype=tf.float32)
         self.actions = tf.placeholder(shape=action_shape, dtype=tf.float32)
         self.next_states = tf.placeholder(shape=state_shape, dtype=tf.float32)
+
+        self.action_out = self.actor_src.build(self.states, None)
+        self.q = self.critic_src.build(self.states, self.actions, None)
+        self.q_tar = self.critic_tar.build(self.next_states, self.actor_tar.build(self.next_states, None), None)
+        exit()
 
 
 
@@ -30,22 +37,22 @@ class actorcritic:
 class actor:
     def __init__(self, state_shape=[None, 100], action_shape=[None, 1], output_bound_low=[-1.], output_bound_high=[1.], scope=None):
         self.scope = scope
-        self.state_shape = shape_shape
+        self.state_shape = state_shape
         self.action_shape = action_shape
         self.output_bound_high = output_bound_high
 
 
-    def build(self. states, actions, reuse):
-        fc1 = slim.fully_connected(states, 400, activation_fn=None, scope='fc1')
-        fc1 = tflearn.layers.normalization.batch_normalization(fc1, scope='fc1_bn')
+    def build(self, states, reuse):
+        fc1 = slim.fully_connected(states, 400, activation_fn=None, scope=self.scope+'/fc1')
+        fc1 = tflearn.layers.normalization.batch_normalization(fc1, scope=self.scope+'/fc1_bn')
         fc1 = tf.nn.relu(fc1)
 
-        fc2 = slim.fully_connected(fc1, 300, activation_fn=None, scope='fc2')
-        fc2 = tflearn.layers.normalization.batch_normalization(fc2, scope='fc2_bn')
+        fc2 = slim.fully_connected(fc1, 300, activation_fn=None, scope=self.scope+'/fc2')
+        fc2 = tflearn.layers.normalization.batch_normalization(fc2, scope=self.scope+'/fc2_bn')
         fc2 = tf.nn.relu(fc2)
 
         action_bound = tf.constant(self.output_bound_high, dtype=tf.float32)
-        action = slim.fully_connected(hidden,
+        action = slim.fully_connected(fc2,
                                       self.action_shape[-1],
                                       activation_fn=tf.nn.tanh,
                                       weights_initializer=tf.initializers.random_uniform(-3e-3, 3e-3),
@@ -60,11 +67,6 @@ class critic:
         self.state_shape = state_shape
         self.action_shape = action_shape
         self.scope = scope
-
-        self.states = tf.placeholder(shape=state_shape, dtype=tf.float32)
-        self.actions = tf.placeholder(shape=action_shape, dtype=tf.float32)
-        Q = self.build(self.states, self.actions, None)
-        exit()
 
     def build(self, states, actions, reuse):
 
@@ -123,10 +125,8 @@ def main():
     print(args)
 
     # Networks
-    actor_source = actor(state_shape=[None, args.state_dim], action_shape=[None, args.action_dim], output_bound_low=args.action_bound_low, output_bound_high=args.action_bound_high, scope='actor_source')
-    critic_source = critic(state_shape=[None, args.state_dim], action_shape=[None, args.action_dim], scope='critic_source')
-    actor_target = actor(state_shape=[None, args.state_dim], action_shape=[None, args.action_dim], output_bound_low=args.action_bound_low, output_bound_high=args.action_bound_high, scope='actor_target')
-    critic_target = critic(state_shape=[None, args.state_dim], action_shape=[None, args.action_dim], scope='critic_target')
+    ac = actorcritic(state_shape=[None, args.state_dim], action_shape=[None, args.action_dim], output_bound_low=args.action_bound_low, output_bound_high=args.action_bound_high)
+    exit()
 
     # Update and copy operators
     update_target_actor = update_target_graph2('actor_source', 'actor_target', args.tau)
