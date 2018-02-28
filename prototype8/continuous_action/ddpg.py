@@ -93,7 +93,7 @@ class critic:
 
     def get_Q(self, states, actions):
             fc1 = slim.fully_connected(states, 400, activation_fn=None, scope=self.scope + '/fc1', reuse=True)
-            fc1 = tflear.layers.normalization.batch_normalization(fc1, scope=self.scope + '/fc1_bn', reuse=True)
+            fc1 = tflearn.layers.normalization.batch_normalization(fc1, scope=self.scope + '/fc1_bn', reuse=True)
             fc1 = tf.nn.relu(fc1)
 
             hidden = tf.nn.relu(tf.matmul(fc1, self.W_s) + tf.matmul(actions, self.W_a) + self.b_hidden)
