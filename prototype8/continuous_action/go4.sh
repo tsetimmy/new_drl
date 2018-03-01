@@ -1,18 +1,33 @@
-python ddpg.py --environment=Pusher-v0 --epochs=3000 |tee ./experiments_data/Pusher_ddpg_6.txt &&
-python joint.py --environment=Pusher-v0 --model=gan --epochs=3000 |tee ./experiments_data/Pusher_gan_6.txt &&
-python joint.py --environment=Pusher-v0 --model=gated --epochs=3000 |tee ./experiments_data/Pusher_gated_6.txt &&
-python ddpg.py --environment=Thrower-v0 --epochs=3000 |tee ./experiments_data/Thrower_ddpg_6.txt &&
-python joint.py --environment=Thrower-v0 --model=gan --epochs=3000 |tee ./experiments_data/Thrower_gan_6.txt &&
-python joint.py --environment=Thrower-v0 --model=gated --epochs=3000 |tee ./experiments_data/Thrower_gated_6.txt &&
-python ddpg.py --environment=Striker-v0 --epochs=3000 |tee ./experiments_data/Striker_ddpg_6.txt &&
-python joint.py --environment=Striker-v0 --model=gan --epochs=3000 |tee ./experiments_data/Striker_gan_6.txt &&
-python joint.py --environment=Striker-v0 --model=gated --epochs=3000 |tee ./experiments_data/Striker_gated_6.txt &&
-python ddpg.py --environment=InvertedPendulum-v1 --epochs=3000 |tee ./experiments_data/InvertedPendulum_ddpg_6.txt &&
-python joint.py --environment=InvertedPendulum-v1 --model=gan --epochs=3000 |tee ./experiments_data/InvertedPendulum_gan_6.txt &&
-python joint.py --environment=InvertedPendulum-v1 --model=gated --epochs=3000 |tee ./experiments_data/InvertedPendulum_gated_6.txt &&
-python ddpg.py --environment=Humanoid-v1 --epochs=3000 |tee ./experiments_data/Humanoid_ddpg_6.txt &&
-python joint.py --environment=Humanoid-v1 --model=gan --epochs=3000 |tee ./experiments_data/Humanoid_gan_6.txt &&
-python joint.py --environment=Humanoid-v1 --model=gated --epochs=3000 |tee ./experiments_data/Humanoid_gated_6.txt &&
-python ddpg.py --environment=HumanoidStandup-v1 --epochs=3000 |tee ./experiments_data/HumanoidStandup_ddpg_6.txt &&
-python joint.py --environment=HumanoidStandup-v1 --model=gan --epochs=3000 |tee ./experiments_data/HumanoidStandup_gan_6.txt &&
-python joint.py --environment=HumanoidStandup-v1 --model=gated --epochs=3000 |tee ./experiments_data/HumanoidStandup_gated_6.txt
+python joint.py --environment=InvertedDoublePendulum-v1 --model=gan --time-steps=10000 |tee ./experiments_data2/InvertedDoublePendulum_gan_3.txt
+python joint.py --environment=HalfCheetah-v1 --model=gan --time-steps=10000 |tee ./experiments_data2/HalfCheetah_gan_3.txt
+python joint.py --environment=Hopper-v1 --model=gan --time-steps=10000 |tee ./experiments_data2/Hopper_gan_3.txt
+python joint.py --environment=Swimmer-v1 --model=gan --time-steps=10000 |tee ./experiments_data2/Swimmer_gan_3.txt
+python joint.py --environment=Walker2d-v1 --model=gan --time-steps=10000 |tee ./experiments_data2/Walker2d_gan_3.txt
+python joint.py --environment=Ant-v1 --model=gan --time-steps=10000 |tee ./experiments_data2/Ant_gan_3.txt
+python joint.py --environment=Humanoid-v1 --model=gan --time-steps=10000 |tee ./experiments_data2/Humanoid_gan_3.txt
+python joint.py --environment=HumanoidStandup-v1 --model=gan --time-steps=10000 |tee ./experiments_data2/HumanoidStandup_gan_3.txt
+python ddpg_refactored.py --environment=Reacher-v1 --time-steps=10000 |tee ./experiments_data2/Reacher_gan_3.txt
+python ddpg_refactored.py --environment=Pusher-v0 --time-steps=10000 |tee ./experiments_data2/Pusher_gan_3.txt
+python ddpg_refactored.py --environment=Thrower-v0 --time-steps=10000 |tee ./experiments_data2/Thrower_gan_3.txt
+python ddpg_refactored.py --environment=Striker-v0 --time-steps=10000 |tee ./experiments_data2/Striker_gan_3.txt
+python ddpg_refactored.py --environment=InvertedPendulum-v1 --time-steps=10000 |tee ./experiments_data2/InvertedPendulum_gan_3.txt
+python ddpg_refactored.py --environment=InvertedDoublePendulum-v1 --time-steps=10000 |tee ./experiments_data2/InvertedDoublePendulum_gan_3.txt
+python ddpg_refactored.py --environment=HalfCheetah-v1 --time-steps=10000 |tee ./experiments_data2/HalfCheetah_gan_3.txt
+python ddpg_refactored.py --environment=Hopper-v1 --time-steps=10000 |tee ./experiments_data2/Hopper_gan_3.txt
+python ddpg_refactored.py --environment=Swimmer-v1 --time-steps=10000 |tee ./experiments_data2/Swimmer_gan_3.txt
+python ddpg_refactored.py --environment=Walker2d-v1 --time-steps=10000 |tee ./experiments_data2/Walker2d_gan_3.txt
+python ddpg_refactored.py --environment=Ant-v1 --time-steps=10000 |tee ./experiments_data2/Ant_gan_3.txt
+python ddpg_refactored.py --environment=Humanoid-v1 --time-steps=10000 |tee ./experiments_data2/Humanoid_gan_3.txt
+python ddpg_refactored.py --environment=HumanoidStandup-v1 --time-steps=10000 |tee ./experiments_data2/HumanoidStandup_gan_3.txt
+python joint.py --environment=Reacher-v1 --model=gated --time-steps=10000 |tee ./experiments_data2/Reacher_gated_4.txt
+python joint.py --environment=Pusher-v0 --model=gated --time-steps=10000 |tee ./experiments_data2/Pusher_gated_4.txt
+python joint.py --environment=Thrower-v0 --model=gated --time-steps=10000 |tee ./experiments_data2/Thrower_gated_4.txt
+python joint.py --environment=Striker-v0 --model=gated --time-steps=10000 |tee ./experiments_data2/Striker_gated_4.txt
+python joint.py --environment=InvertedPendulum-v1 --model=gated --time-steps=10000 |tee ./experiments_data2/InvertedPendulum_gated_4.txt
+python joint.py --environment=InvertedDoublePendulum-v1 --model=gated --time-steps=10000 |tee ./experiments_data2/InvertedDoublePendulum_gated_4.txt
+python joint.py --environment=HalfCheetah-v1 --model=gated --time-steps=10000 |tee ./experiments_data2/HalfCheetah_gated_4.txt
+python joint.py --environment=Hopper-v1 --model=gated --time-steps=10000 |tee ./experiments_data2/Hopper_gated_4.txt
+python joint.py --environment=Swimmer-v1 --model=gated --time-steps=10000 |tee ./experiments_data2/Swimmer_gated_4.txt
+python joint.py --environment=Walker2d-v1 --model=gated --time-steps=10000 |tee ./experiments_data2/Walker2d_gated_4.txt
+python joint.py --environment=Ant-v1 --model=gated --time-steps=10000 |tee ./experiments_data2/Ant_gated_4.txt
+python ddpg_refactored.py --environment=Humanoid-v1 --time-steps=10000 |tee ./experiments_data2/Humanoid_gan_5.txt
