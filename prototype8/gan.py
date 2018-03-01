@@ -116,7 +116,6 @@ class CGAN():
         '''
         return self.D_h2
 
-
     def init_second_stream(self):
         self.states2 = tf.placeholder(shape=self.input_shape, dtype=tf.float32)
         if self.continuous_action == False:

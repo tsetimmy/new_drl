@@ -1,0 +1,2 @@
+hdf5 is not supported on this machine (please install/reinstall h5py for optimal experience)
+Namespace(action_bound=1.0, action_bound_high=array([1.]), action_bound_low=array([-1.]), action_dim=1, batch_size=64, environment='InvertedDoublePendulum-v1', epochs=3000, latent_size=4, learning_rate=0.99, model='gated', replay_mem_size=1000000, state_dim=11, tau=0.001)
