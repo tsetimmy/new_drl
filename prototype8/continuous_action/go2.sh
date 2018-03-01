@@ -1,10 +1,10 @@
-python ddpg_refactored.py --environment=HalfCheetah-v1 --time-steps=10000 |tee ./experiments_data2/HalfCheetah_gan_1.txt
-python ddpg_refactored.py --environment=Hopper-v1 --time-steps=10000 |tee ./experiments_data2/Hopper_gan_1.txt
-python ddpg_refactored.py --environment=Swimmer-v1 --time-steps=10000 |tee ./experiments_data2/Swimmer_gan_1.txt
-python ddpg_refactored.py --environment=Walker2d-v1 --time-steps=10000 |tee ./experiments_data2/Walker2d_gan_1.txt
-python ddpg_refactored.py --environment=Ant-v1 --time-steps=10000 |tee ./experiments_data2/Ant_gan_1.txt
-python ddpg_refactored.py --environment=Humanoid-v1 --time-steps=10000 |tee ./experiments_data2/Humanoid_gan_1.txt
-python ddpg_refactored.py --environment=HumanoidStandup-v1 --time-steps=10000 |tee ./experiments_data2/HumanoidStandup_gan_1.txt
+python ddpg_refactored.py --environment=HalfCheetah-v1 --time-steps=10000 |tee ./experiments_data2/HalfCheetah_ddpg_1.txt
+python ddpg_refactored.py --environment=Hopper-v1 --time-steps=10000 |tee ./experiments_data2/Hopper_ddpg_1.txt
+python ddpg_refactored.py --environment=Swimmer-v1 --time-steps=10000 |tee ./experiments_data2/Swimmer_ddpg_1.txt
+python ddpg_refactored.py --environment=Walker2d-v1 --time-steps=10000 |tee ./experiments_data2/Walker2d_ddpg_1.txt
+python ddpg_refactored.py --environment=Ant-v1 --time-steps=10000 |tee ./experiments_data2/Ant_ddpg_1.txt
+python ddpg_refactored.py --environment=Humanoid-v1 --time-steps=10000 |tee ./experiments_data2/Humanoid_ddpg_1.txt
+python ddpg_refactored.py --environment=HumanoidStandup-v1 --time-steps=10000 |tee ./experiments_data2/HumanoidStandup_ddpg_1.txt
 python joint.py --environment=Reacher-v1 --model=gated --time-steps=10000 |tee ./experiments_data2/Reacher_gated_2.txt
 python joint.py --environment=Pusher-v0 --model=gated --time-steps=10000 |tee ./experiments_data2/Pusher_gated_2.txt
 python joint.py --environment=Thrower-v0 --model=gated --time-steps=10000 |tee ./experiments_data2/Thrower_gated_2.txt
