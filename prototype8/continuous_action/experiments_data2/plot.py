@@ -2,36 +2,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 import sys
 sys.path.append('..')
-from experiments_data.plot import moving_average, get_rewards
+from experiments_data.plot import moving_average, get_rewards, average
 
-def average(fnames, truncated=False):
-    rewards = []
-    for fname in fnames:
-        rewards.append(get_rewards(fname))
-
-    maxlen = len(rewards[0])
-    minlen = len(rewards[0])
-    for i in range(len(rewards)):
-        maxlen = max(maxlen, len(rewards[i]))
-        minlen = min(minlen, len(rewards[i]))
-
-    total = [0.] * maxlen
-    divisor = [0.] * maxlen
-
-    for i in range(len(rewards)):
-        for j in range(len(rewards[i])):
-            total[j] += rewards[i][j]
-            divisor[j] += 1.
-
-    for j in range(len(total)):
-        total[j] /= divisor[j]
-
-    if truncated:
-        total = total[:minlen]
-
-    return total
-
-    
+   
 
 
 Ant = ['Ant_gated_1.txt', 'Ant_gated_2.txt', 'Ant_gated_3.txt', 'Ant_gated_4.txt', 'Ant_gated_5.txt']
