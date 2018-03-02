@@ -8,7 +8,7 @@ from gated_env_modeler import environment_modeler_gated
 
 class joint_ddpg_gated:
     def __init__(self, input_shape, action_size, learning_rate, action_bound_low, action_bound_high):
-        self.lamb = 0.5
+        self.lamb = .01
 
         #Initialize the networks
         self.actor_source = actor(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low, output_bound_high=action_bound_high, scope='actor_source')
@@ -49,7 +49,7 @@ class joint_ddpg_gated:
         mu_joint = self.actor_target.build(m)
         Q_joint = self.critic_target.build(m, mu_joint)
         Q_source_joint = self.critic_source.build(self.states_joint, self.actions_joint)
-        self.jloss = tf.reduce_mean(tf.reduce_sum(f + learning_rate * Q_joint - Q_source_joint, axis=-1))
+        self.jloss = tf.reduce_mean(tf.reduce_sum(tf.square(f + learning_rate * Q_joint - Q_source_joint), axis=-1))
 
         #Critic loss
         mu = self.actor_target.build(self.states_)

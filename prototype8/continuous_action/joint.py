@@ -52,7 +52,7 @@ class joint_ddpg():
         self.mu_target = self.actor_target.build(self.cgan_state.G_sample2)
         self.Q_target_joint = self.critic_target.build(self.cgan_state.G_sample2, self.mu_target)
         self.Q_source_joint = self.critic_source.build(self.cgan_state.states2, self.cgan_state.actions2)
-        self.loss_joint = tf.reduce_mean(tf.squeeze(self.cgan_reward.G_sample2 + tf.square(self.Q_target_joint - self.Q_source_joint), axis=-1))
+        self.loss_joint = tf.reduce_mean(tf.reduce_sum(tf.square(self.cgan_reward.G_sample2 + self.learning_rate * self.Q_target_joint - self.Q_source_joint), axis=-1))
 
         #Define the Q loss
         Q_target = self.critic_target.build(self.states1, self.actor_target.build(self.states1))
@@ -249,7 +249,7 @@ def main():
                 epoch += 1
                 total_rewards = 0.
                 if args.mode == 'transfer':
-                    if time_steps >= args.time_steps / 2:
+                    if time_steps >= args.time_steps / 3:
                         env.seed(0)
                     else:
                         env.seed(1)
@@ -257,7 +257,7 @@ def main():
                     env.seed(1)
                 state = env.reset()
             if args.mode == 'transfer':
-                if time_steps == args.time_steps / 2:
+                if time_steps == args.time_steps / 3:
                     memory = Memory(args.replay_mem_size)
 
 def init_model(input_shape, action_size, latent_size, learning_rate, action_bound_low, action_bound_high, tau, model):

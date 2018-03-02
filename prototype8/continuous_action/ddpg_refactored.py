@@ -232,7 +232,7 @@ def main():
                 epoch += 1
                 total_rewards = 0.
                 if args.mode == 'transfer':
-                    if time_steps >= args.time_steps / 2:
+                    if time_steps >= args.time_steps / 3:
                         env.seed(0)
                     else:
                         env.seed(1)
@@ -241,7 +241,7 @@ def main():
                 state = env.reset()
 
             if args.mode == 'transfer':
-                if time_steps == args.time_steps / 2:
+                if time_steps == args.time_steps / 3:
                     memory = Memory(args.replay_mem_size)
 
 if __name__ == '__main__':
