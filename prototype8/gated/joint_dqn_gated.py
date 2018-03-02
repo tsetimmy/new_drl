@@ -41,8 +41,9 @@ class joint_dqn_gated:
         f = self.rmodel.build_recon_s_(self.states_joint, self.actions_joint_onehot)
         m = self.smodel.build_recon_s_(self.states_joint, self.actions_joint_onehot)
         self.jloss = tf.reduce_mean(tf.reduce_sum(
-            f + learning_rate * tf.reduce_max(self.tnet.build_computational_graph(m), axis=-1, keep_dims=True) -\
-            tf.reduce_sum(tf.multiply(self.actions_joint_onehot, self.qnet.build_computational_graph(self.states_joint)), axis=-1, keep_dims=True),
+            tf.square(
+                f + learning_rate * tf.reduce_max(self.tnet.build_computational_graph(m), axis=-1, keep_dims=True) -\
+                tf.reduce_sum(tf.multiply(self.actions_joint_onehot, self.qnet.build_computational_graph(self.states_joint)), axis=-1, keep_dims=True)),
         axis=-1, keep_dims=False))
 
         #Q loss
