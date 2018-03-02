@@ -173,8 +173,12 @@ def main():
     parser.add_argument("--latent-size", type=int, default=4, help='Size of vector for Z')
 
     parser.add_argument("--model", type=str, default='gan')
+
+
+    parser.add_argument("--mode", type=str, default='none')
     args = parser.parse_args()
 
+    assert args.mode in ['none', 'test', 'transfer']
     assert args.model in ['gan', 'gated']
     # Initialize environment
     env = gym.make(args.environment)
@@ -202,7 +206,8 @@ def main():
         sess.run(copy_target_critic)
         sess.run(copy_target_actor)
 
-        #env.seed(1)
+        if args.mode in ['test', 'transfer']:
+            env.seed(1)
         state = env.reset()
         total_rewards = 0.0
         epoch = 1
@@ -243,18 +248,17 @@ def main():
                 print 'time steps', time_steps, 'epoch', epoch, 'total rewards', total_rewards
                 epoch += 1
                 total_rewards = 0.
-                '''
-                if time_steps >= args.time_steps / 2:
-                    env.seed(0)
-                else:
+                if args.mode == 'transfer':
+                    if time_steps >= args.time_steps / 2:
+                        env.seed(0)
+                    else:
+                        env.seed(1)
+                elif args.mode == 'test':
                     env.seed(1)
-                '''
                 state = env.reset()
-
-            '''
-            if time_steps == args.time_steps / 2:
-                memory = Memory(args.replay_mem_size)
-            '''
+            if args.mode == 'transfer':
+                if time_steps == args.time_steps / 2:
+                    memory = Memory(args.replay_mem_size)
 
 def init_model(input_shape, action_size, latent_size, learning_rate, action_bound_low, action_bound_high, tau, model):
     if model == 'gan':

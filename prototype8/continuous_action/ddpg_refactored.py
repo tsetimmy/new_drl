@@ -158,8 +158,12 @@ def main():
     parser.add_argument("--action-bound", type=float, default=1.)
     parser.add_argument("--replay-mem-size", type=int, default=1000000)
     parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--gamma", type=float, default=.9)
+    parser.add_argument("--learning-rate", type=float, default=.9)
+
+
+    parser.add_argument("--mode", type=str, default='none')
     args = parser.parse_args()
+    assert args.mode in ['none', 'test', 'transfer']
 
     # Initialize environment
     env = gym.make(args.environment)
@@ -179,7 +183,7 @@ def main():
                        action_shape=[None, args.action_dim],
                        output_bound_low=args.action_bound_low,
                        output_bound_high=args.action_bound_high,
-                       learning_rate=args.gamma,
+                       learning_rate=args.learning_rate,
                        tau=args.tau)
 
     # Replay memory
@@ -192,7 +196,8 @@ def main():
         sess.run(tf.global_variables_initializer())
         ddpg.copy_target(sess)
 
-        #env.seed(1)
+        if args.mode in ['test', 'transfer']:
+            env.seed(1)
         state = env.reset()
         total_rewards = 0.0
         epoch = 1
@@ -226,18 +231,18 @@ def main():
                 print 'time steps', time_steps, 'epoch', epoch, 'total rewards', total_rewards
                 epoch += 1
                 total_rewards = 0.
-                '''
-                if time_steps >= args.time_steps / 2:
-                    env.seed(0)
-                else:
+                if args.mode == 'transfer':
+                    if time_steps >= args.time_steps / 2:
+                        env.seed(0)
+                    else:
+                        env.seed(1)
+                elif args.mode == 'test':
                     env.seed(1)
-                '''
                 state = env.reset()
 
-            '''
-            if time_steps == args.time_steps / 2:
-                memory = Memory(args.replay_mem_size)
-            '''
+            if args.mode == 'transfer':
+                if time_steps == args.time_steps / 2:
+                    memory = Memory(args.replay_mem_size)
 
 if __name__ == '__main__':
     main()
