@@ -160,7 +160,6 @@ def main():
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--learning-rate", type=float, default=.9)
 
-
     parser.add_argument("--mode", type=str, default='none')
     args = parser.parse_args()
     assert args.mode in ['none', 'test', 'transfer']
