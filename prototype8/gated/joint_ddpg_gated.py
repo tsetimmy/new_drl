@@ -3,20 +3,18 @@ import tensorflow as tf
 
 import sys
 sys.path.append('../')
-from continuous_action.ddpg_refactored import actor, critic
+from continuous_action.ddpg import actor, critic
 from gated_env_modeler import environment_modeler_gated
 
 class joint_ddpg_gated:
     def __init__(self, input_shape, action_size, learning_rate, action_bound_low, action_bound_high):
-        self.lamb = .01
+        self.lamb = .05
+        self.learning_rate = learning_rate
 
         #Initialize the networks
         self.actor_source = actor(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low, output_bound_high=action_bound_high, scope='actor_source')
-
         self.critic_source = critic(state_shape=input_shape, action_shape=[None, action_size], scope='critic_source')
-
         self.actor_target = actor(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low, output_bound_high=action_bound_high, scope='actor_target')
-
         self.critic_target = critic(state_shape=input_shape, action_shape=[None, action_size], scope='critic_target')
 
         var_len = 0
@@ -40,22 +38,19 @@ class joint_ddpg_gated:
         self.states_joint = tf.placeholder(shape=input_shape, dtype=tf.float32)
         self.actions_joint = tf.placeholder(shape=[None, action_size], dtype=tf.float32)
 
-        self.batch_size = tf.cast(tf.shape(self.states)[0], tf.float32)
-        self.batch_size_joint = tf.cast(tf.shape(self.states_joint)[0], tf.float32)
-
         #Define the joint loss
         f = self.rmodel.build_recon_s_(self.states_joint, self.actions_joint)
         m = self.smodel.build_recon_s_(self.states_joint, self.actions_joint)
         mu_joint = self.actor_target.build(m)
         Q_joint = self.critic_target.build(m, mu_joint)
         Q_source_joint = self.critic_source.build(self.states_joint, self.actions_joint)
-        self.jloss = tf.reduce_mean(tf.reduce_sum(tf.square(f + learning_rate * Q_joint - Q_source_joint), axis=-1))
+        self.jloss = tf.reduce_mean(tf.reduce_sum(tf.square(f + self.learning_rate * Q_joint - Q_source_joint), axis=-1))
 
         #Critic loss
         mu = self.actor_target.build(self.states_)
         Q_ = tf.reduce_sum(self.critic_target.build(self.states_, mu), axis=-1)
         Q_source = self.critic_source.build(self.states, self.actions)
-        self.closs = tf.reduce_mean(tf.square(self.rewards + (1. - self.dones) * learning_rate * Q_ - tf.reduce_sum(Q_source, axis=-1)))
+        self.closs = tf.reduce_mean(tf.square(self.rewards + (1. - self.dones) * self.learning_rate * Q_ - tf.reduce_sum(Q_source, axis=-1)))
 
         #smodel loss
         srecon_s, srecon_s_, srecon_a =  self.smodel.build_computational_graph(self.states, self.states_, self.actions)
@@ -125,6 +120,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
 

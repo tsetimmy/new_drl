@@ -5,12 +5,12 @@ import gym
 
 import argparse
 
-from dyna_gan import qnetwork
-from gan import CGAN
 
 import sys
+sys.path.append('..')
+from dyna_gan import qnetwork
+from gan import CGAN
 sys.path.append('../..')
-#sys.path.append('./gated')
 from utils import sample_z
 from utils import update_target_graph
 from utils import Memory

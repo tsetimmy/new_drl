@@ -5,12 +5,12 @@ import tensorflow.contrib.slim as slim
 
 import argparse
 
-from gan import CGAN
-
-from qnetwork import qnetwork
 
 import sys
-sys.path.append('../')
+sys.path.append('..')
+from gan import CGAN
+from qnetwork import qnetwork
+sys.path.append('../..')
 from utils import env_interface
 from utils import update_target_graph
 from utils import Memory

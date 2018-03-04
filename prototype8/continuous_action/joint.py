@@ -12,7 +12,7 @@ from utils import update_target_graph2
 from utils import sample_z
 
 from exploration import OUStrategy, OUStrategy2
-from ddpg_refactored import actor, critic
+from ddpg import actor, critic
 import argparse
 
 def merge_two_dicts(x, y):
@@ -45,7 +45,6 @@ class joint_ddpg():
         self.rewards = tf.placeholder(shape=[None], dtype=tf.float32)
         self.states1 = tf.placeholder(shape=input_shape, dtype=tf.float32)
         self.dones = tf.placeholder(shape=[None], dtype=tf.float32)
-        self.batch_size = tf.cast(tf.shape(self.states)[0], tf.float32)
 
         # -- Loss functions --
         #Define the joint loss

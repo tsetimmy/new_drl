@@ -4,6 +4,7 @@ import tensorflow.contrib.slim as slim
 
 import sys
 sys.path.append('../')
+sys.path.append('../..')
 from utils import log
 from utils import lrelu
 from utils import sample_z
@@ -91,6 +92,11 @@ class CGAN():
         # Optimizers
         self.D_solver = tf.train.AdamOptimizer().minimize(self.D_loss, var_list=self.theta_D)
         self.G_solver = tf.train.AdamOptimizer().minimize(self.G_loss, var_list=self.theta_G)
+
+    def generate(self, states, actions, Z):
+        prior = tf.concat([states, actions], axis=1)
+        G_sample = self.generate(Z, prior)
+        return G_sample
 
     def generator(self, z, prior):
         inputs = tf.concat([z, prior], axis=1)
