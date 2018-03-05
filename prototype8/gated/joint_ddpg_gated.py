@@ -8,7 +8,7 @@ from gated_env_modeler import environment_modeler_gated
 
 class joint_ddpg_gated:
     def __init__(self, input_shape, action_size, learning_rate, action_bound_low, action_bound_high):
-        self.lamb = .05
+        self.lamb = .1
         self.learning_rate = learning_rate
 
         #Initialize the networks
