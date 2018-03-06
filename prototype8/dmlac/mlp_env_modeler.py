@@ -95,7 +95,7 @@ class dmlac:
 
         #State model squared loss
         self.state_predict = self.smodel.build(self.states, self.actions)
-        self.smodel_loss, self.smodel_vars = self.smodel.get_losses(self.states, self.state_predict, self.actions)
+        self.smodel_loss, self.smodel_vars = self.smodel.get_losses(self.states, self.next_states, self.actions)
         self.smodel_opt = tf.train.AdamOptimizer().minimize(self.smodel_loss, var_list=self.smodel_vars)
 
         # Update and copy operators
