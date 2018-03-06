@@ -5,7 +5,7 @@ import tensorflow.contrib.slim as slim
 import sys
 sys.path.append('..')
 from qnetwork import qnetwork2
-from gated_env_modeler import environment_modeler_gated
+from gated_env_modeler import gated_env_modeler
 
 class gated_regularized_qnetwork_visual_input:
     def __init__(self, s_shape, a_size, learning_rate=.95):
@@ -30,7 +30,7 @@ class gated_regularized_qnetwork_visual_input:
         states_conv__vars, varlen = self.get_vars(varlen)#get vars
 
         #Get the reconstructions
-        self.modeler = environment_modeler_gated(states_conv.shape.as_list(), a_size, states_conv_.shape.as_list(), 'discrete', 256)
+        self.modeler = gated_env_modeler(states_conv.shape.as_list(), a_size, states_conv_.shape.as_list(), 'discrete', 256)
         modeler_vars, varlen = self.get_vars(varlen)#get vars
         recon_s_tmp, recon_s__tmp, recon_a = self.modeler.build_computational_graph(states_conv, states_conv_, self.actions_onehot)
         recon_s = tf.nn.relu(recon_s_tmp)
@@ -195,7 +195,7 @@ class gated_regularized_qnetwork:
         self.qnet_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
         self.tnet = qnetwork2(s_shape, a_size)
         self.tnet_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)[len(self.qnet_vars):]
-        self.modeler = environment_modeler_gated(s_shape, a_size, s_shape, 'discrete', numfactors)
+        self.modeler = gated_env_modeler(s_shape, a_size, s_shape, 'discrete', numfactors)
         self.modeler_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)[len(self.qnet_vars)+len(self.tnet_vars):]
 
         #Declare the placeholders

@@ -34,11 +34,17 @@ class mlp_env_modeler:
             outputs = tf.nn.relu(outputs)
         return outputs
 
+    def get_losses(self, states, targets, actions):
+        predictions = self.build(states, actions)
+        return tf.reduce_mean(tf.reduce_sum(tf.square(predictions - targets), axis=-1)),\
+               tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope)
+
 class dmlac:
     def __init__(self, state_shape=[None, 2], action_shape=[None, 1], output_bound_low=[-1.],
-                 output_bound_high=[1.], learning_rate=.9, tau=.01, forward_steps=1, trace_decay=.9):
+                 output_bound_high=[1.], learning_rate=.9, tau=.01, forward_steps=1, trace_decay=.9, model='dmlac_mlp'):
         assert (-np.array(output_bound_low) == np.array(output_bound_high)).all()
         assert forward_steps >= 1
+        assert model in ['dmlac_mlp', 'dmlac_gated', 'dmlac_gan']
         self.state_shape = state_shape
         self.action_shape = action_shape
         self.output_bound_high = output_bound_high
@@ -46,6 +52,7 @@ class dmlac:
         self.tau = tau
         self.forward_steps = forward_steps
         self.trace_decay = trace_decay
+        self.model = model
 
         #Placeholders (for tuples [s, a, r, s', d])
         self.states = tf.placeholder(shape=state_shape, dtype=tf.float32)
@@ -55,8 +62,7 @@ class dmlac:
         self.dones = tf.placeholder(shape=[None], dtype=tf.float32)
 
         #state and reward models
-        self.smodel = mlp_env_modeler(self.state_shape[-1], True)
-        self.rmodel = mlp_env_modeler(1, True)
+        self.smodel, self.rmodel = self.declare_models()
 
         #Actor and critic (value) networks
         self.actor_src = actor(state_shape, action_shape, output_bound_low, output_bound_high, 'actor_source')
@@ -73,7 +79,6 @@ class dmlac:
         self.reward_predict_mu = self.rmodel.build(self.states, self.mu)
         self.state_predict_mu = self.smodel.build(self.states, self.mu)
         self.value = self.reward_predict_mu + self.learning_rate * self.critic_src.build(self.state_predict_mu)
-        #self.value = self.critic_src.build(self.state_predict_mu)
         self.actor_loss = -tf.reduce_mean(tf.reduce_sum(self.value, axis=-1))
         self.actor_opt = tf.train.AdamOptimizer(1e-4).minimize(self.actor_loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'actor_source'))
 
@@ -85,13 +90,13 @@ class dmlac:
 
         #Reward model squared loss
         self.reward_predict = self.rmodel.build(self.states, self.actions)
-        self.rmodel_loss = tf.reduce_mean(tf.square(tf.reduce_sum(self.reward_predict, axis=-1) - self.rewards))
-        self.rmodel_opt = tf.train.AdamOptimizer().minimize(self.rmodel_loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.rmodel.scope))
+        self.rmodel_loss, self.rmodel_vars = self.rmodel.get_losses(self.states, self.rewards, self.actions)
+        self.rmodel_opt = tf.train.AdamOptimizer().minimize(self.rmodel_loss, var_list=self.rmodel_vars)
 
         #State model squared loss
         self.state_predict = self.smodel.build(self.states, self.actions)
-        self.smodel_loss = tf.reduce_mean(tf.reduce_sum(tf.square(self.state_predict - self.next_states), axis=-1))
-        self.smodel_opt = tf.train.AdamOptimizer().minimize(self.smodel_loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.smodel.scope))
+        self.smodel_loss, self.smodel_vars = self.smodel.get_losses(self.states, self.state_predict, self.actions)
+        self.smodel_opt = tf.train.AdamOptimizer().minimize(self.smodel_loss, var_list=self.smodel_vars)
 
         # Update and copy operators
         self.update_target_actor = update_target_graph2('actor_source', 'actor_target', tau)
@@ -137,6 +142,20 @@ class dmlac:
 
     def action(self, sess, state):
         return sess.run(self.mu, feed_dict={self.states:state})[0]
+
+    def declare_models(self):
+        if self.model == 'dmlac_mlp':
+            smodel = mlp_env_modeler(self.state_shape[-1], True)
+            rmodel = mlp_env_modeler(1, True)
+        elif self.model == 'dmlac_gated':
+            from gated.gated_env_modeler import gated_env_modeler
+            smodel = gated_env_modeler(s_shape=self.state_shape, a_size=self.action_shape[-1],
+                                       out_shape=self.state_shape, a_type='continuous', numfactors=128)
+            rmodel = gated_env_modeler(s_shape=self.state_shape, a_size=self.action_shape[-1],
+                                       out_shape=[None, 1], a_type='continuous', numfactors=128)
+        elif self.model == 'dmlac_gan':
+            pass
+        return smodel, rmodel
 
 class critic_value:
     def __init__(self, input_shape=[None, 3], batch_norm=True, scope=None):

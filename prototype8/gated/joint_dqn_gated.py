@@ -4,7 +4,7 @@ import tensorflow as tf
 import sys
 sys.path.append('../')
 from qnetwork import qnetwork2
-from gated_env_modeler import environment_modeler_gated
+from gated_env_modeler import gated_env_modeler
 
 
 class joint_dqn_gated:
@@ -18,11 +18,11 @@ class joint_dqn_gated:
         self.tnet_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)[len(self.qnet_vars):]
 
         #State modeler
-        self.smodel = environment_modeler_gated(s_shape=input_shape, a_size=action_size, out_shape=input_shape, a_type='discrete', numfactors=256)
+        self.smodel = gated_env_modeler(s_shape=input_shape, a_size=action_size, out_shape=input_shape, a_type='discrete', numfactors=256)
         self.smodel_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)[len(self.qnet_vars)+len(self.tnet_vars):]
 
         #Reward modeler
-        self.rmodel = environment_modeler_gated(s_shape=input_shape, a_size=action_size, out_shape=[None, 1], a_type='discrete', numfactors=256)
+        self.rmodel = gated_env_modeler(s_shape=input_shape, a_size=action_size, out_shape=[None, 1], a_type='discrete', numfactors=256)
         self.rmodel_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)[len(self.qnet_vars)+len(self.tnet_vars)+len(self.smodel_vars):]
 
         #Placeholders

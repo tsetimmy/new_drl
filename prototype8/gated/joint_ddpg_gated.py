@@ -4,7 +4,7 @@ import tensorflow as tf
 import sys
 sys.path.append('../')
 from continuous_action.ddpg import actor, critic
-from gated_env_modeler import environment_modeler_gated
+from gated_env_modeler import gated_env_modeler
 
 class joint_ddpg_gated:
     def __init__(self, input_shape, action_size, learning_rate, action_bound_low, action_bound_high):
@@ -19,12 +19,12 @@ class joint_ddpg_gated:
 
         var_len = 0
         #State modeler
-        self.smodel = environment_modeler_gated(s_shape=input_shape, a_size=action_size, out_shape=input_shape, a_type='continuous', numfactors=128)
+        self.smodel = gated_env_modeler(s_shape=input_shape, a_size=action_size, out_shape=input_shape, a_type='continuous', numfactors=128)
         self.smodel_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
         var_len += len(self.smodel_vars)
 
         #Reward modeler
-        self.rmodel = environment_modeler_gated(s_shape=input_shape, a_size=action_size, out_shape=[None, 1], a_type='continuous', numfactors=128)
+        self.rmodel = gated_env_modeler(s_shape=input_shape, a_size=action_size, out_shape=[None, 1], a_type='continuous', numfactors=128)
         self.rmodel_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)[var_len:]
         var_len += len(self.rmodel_vars)
 

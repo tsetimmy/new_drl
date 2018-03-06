@@ -1,9 +1,9 @@
 import tensorflow as tf
 import numpy as np
 
-class environment_modeler_gated:
+class gated_env_modeler:
     def __init__(self, s_shape, a_size, out_shape, a_type, numfactors):
-
+        var_len = len(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))
         #Declare the input placeholders
         assert a_type in ['discrete', 'continuous']
         self.states = tf.placeholder(shape=s_shape, dtype=tf.float32)
@@ -26,6 +26,9 @@ class environment_modeler_gated:
         assert len(self.s_shape) == 2
         assert len(self.out_shape) == 2
         assert len(self.a_shape) == 2
+
+        #List to keep track of all the variables in this class
+        self.var_list = []
 
         #Declare the variables
         self.declare_variables()
@@ -52,6 +55,10 @@ class environment_modeler_gated:
         #Optimizers
         self.update_model = tf.train.AdamOptimizer(learning_rate=.001).minimize(self.loss)
 
+        #List of variables in this class
+        self.var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)[var_len:]
+        assert self.var_list
+
     def declare_variables(self):
         #Declare initializer
         self.xavier_init = tf.contrib.layers.xavier_initializer()
@@ -77,6 +84,9 @@ class environment_modeler_gated:
         recon_s_ = tf.matmul(tf.multiply(fs, fa), tf.transpose(self.wfs_)) + self.bfs_
 
         return recon_s_
+
+    def build(self, states, actions):#Just another name for 'build_recon_s_()' function
+        return self.build_recon_s_(states, actions)
 
     def build_computational_graph(self, states, states_, actions):
         #Compute the factors for the inputs (states and actions)
@@ -108,11 +118,9 @@ class environment_modeler_gated:
 
         return loss_s, loss_s_, loss_a
 
-
-
-
-
-
+    def get_losses(self, states, states_, actions):
+        recon_s, recon_s_, recon_a = self.build_computational_graph(states, states_, actions)
+        return sum(self.get_recon_losses(recon_s, recon_s_, recon_a, states, states_, actions)), self.var_list
 
 def random_action(a_size, a_type):
     if a_type == 'discrete':
@@ -141,8 +149,8 @@ def main():
             a_type = 'continuous'
         except:
             raise ValueError('Cannot find action size.')
-    emg = environment_modeler_gated(s_shape=[None, env.observation_space.shape[0]], a_size=a_size, out_shape=[None, env.observation_space.shape[0]], a_type=a_type, numfactors=256)
-    #emg = environment_modeler_gated(s_shape=[None, env.observation_space.shape[0]], a_size=a_size, out_shape=[None, 1], a_type=a_type, numfactors=256)
+    emg = gated_env_modeler(s_shape=[None, env.observation_space.shape[0]], a_size=a_size, out_shape=[None, env.observation_space.shape[0]], a_type=a_type, numfactors=256)
+    #emg = gated_env_modeler(s_shape=[None, env.observation_space.shape[0]], a_size=a_size, out_shape=[None, 1], a_type=a_type, numfactors=256)
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
