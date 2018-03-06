@@ -90,7 +90,7 @@ class dmlac:
 
         #Reward model squared loss
         self.reward_predict = self.rmodel.build(self.states, self.actions)
-        self.rmodel_loss, self.rmodel_vars = self.rmodel.get_losses(self.states, self.rewards, self.actions)
+        self.rmodel_loss, self.rmodel_vars = self.rmodel.get_losses(self.states, tf.expand_dims(self.rewards, axis=-1), self.actions)
         self.rmodel_opt = tf.train.AdamOptimizer().minimize(self.rmodel_loss, var_list=self.rmodel_vars)
 
         #State model squared loss
