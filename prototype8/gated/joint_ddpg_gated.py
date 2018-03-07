@@ -4,12 +4,19 @@ import tensorflow as tf
 import sys
 sys.path.append('../')
 from continuous_action.ddpg import actor, critic
-from gated_env_modeler import gated_env_modeler
 
 class joint_ddpg_gated:
-    def __init__(self, input_shape, action_size, learning_rate, action_bound_low, action_bound_high):
-        self.lamb = .1
+    def __init__(self, input_shape, action_size, learning_rate, action_bound_low, action_bound_high, model='mlp'):
+        assert model in ['mlp', 'gated']
+        self.input_shape = input_shape
+        self.action_size = action_size
         self.learning_rate = learning_rate
+        self.action_bound_low = action_bound_low
+        self.action_bound_high = action_bound_high
+        self.model = model
+
+        self.lamb = .1
+        self.model = model
 
         #Initialize the networks
         self.actor_source = actor(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low, output_bound_high=action_bound_high, scope='actor_source')
@@ -17,16 +24,8 @@ class joint_ddpg_gated:
         self.actor_target = actor(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low, output_bound_high=action_bound_high, scope='actor_target')
         self.critic_target = critic(state_shape=input_shape, action_shape=[None, action_size], scope='critic_target')
 
-        var_len = 0
-        #State modeler
-        self.smodel = gated_env_modeler(s_shape=input_shape, a_size=action_size, out_shape=input_shape, a_type='continuous', numfactors=128)
-        self.smodel_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
-        var_len += len(self.smodel_vars)
-
-        #Reward modeler
-        self.rmodel = gated_env_modeler(s_shape=input_shape, a_size=action_size, out_shape=[None, 1], a_type='continuous', numfactors=128)
-        self.rmodel_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)[var_len:]
-        var_len += len(self.rmodel_vars)
+        #Initialize the state and reward models
+        self.smodel, self.rmodel = self.init_models()
 
         #Placeholders
         self.states = tf.placeholder(shape=input_shape, dtype=tf.float32)
@@ -39,8 +38,8 @@ class joint_ddpg_gated:
         self.actions_joint = tf.placeholder(shape=[None, action_size], dtype=tf.float32)
 
         #Define the joint loss
-        f = self.rmodel.build_recon_s_(self.states_joint, self.actions_joint)
-        m = self.smodel.build_recon_s_(self.states_joint, self.actions_joint)
+        m = self.smodel.build(self.states_joint, self.actions_joint)
+        f = self.rmodel.build(self.states_joint, self.actions_joint)
         mu_joint = self.actor_target.build(m)
         Q_joint = self.critic_target.build(m, mu_joint)
         Q_source_joint = self.critic_source.build(self.states_joint, self.actions_joint)
@@ -53,21 +52,27 @@ class joint_ddpg_gated:
         self.closs = tf.reduce_mean(tf.square(self.rewards + (1. - self.dones) * self.learning_rate * Q_ - tf.reduce_sum(Q_source, axis=-1)))
 
         #smodel loss
+        '''
         srecon_s, srecon_s_, srecon_a =  self.smodel.build_computational_graph(self.states, self.states_, self.actions)
         self.sloss = sum(self.smodel.get_recon_losses(srecon_s, srecon_s_, srecon_a, self.states, self.states_, self.actions))
+        '''
+        self.smodel_loss, self.smodel_vars = self.smodel.get_losses(self.states, self.states_, self.actions)
 
         #rmodel loss
+        '''
         rrecon_s, rrecon_s_, rrecon_a = self.rmodel.build_computational_graph(self.states, self.rewards, self.actions)
         self.rloss = sum(self.rmodel.get_recon_losses(rrecon_s, rrecon_s_, rrecon_a, self.states, self.rewards, self.actions))
+        '''
+        self.rmodel_loss, self.rmodel_vars = self.rmodel.get_losses(self.states, tf.expand_dims(self.rewards, axis=-1), self.actions)
 
         #Critic optimizer
         self.copt = tf.train.AdamOptimizer().minimize(self.closs + self.lamb * self.jloss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='critic_source'))
 
         #smodel optimizer
-        self.sopt = tf.train.AdamOptimizer().minimize(self.sloss + self.lamb * self.jloss, var_list=self.smodel_vars)
+        self.sopt = tf.train.AdamOptimizer().minimize(self.smodel_loss + self.lamb * self.jloss, var_list=self.smodel_vars)
 
         #rmodel optimizer
-        self.ropt = tf.train.AdamOptimizer().minimize(self.rloss + self.lamb * self.jloss, var_list=self.rmodel_vars)
+        self.ropt = tf.train.AdamOptimizer().minimize(self.rmodel_loss + self.lamb * self.jloss, var_list=self.rmodel_vars)
 
         #Actor optimizer
         self.make_actions = self.actor_source.build(self.states)
@@ -80,6 +85,21 @@ class joint_ddpg_gated:
         assert len(params) == len(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))
         assert params == tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
     
+
+    def init_models(self):
+        print 'inside init_models'
+        if self.model == 'mlp':
+            from dmlac.mlp_env_modeler import mlp_env_modeler
+            smodel = mlp_env_modeler(self.input_shape[-1], True)
+            rmodel = mlp_env_modeler(1, True)
+        elif self.model == 'gated':
+            from gated_env_modeler import gated_env_modeler
+            smodel = gated_env_modeler(s_shape=self.input_shape, a_size=self.action_size,
+                                       out_shape=self.input_shape, a_type='continuous', numfactors=128)
+            rmodel = gated_env_modeler(s_shape=self.input_shape, a_size=self.action_size,
+                                       out_shape=[None, 1], a_type='continuous', numfactors=128)
+        return smodel, rmodel
+
     def action(self, sess, state):
         return sess.run(self.make_actions, feed_dict={self.states:state})[0]
 

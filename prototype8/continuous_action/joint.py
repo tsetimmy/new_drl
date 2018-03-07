@@ -20,7 +20,7 @@ def merge_two_dicts(x, y):
     z.update(y)    # modifies z with y's keys and values & returns None
     return z
 
-class joint_ddpg():
+class joint_ddpg:
     def __init__(self, input_shape, action_size, latent_size, learning_rate, action_bound_low, action_bound_high):
         #Parameters
         self.lamb = .5
@@ -178,7 +178,7 @@ def main():
     args = parser.parse_args()
 
     assert args.mode in ['none', 'test', 'transfer']
-    assert args.model in ['gan', 'gated', 'dmlac_mlp', 'dmlac_gan', 'dmlac_gated']
+    assert args.model in ['mlp', 'gan', 'gated', 'dmlac_mlp', 'dmlac_gan', 'dmlac_gated']
     # Initialize environment
     env = gym.make(args.environment)
     args.state_dim = env.observation_space.shape[0]
@@ -262,9 +262,9 @@ def main():
 def init_model(input_shape, action_size, latent_size, learning_rate, action_bound_low, action_bound_high, tau, model):
     if model == 'gan':
         jointddpg = joint_ddpg(input_shape, action_size, latent_size, learning_rate, action_bound_low, action_bound_high)
-    elif model == 'gated':
+    elif model in ['mlp', 'gated']:
         from gated.joint_ddpg_gated import joint_ddpg_gated
-        jointddpg = joint_ddpg_gated(input_shape, action_size, learning_rate, action_bound_low, action_bound_high)
+        jointddpg = joint_ddpg_gated(input_shape, action_size, learning_rate, action_bound_low, action_bound_high, model)
     elif 'dmlac' in model:
         from dmlac.mlp_env_modeler import dmlac
         jointddpg = dmlac(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low,

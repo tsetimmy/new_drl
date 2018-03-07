@@ -136,7 +136,7 @@ def main():
     from utils import Memory
 
     #env = gym.make('LunarLander-v2')
-    env = gym.make('MountainCar-v0')
+    env = gym.make('Pendulum-v0')
     #env = gym.make('CartPole-v0')
     mem = Memory(1000000)
     batch_size = 32
@@ -159,7 +159,7 @@ def main():
 
             done = False
             while done == False:
-                env.render()
+                #env.render()
                 #a = np.random.randint(a_size)
                 a = random_action(a_size, a_type)
                 s_, r, done, _ = env.step(a)

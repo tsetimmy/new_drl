@@ -62,7 +62,7 @@ class dmlac:
         self.dones = tf.placeholder(shape=[None], dtype=tf.float32)
 
         #state and reward models
-        self.smodel, self.rmodel = self.declare_models()
+        self.smodel, self.rmodel = self.init_models()
 
         #Actor and critic (value) networks
         self.actor_src = actor(state_shape, action_shape, output_bound_low, output_bound_high, 'actor_source')
@@ -143,7 +143,7 @@ class dmlac:
     def action(self, sess, state):
         return sess.run(self.mu, feed_dict={self.states:state})[0]
 
-    def declare_models(self):
+    def init_models(self):
         if self.model == 'dmlac_mlp':
             smodel = mlp_env_modeler(self.state_shape[-1], True)
             rmodel = mlp_env_modeler(1, True)
