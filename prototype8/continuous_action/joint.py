@@ -178,7 +178,7 @@ def main():
     args = parser.parse_args()
 
     assert args.mode in ['none', 'test', 'transfer']
-    assert args.model in ['mlp', 'gan', 'gated', 'dmlac_mlp', 'dmlac_gan', 'dmlac_gated']
+    assert args.model in ['mlp', 'gan', 'gated', 'dmlac_mlp', 'dmlac_gan', 'dmlac_gated', 'ddpg_unrolled_pg_mlp']
     # Initialize environment
     env = gym.make(args.environment)
     args.state_dim = env.observation_space.shape[0]
@@ -269,6 +269,10 @@ def init_model(input_shape, action_size, latent_size, learning_rate, action_boun
         from dmlac.mlp_env_modeler import dmlac
         jointddpg = dmlac(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low,
                           output_bound_high=action_bound_high, learning_rate=learning_rate, tau=tau, model=model)
+    elif model == 'ddpg_unrolled_pg_mlp':
+        from dmlac.ddpg_unrolled_policy_gradients import ddpg_unrolled_policy_gradients
+        jointddpg = ddpg_unrolled_policy_gradients(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low,
+                                                   output_bound_high=action_bound_high, learning_rate=learning_rate, tau=tau)
     # Update and copy operators
     update_target_actor = update_target_graph2('actor_source', 'actor_target', tau)
     update_target_critic = update_target_graph2('critic_source', 'critic_target', tau)

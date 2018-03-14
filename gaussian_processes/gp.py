@@ -26,16 +26,8 @@ s = 0.00005    # noise variance.
 X = np.random.uniform(-5, 5, size=(N,1))
 y = f(X) + s*np.random.randn(N)
 
-print X.shape
-print y.shape
-
-
-
 K = kernel(X, X)
-print K.shape
 L = np.linalg.cholesky(K + s*np.eye(N))
-print s*np.eye(N)
-exit()
 
 # points we're going to make predictions at.
 Xtest = np.linspace(-5, 5, n).reshape(-1,1)
@@ -46,6 +38,7 @@ mu = np.dot(Lk.T, np.linalg.solve(L, y))
 
 # compute the variance at our test points.
 K_ = kernel(Xtest, Xtest)
+print np.diag(K_).shape
 s2 = np.diag(K_) - np.sum(Lk**2, axis=0)
 s = np.sqrt(s2)
 

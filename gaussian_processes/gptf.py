@@ -7,14 +7,25 @@ class gaussian_process:
 
         #Placeholders
         self.x = tf.placeholder(shape=self.xshape, dtype=tf.float64)
-        #self.batch_size = tf.cast(tf.shape(self.x)[0], tf.float64)
 
         #Kernel
         self.kernel = self.squared_exponential_kernel(self.x, self.x)
 
         #Cholesky decomposition
         self.noise_variance = 5e-5#to be optimized
-        self.L = tf.cholesky(self.kernel + tf.diag(self.noise_variance * tf.ones_like(self.x)))
+        self.L = tf.cholesky(self.kernel + tf.diag(self.noise_variance * tf.ones_like(tf.reduce_sum(self.x, axis=-1))))
+
+        #Placeholders for test points
+        self.xtest = tf.placeholder(shape=self.xshape, dtype=tf.float64)
+        self.y = tf.placeholder(shape=[None, 1], dtype=tf.float64)
+
+        #Compute at the mean at test points
+        self.Lk = tf.linalg.solve(self.L, self.squared_exponential_kernel(self.x, self.xtest))
+        self.mu = tf.matmul(tf.transpose(self.Lk), tf.linalg.solve(self.L, self.y))
+
+        #Compute the variance at the test points
+
+
 
     def squared_exponential_kernel(self, a, b):
         self.kernel_param = .1#to be optimized
