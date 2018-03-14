@@ -270,8 +270,8 @@ def init_model(input_shape, action_size, latent_size, learning_rate, action_boun
         jointddpg = dmlac(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low,
                           output_bound_high=action_bound_high, learning_rate=learning_rate, tau=tau, model=model)
     elif model == 'ddpg_unrolled_pg_mlp':
-        from dmlac.ddpg_unrolled_policy_gradients import ddpg_unrolled_policy_gradients
-        jointddpg = ddpg_unrolled_policy_gradients(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low,
+        from dmlac.ddpg_unrolled_policy_gradients import ddpg_unrolled_policy_gradients2
+        jointddpg = ddpg_unrolled_policy_gradients2(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low,
                                                    output_bound_high=action_bound_high, learning_rate=learning_rate, tau=tau)
     # Update and copy operators
     update_target_actor = update_target_graph2('actor_source', 'actor_target', tau)
