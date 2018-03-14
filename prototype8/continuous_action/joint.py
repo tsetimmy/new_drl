@@ -266,7 +266,7 @@ def init_model(input_shape, action_size, latent_size, learning_rate, action_boun
         from gated.joint_ddpg_gated import joint_ddpg_gated
         jointddpg = joint_ddpg_gated(input_shape, action_size, learning_rate, action_bound_low, action_bound_high, model)
     elif 'dmlac' in model:
-        from dmlac.mlp_env_modeler import dmlac
+        from dmlac.dmlac import dmlac
         jointddpg = dmlac(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low,
                           output_bound_high=action_bound_high, learning_rate=learning_rate, tau=tau, model=model)
     elif model == 'ddpg_unrolled_pg_mlp':
