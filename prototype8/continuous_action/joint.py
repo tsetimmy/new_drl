@@ -178,7 +178,7 @@ def main():
     args = parser.parse_args()
 
     assert args.mode in ['none', 'test', 'transfer']
-    assert args.model in ['mlp', 'gan', 'gated', 'dmlac_mlp', 'dmlac_gan', 'dmlac_gated', 'ddpg_unrolled_pg_mlp']
+    assert args.model in ['mlp', 'gan', 'gated', 'dmlac_mlp', 'dmlac_gan', 'dmlac_gated', 'ddpg_unrolled_pg_mlp', 'dmlac_gp']
     # Initialize environment
     env = gym.make(args.environment)
     args.state_dim = env.observation_space.shape[0]
@@ -265,6 +265,10 @@ def init_model(input_shape, action_size, latent_size, learning_rate, action_boun
     elif model in ['mlp', 'gated']:
         from gated.joint_ddpg_gated import joint_ddpg_gated
         jointddpg = joint_ddpg_gated(input_shape, action_size, learning_rate, action_bound_low, action_bound_high, model)
+    elif model == 'dmlac_gp':
+        from dmlac.dmlac_gp import dmlac_gp
+        jointddpg = dmlac_gp(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low,
+                          output_bound_high=action_bound_high, learning_rate=learning_rate, tau=tau)
     elif 'dmlac' in model:
         from dmlac.dmlac import dmlac
         jointddpg = dmlac(state_shape=input_shape, action_shape=[None, action_size], output_bound_low=action_bound_low,
