@@ -211,7 +211,7 @@ def main():
         total_rewards = 0.0
         epoch = 1
         for time_steps in range(args.time_steps):
-            #env.render()
+            env.render()
             # Choose an action
             exploration = (float(args.time_steps - time_steps) / float(args.time_steps)) ** 4
             action = exploration_strategy.action(sess, state[np.newaxis, ...], exploration)
@@ -235,6 +235,9 @@ def main():
             assert len(batch_M) > 0
             states_M = np.vstack(batch_M[:, 0])
             actions_M = np.concatenate(batch_M[:, 1], axis=0)
+
+            if args.model == 'dmlac_gp':
+                jointddpg.update_hist(memory)
 
             jointddpg.train(sess, states_B, actions_B, rewards_B, states1_B, dones_B, states_M, actions_M, len(batch_M), args.latent_size)
 

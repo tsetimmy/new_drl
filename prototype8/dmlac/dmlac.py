@@ -27,6 +27,8 @@ class dmlac:
         self.trace_decay = trace_decay
         self.model = model
 
+        self.update_value_with_model = False
+
         #Placeholders (for tuples [s, a, r, s', d])
         self.states = tf.placeholder(shape=state_shape, dtype=tf.float32)
         self.actions = tf.placeholder(shape=action_shape, dtype=tf.float32)
@@ -91,27 +93,32 @@ class dmlac:
         sess.run(self.actor_opt, feed_dict={self.states:states})#Update policy
 
         #Train value function
-        states_iter = np.copy(states)
-        value_estimates = []
-        predicted_rewards = []
-        for j in range(1, self.forward_steps+1):#for j = [1,...,n]
-            action_predict = sess.run(self.mu_tar, feed_dict={self.states:states_iter})
-            states_iter, reward_predict = sess.run([self.state_predict, self.reward_predict], feed_dict={self.states:states_iter, self.actions:action_predict})
-            predicted_rewards.append(reward_predict)
+        if self.update_value_with_model == True:
+            states_iter = np.copy(states)
+            value_estimates = []
+            predicted_rewards = []
+            for j in range(1, self.forward_steps+1):#for j = [1,...,n]
+                action_predict = sess.run(self.mu_tar, feed_dict={self.states:states_iter})
+                states_iter, reward_predict = sess.run([self.state_predict, self.reward_predict], feed_dict={self.states:states_iter, self.actions:action_predict})
+                predicted_rewards.append(reward_predict)
 
-            assert len(predicted_rewards) == j
-            value_estimate = np.zeros_like(reward_predict)
-            for k in range(1, j+1):#for k = [1,...,j]
-                value_estimate += (self.learning_rate ** (k-1)) * predicted_rewards[k-1]
-            value_estimate += (self.learning_rate ** j) * sess.run(self.value_tar, feed_dict={self.states:states_iter})        
-            value_estimates.append(value_estimate)
+                assert len(predicted_rewards) == j
+                value_estimate = np.zeros_like(reward_predict)
+                for k in range(1, j+1):#for k = [1,...,j]
+                    value_estimate += (self.learning_rate ** (k-1)) * predicted_rewards[k-1]
+                value_estimate += (self.learning_rate ** j) * sess.run(self.value_tar, feed_dict={self.states:states_iter})        
+                value_estimates.append(value_estimate)
 
-        assert len(value_estimates) == self.forward_steps
-        value_estimates_averaged = np.zeros_like(value_estimate)
-        for j in range(len(value_estimates)):
-            value_estimates_averaged += (self.trace_decay ** j) * value_estimates[j]
-        value_estimates_averaged *= ((1. - self.trace_decay) / (1. - self.trace_decay ** self.forward_steps))
-        sess.run(self.value_opt, feed_dict={self.states:states, self.value_target:value_estimates_averaged})#Update values
+            assert len(value_estimates) == self.forward_steps
+            value_estimates_averaged = np.zeros_like(value_estimate)
+            for j in range(len(value_estimates)):
+                value_estimates_averaged += (self.trace_decay ** j) * value_estimates[j]
+            value_estimates_averaged *= ((1. - self.trace_decay) / (1. - self.trace_decay ** self.forward_steps))
+            sess.run(self.value_opt, feed_dict={self.states:states, self.value_target:value_estimates_averaged})#Update values
+        else:
+            value_tar = sess.run(self.value_tar, feed_dict={self.states:next_states})
+            value_tar = rewards[..., np.newaxis] + (1. - dones[..., np.newaxis]) * self.learning_rate * value_tar
+            sess.run(self.value_opt, feed_dict={self.states:states, self.value_target:value_tar})#Update values
 
     def action(self, sess, state):
         return sess.run(self.mu, feed_dict={self.states:state})[0]

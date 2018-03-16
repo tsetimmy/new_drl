@@ -7,22 +7,26 @@ class multivariate_gaussian_process:
         self.input_shape = input_shape
         self.output_shape = output_shape
 
-    def build(self, x, xtest, y):
+        self.gps = [gaussian_process(self.input_shape) for i in range(self.output_shape[-1])]
+
+    def build(self, x, y, xtest):
         assert x.shape.as_list() == self.input_shape
         assert xtest.shape.as_list() == self.input_shape
         assert y.shape.as_list() == self.output_shape
 
         y_splits = tf.split(y, self.output_shape[-1], axis=-1)
+        assert len(y_splits) == len(self.gps)
 
         #Allocate the gps
-        output = tf.concat([gaussian_process(self.input_shape).build(x, xtest, y) for y in y_splits], axis=-1)
+        output = tf.concat([self.gps[i].build(x, y_splits[i], xtest) for i in range(len(y_splits))], axis=-1)
+        #output = tf.concat([gaussian_process(self.input_shape).build(x, y_split, xtest) for y_split in y_splits], axis=-1)
         return output
 
 class gaussian_process:
     def __init__(self, xshape):
         self.xshape = xshape
 
-    def build(self, x, xtest, y):
+    def build(self, x, y, xtest):
         assert x.shape.as_list() == self.xshape
         assert xtest.shape.as_list() == self.xshape
         assert y.shape.as_list() == [None, 1]
@@ -34,7 +38,7 @@ class gaussian_process:
         kernel = self.squared_exponential_kernel(x, x)
 
         #Cholesky decomposition
-        self.noise_variance = 5e-5#to be optimized
+        self.noise_variance = 5e-4#to be optimized
         L = tf.cholesky(kernel + tf.diag(self.noise_variance * tf.ones_like(tf.reduce_sum(x, axis=-1))))
 
         #Placeholders for test points
