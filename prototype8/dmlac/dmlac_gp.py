@@ -14,7 +14,7 @@ from utils import update_target_graph2
 
 class dmlac_gp:
     def __init__(self, state_shape=[None, 2], action_shape=[None, 1], output_bound_low=[-1.],
-                 output_bound_high=[1.], learning_rate=.9, tau=.01, forward_steps=1, trace_decay=.9, hist_len=120):
+                 output_bound_high=[1.], learning_rate=.9, tau=.01, forward_steps=1, trace_decay=.9, hist_len=10):
         assert (-np.array(output_bound_low) == np.array(output_bound_high)).all()
         assert forward_steps >= 1
         self.state_shape = state_shape
@@ -25,8 +25,8 @@ class dmlac_gp:
         self.forward_steps = forward_steps
         self.trace_decay = trace_decay
 
-        self.update_value_with_model = False
-        self.use_gp = False
+        self.update_value_with_model = True
+        self.use_gp = True
 
         self.hist_len = hist_len
 
@@ -56,8 +56,7 @@ class dmlac_gp:
         self.reward_predict_mu = self.rmodel_build()
         self.state_predict_mu = self.smodel_build()
 
-        #self.value = self.reward_predict_mu + self.learning_rate * self.critic_src.build(self.state_predict_mu)
-        self.value = self.critic_src.build(self.state_predict_mu)
+        self.value = self.reward_predict_mu + self.learning_rate * self.critic_src.build(self.state_predict_mu)
         self.actor_loss = -tf.reduce_mean(tf.reduce_sum(self.value, axis=-1))
         self.actor_opt = tf.train.AdamOptimizer(1e-4).minimize(self.actor_loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'actor_source'))
 
@@ -125,20 +124,20 @@ class dmlac_gp:
 
         #Train state and reward model
         if self.use_gp == True:
-            epochs = 1
-            batch_size = 5
-            if len(self.hist_state_action) >= epochs * batch_size:
-                iterations = epochs * len(self.hist_state_action) / batch_size
-                epochiter = iterations / epochs
-                for i in xrange(iterations):
-                    idx = np.random.choice(np.arange(len(self.hist_state_action)), batch_size, replace=False)
-                    X_mini = self.hist_state_action[idx]
-                    next_states_mini = self.hist_next_states[idx]
-                    rewards_mini = self.hist_rewards[idx]
-                    for s_opt in self.smodel_opt:
-                        sess.run(s_opt, feed_dict={self.state_action:X_mini, self.next_states:next_states_mini})
-                    for r_opt in self.rmodel_opt:
-                        sess.run(r_opt, feed_dict={self.state_action:X_mini, self.rewards:rewards_mini})
+            epochs = 20
+            batch_size = len(self.hist_state_action)
+            assert len(self.hist_state_action) > 0
+            assert len(self.hist_state_action) == len(self.hist_rewards)
+            assert len(self.hist_state_action) == len(self.hist_next_states)
+            for i in xrange(epochs):
+                idx = np.random.choice(np.arange(len(self.hist_state_action)), batch_size, replace=False)
+                X_mini = self.hist_state_action[idx]
+                next_states_mini = self.hist_next_states[idx]
+                rewards_mini = self.hist_rewards[idx]
+                for s_opt in self.smodel_opt:
+                    sess.run(s_opt, feed_dict={self.state_action:X_mini, self.next_states:next_states_mini})
+                for r_opt in self.rmodel_opt:
+                    sess.run(r_opt, feed_dict={self.state_action:X_mini, self.rewards:rewards_mini})
         else:
             sess.run(self.rmodel_opt, feed_dict={self.states:states, self.actions:actions, self.rewards:rewards})#Update reward model
             sess.run(self.smodel_opt, feed_dict={self.states:states, self.actions:actions, self.next_states:next_states})#Update state model
