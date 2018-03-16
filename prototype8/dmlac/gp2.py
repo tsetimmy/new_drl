@@ -15,6 +15,10 @@ class multivariate_gaussian_process:
         self.gps = [GaussianProcess() for i in range(self.output_shape[-1])]
 
     def build(self, x, y, xtest):
+        output, _ = self.build_and_get_opt(x, y, xtest)
+        return output
+
+    def build_and_get_opt(self, x, y, xtest):
         assert x.shape.as_list() == self.input_shape
         assert y.shape.as_list() == self.output_shape
         assert xtest.shape.as_list() == self.input_shape
@@ -23,11 +27,13 @@ class multivariate_gaussian_process:
         assert len(self.gps) == len(y_splits)
 
         output = []
+        opts = []
         for i in range(len(self.gps)):
             L, y_, var_, opt_op, grad_ls, grad_amp = self.gps[i].build(x, y_splits[i], xtest)
             output.append(y_)
+            opts.append(opt_op)
         output = tf.concat(output, axis=-1)
-        return output
+        return output, opts
 
 class GaussianProcess(object):
     #def __init__(self, ls=.1, amp=.1, noise=1e-2, sess=tf.Session(), dim=1):

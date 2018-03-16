@@ -14,7 +14,7 @@ from utils import update_target_graph2
 
 class dmlac_gp:
     def __init__(self, state_shape=[None, 2], action_shape=[None, 1], output_bound_low=[-1.],
-                 output_bound_high=[1.], learning_rate=.9, tau=.01, forward_steps=1, trace_decay=.9, hist_len=100):
+                 output_bound_high=[1.], learning_rate=.9, tau=.01, forward_steps=1, trace_decay=.9, hist_len=120):
         assert (-np.array(output_bound_low) == np.array(output_bound_high)).all()
         assert forward_steps >= 1
         self.state_shape = state_shape
@@ -26,12 +26,9 @@ class dmlac_gp:
         self.trace_decay = trace_decay
 
         self.update_value_with_model = False
-        self.use_gp = True
+        self.use_gp = False
 
         self.hist_len = hist_len
-        self.hist_state_action = []
-        self.hist_reward = []
-        self.hist_next_state = []
 
         #Placeholders (for tuples [s, a, r, s', d])
         self.states = tf.placeholder(shape=state_shape, dtype=tf.float32)
@@ -82,13 +79,10 @@ class dmlac_gp:
 
         self.copy_target_actor = update_target_graph2('actor_source', 'actor_target', 1.)
         self.copy_target_critic = update_target_graph2('critic_source', 'critic_target', 1.)
-        print '!!'
-        exit()
 
     def get_rmodel_predict_and_opt(self):
         if self.use_gp == True:
-            reward_predict = self.rmodel.build(self.state_action, tf.expand_dims(self.rewards, axis=-1), tf.concat([self.states, self.actions], axis=-1))
-            rmodel_opt = None
+            reward_predict, rmodel_opt = self.rmodel.build_and_get_opt(self.state_action, tf.expand_dims(self.rewards, axis=-1), tf.concat([self.states, self.actions], axis=-1))
         else:
             reward_predict = self.rmodel.build(self.states, self.actions)
             rmodel_loss, rmodel_vars = self.rmodel.get_losses(self.states, tf.expand_dims(self.rewards, axis=-1), self.actions)
@@ -97,8 +91,7 @@ class dmlac_gp:
 
     def get_smodel_predict_and_opt(self):
         if self.use_gp == True:
-            state_predict = self.smodel.build(self.state_action, self.next_states, tf.concat([self.states, self.actions], axis=-1))
-            smodel_opt = None
+            state_predict, smodel_opt = self.smodel.build_and_get_opt(self.state_action, self.next_states, tf.concat([self.states, self.actions], axis=-1))
         else:
             state_predict = self.smodel.build(self.states, self.actions)
             smodel_loss, smodel_vars = self.smodel.get_losses(self.states, self.next_states, self.actions)
@@ -131,20 +124,24 @@ class dmlac_gp:
         dones = dones.astype(np.float32)
 
         #Train state and reward model
-        if self.use_gp == False:
+        if self.use_gp == True:
+            epochs = 1
+            batch_size = 5
+            if len(self.hist_state_action) >= epochs * batch_size:
+                iterations = epochs * len(self.hist_state_action) / batch_size
+                epochiter = iterations / epochs
+                for i in xrange(iterations):
+                    idx = np.random.choice(np.arange(len(self.hist_state_action)), batch_size, replace=False)
+                    X_mini = self.hist_state_action[idx]
+                    next_states_mini = self.hist_next_states[idx]
+                    rewards_mini = self.hist_rewards[idx]
+                    for s_opt in self.smodel_opt:
+                        sess.run(s_opt, feed_dict={self.state_action:X_mini, self.next_states:next_states_mini})
+                    for r_opt in self.rmodel_opt:
+                        sess.run(r_opt, feed_dict={self.state_action:X_mini, self.rewards:rewards_mini})
+        else:
             sess.run(self.rmodel_opt, feed_dict={self.states:states, self.actions:actions, self.rewards:rewards})#Update reward model
             sess.run(self.smodel_opt, feed_dict={self.states:states, self.actions:actions, self.next_states:next_states})#Update state model
-
-        import matplotlib.pyplot as plt
-        if len(self.hist_reward) >= 100:
-            predicted_reward = sess.run(self.reward_predict, feed_dict={self.state_action:self.hist_state_action, self.rewards:self.hist_rewards, self.states:states, self.actions:actions})
-            predicted_reward = np.squeeze(predicted_reward, axis=-1)
-            tmp = self.hist_rewards
-            plt.scatter(np.arange(len(tmp)), tmp)
-            plt.scatter(np.arange(len(predicted_reward)), predicted_reward)
-            plt.grid()
-            plt.show()
-
 
         #Train policy function
         if self.use_gp == True:
@@ -163,9 +160,9 @@ class dmlac_gp:
             for j in range(1, self.forward_steps+1):#for j = [1,...,n]
                 action_predict = sess.run(self.mu_tar, feed_dict={self.states:states_iter})
                 if self.use_gp == True:
-                    states_iter, reward_predict = sess.run([self.state_predict, self.reward_predict], feed_dict={self.state_action:np.stack(self.hist_state_action),
-                                                                                                                 self.next_states:np.stack(self.hist_next_state),
-                                                                                                                 self.rewards:np.stack(self.hist_reward),
+                    states_iter, reward_predict = sess.run([self.state_predict, self.reward_predict], feed_dict={self.state_action:self.hist_state_action,
+                                                                                                                 self.next_states:self.hist_next_states,
+                                                                                                                 self.rewards:self.hist_rewards,
                                                                                                                  self.states:states_iter,
                                                                                                                  self.actions:action_predict})
                 else:

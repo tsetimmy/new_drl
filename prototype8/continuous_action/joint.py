@@ -211,7 +211,7 @@ def main():
         total_rewards = 0.0
         epoch = 1
         for time_steps in range(args.time_steps):
-            env.render()
+            #env.render()
             # Choose an action
             exploration = (float(args.time_steps - time_steps) / float(args.time_steps)) ** 4
             action = exploration_strategy.action(sess, state[np.newaxis, ...], exploration)
