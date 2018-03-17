@@ -39,6 +39,7 @@ class GaussianProcess(object):
     #def __init__(self, ls=.1, amp=.1, noise=1e-2, sess=tf.Session(), dim=1):
     def __init__(self, ls=.1, amp=.1, noise=1e-2, dim=1):
       #self.sess = sess
+      self.tmp = []
       self.ls = tf.Variable(np.array(ls), dtype=tf.float32)
       self.amp = tf.Variable(np.array(amp), dtype=tf.float32)
       self.noise = tf.Variable(np.array(noise), dtype=tf.float32)
@@ -83,6 +84,7 @@ class GaussianProcess(object):
         K = K + tf.diag(ones)*(1e-9 + tf.square(self.noise))
         # compute loss
         Ki = tf.matrix_inverse(K)
+        self.tmp.append([K,Ki])
         return K, Ki
       else:
         return K
@@ -123,8 +125,10 @@ class GaussianProcess(object):
           X_mini = X[idx]
           y_mini = y[idx]
           fd = {self.xp: X_mini, self.yp: y_mini}
+          '''
           if i % epochiter == 0:
             print self.sess.run(self.L, feed_dict=fd)
+          '''
           self.sess.run(self.opt_op, fd)
 
     def predict(self, X_):
