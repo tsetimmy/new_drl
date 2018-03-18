@@ -18,10 +18,15 @@ from utils import update_target_graph2
 sys.path.append('..')
 from dmlac.gp2 import multivariate_gaussian_process
 class gp_model:
-    def __init__(self, state_shape, action_shape, output_shape):
+    def __init__(self, state_shape, action_shape, output_shape, epochs=100):
         self.state_shape = state_shape
         self.action_shape = action_shape
         self.output_shape = output_shape
+        self.epochs = epochs
+
+        self.states_data = None
+        self.actions_data = None
+        self.targets_data = None
 
         #Placeholders
         self.states = tf.placeholder(shape=self.state_shape, dtype=tf.float32)
@@ -37,6 +42,30 @@ class gp_model:
         self.model_pred, self.model_opt = self.model.build_and_get_opt(tf.concat([self.states, self.actions], axis=-1),
                                                                        self.targets,
                                                                        tf.concat([self.states_test, self.actions_test], axis=-1))
+
+
+    def train(self, sess, states_data, actions_data, targets_data):
+        self.states_data = states_data
+        self.actions_data = actions_data
+        self.targets_data = targets_data
+
+        for _ in range(self.epochs):
+            for opt in self.model_opt:
+                sess.run(opt, feed_dict={self.states:self.states_data,
+                                         self.actions:self.actions_data,
+                                         self.targets:self.targets_data})
+
+    def predict(self, sess, states_test, actions_test):
+        assert self.states_data is not None
+        assert self.actions_data is not None
+        assert self.targets_data is not None
+        model_pred = sess.run(self.model_pred, feed_dict={self.states:self.states_data,
+                                                          self.actions:self.actions_data,
+                                                          self.targets:self.targets_data,
+                                                          self.states_test:states_test,
+                                                          self.actions_test:actions_test})
+        return model_pred
+
 
 class actorcritic:
     def __init__(self, state_shape=[None, 100], action_shape=[None, 1], output_bound_low=[-1.], output_bound_high=[1.], learning_rate=.99, tau=.001):
@@ -210,12 +239,11 @@ def main():
 
     # Allocate the Gaussian process
     model_been_trained = False
-    smodel = gp_model([None, args.state_dim], [None, args.action_dim], [None, args.state_dim])
-    rmodel = gp_model([None, args.state_dim], [None, args.action_dim], [None, 1])
-    train_model_epochs = 100
-    Bold = Memory(20)
-    B = Memory(20)
-    ell = 5#unroll depth
+    smodel = gp_model([None, args.state_dim], [None, args.action_dim], [None, args.state_dim], epochs=100)
+    rmodel = gp_model([None, args.state_dim], [None, args.action_dim], [None, 1], epochs=100)
+    Bold = Memory(500)
+    B = Memory(500)
+    ell = 1#Unroll depth
     I = 5#Number of updates per timestep
     memory_fictional = Memory(args.replay_mem_size)
 
@@ -246,9 +274,22 @@ def main():
             memory.add([state[np.newaxis, ...], action[np.newaxis, ...], reward, state1[np.newaxis, ...], done])
             B.add([state[np.newaxis, ...], action[np.newaxis, ...], reward, state1[np.newaxis, ...], done])
 
-            if time_steps % args.batch_size and time_steps != 0 and model_been_trained:
-                pass
-                #TODO: use model to simulate steps into the future
+            if time_steps % args.batch_size == 0 and time_steps != 0 and model_been_trained and ell > 0:
+            #if time_steps >= 3 and model_been_trained:
+                batch = np.array(memory.sample(args.batch_size))
+                assert len(batch) > 0
+                next_states = np.concatenate([ele[3] for ele in batch], axis=0)
+
+                for _ in range(ell):
+                    states = np.copy(next_states)
+                    actions = np.random.uniform(low=args.action_bound_low,
+                                                       high=args.action_bound_high,
+                                                       size=[states.shape[0], args.action_dim])
+                    rewards = rmodel.predict(sess, states, actions)
+                    next_states = smodel.predict(sess, states, actions)
+
+                    for state, action, reward, next_state in zip(list(states), list(actions), list(rewards), list(next_states)):
+                        memory_fictional.add([state[np.newaxis, ...], action[np.newaxis, ...], reward, next_state[np.newaxis, ...], False])
 
             for _ in range(I):
                 # Training step
@@ -259,13 +300,24 @@ def main():
                 rewards = batch[:, 2]
                 states1 = np.concatenate(batch[:, 3], axis=0)
                 dones = batch[:, 4]
-
                 ddpg.train(sess, states, actions, rewards, states1, dones)
-
-                # Update target networks
                 ddpg.update_target(sess)
 
-            if len(B.mem) == B.max_size:
+
+                for _ in range(ell):
+                    # Training step for fictional experience
+                    batch = np.array(memory_fictional.sample(args.batch_size))
+                    if len(batch) > 0:
+                        states = np.concatenate(batch[:, 0], axis=0)
+                        actions = np.concatenate(batch[:, 1], axis=0)
+                        rewards = batch[:, 2]
+                        states1 = np.concatenate(batch[:, 3], axis=0)
+                        dones = batch[:, 4]
+                        ddpg.train(sess, states, actions, rewards, states1, dones)
+                        ddpg.update_target(sess)
+
+
+            if len(B.mem) == B.max_size and ell > 0:
                 import copy
                 Bold = copy.deepcopy(B)
                 B.mem = []
@@ -273,52 +325,10 @@ def main():
                 actions = np.concatenate([ele[1] for ele in Bold.mem], axis=0)
                 rewards = np.array([ele[2] for ele in Bold.mem])
                 next_states = np.concatenate([ele[3] for ele in Bold.mem], axis=0)
-                dones = np.array([ele[4] for ele in Bold.mem]).astype(np.float32)
 
-                #import pickle
-                #pickle.dump([states, actions, rewards, next_states, dones], open( "error_data.p", "wb" ))
-
-                for _ in range(train_model_epochs):
-                    '''
-                    for gp in rmodel.model.gps:
-                        for K,Ki in gp.tmp:
-                            tmp=sess.run(K, feed_dict={rmodel.states:states,
-                                                      rmodel.actions:actions,
-                                                      rmodel.targets:rewards[..., np.newaxis]})
-                            print tmp
-                            tmp=sess.run(Ki, feed_dict={rmodel.states:states,
-                                                      rmodel.actions:actions,
-                                                      rmodel.targets:rewards[..., np.newaxis]})
-                            print tmp
-
-                    for gp in smodel.model.gps:
-                        for K,Ki in gp.tmp:
-                            tmp=sess.run(K, feed_dict={smodel.states:states,
-                                                      smodel.actions:actions,
-                                                      smodel.targets:next_states})
-                            print tmp
-                            tmp=sess.run(Ki, feed_dict={smodel.states:states,
-                                                      smodel.actions:actions,
-                                                      smodel.targets:next_states})
-                            print tmp
-                    '''
-
-
-                    for ropt in rmodel.model_opt:
-                        print 'ropt!!!'
-                        sess.run(ropt, feed_dict={rmodel.states:states,
-                                                  rmodel.actions:actions,
-                                                  rmodel.targets:rewards[..., np.newaxis]})
-                    '''
-                    for sopt in smodel.model_opt:
-                        print 'sopt!!!'
-                        sess.run(sopt, feed_dict={smodel.states:states,
-                                                  smodel.actions:actions,
-                                                  smodel.targets:next_states})
-                    '''
+                rmodel.train(sess, states, actions, rewards[..., np.newaxis])
+                smodel.train(sess, states, actions, next_states)
                 model_been_trained = True
-                print 'exiting...'
-                exit()
 
             state = np.copy(state1)
             if done == True:

@@ -3,16 +3,21 @@
 #from tgp.np.gaussian_process import GaussianProcess as GP
 import numpy as np
 import tensorflow as tf
+#Previous bugs were to:
+#1) Passing in ls as a single float rather than a list of floats
+#2) Singular matrix due to small variance on the diagonal
+#3) Not using float64 in the GP procedure (not 100% sure this was actually a bug)
 
 class DoubleAdamOptimizer(tf.train.AdamOptimizer):
   def _valid_dtypes(self):
-    return set([tf.float32, tf.float32])
+    return set([tf.float32, tf.float64])
 
 class multivariate_gaussian_process:
     def __init__(self, input_shape, output_shape):
         self.input_shape = input_shape
         self.output_shape = output_shape
-        self.gps = [GaussianProcess() for i in range(self.output_shape[-1])]
+
+        self.gps = [GaussianProcess(dim=self.input_shape[-1], ls=[1.]*self.input_shape[-1], noise=.1) for i in range(self.output_shape[-1])]
 
     def build(self, x, y, xtest):
         output, _ = self.build_and_get_opt(x, y, xtest)
@@ -40,25 +45,29 @@ class GaussianProcess(object):
     def __init__(self, ls=.1, amp=.1, noise=1e-2, dim=1):
       #self.sess = sess
       self.tmp = []
-      self.ls = tf.Variable(np.array(ls), dtype=tf.float32)
-      self.amp = tf.Variable(np.array(amp), dtype=tf.float32)
-      self.noise = tf.Variable(np.array(noise), dtype=tf.float32)
+      self.ls = tf.Variable(np.array(ls), dtype=tf.float64)
+      self.amp = tf.Variable(np.array(amp), dtype=tf.float64)
+      self.noise = tf.Variable(np.array(noise), dtype=tf.float64)
       self.opt = DoubleAdamOptimizer(
-        learning_rate=tf.constant(1e-3, tf.float32),
-        beta1=tf.constant(0.9, tf.float32),
-        beta2=tf.constant(0.999, tf.float32),
-        epsilon=tf.constant(1e-8, tf.float32)
+        learning_rate=tf.constant(1e-3, tf.float64),
+        beta1=tf.constant(0.9, tf.float64),
+        beta2=tf.constant(0.999, tf.float64),
+        epsilon=tf.constant(1e-8, tf.float64)
       )
 
       # construct loss computation graph
       '''
-      self.xp = tf.placeholder(tf.float32, [None, dim])
-      self.yp = tf.placeholder(tf.float32, [None, 1])
-      self.x_p = tf.placeholder(tf.float32, [None, dim])
+      self.xp = tf.placeholder(tf.float64, [None, dim])
+      self.yp = tf.placeholder(tf.float64, [None, 1])
+      self.x_p = tf.placeholder(tf.float64, [None, dim])
       self.L, self.y_, self.var_, self.opt_op, self.grad_ls, self.grad_amp = self.build(self.xp, self.yp, self.x_p)
       '''
 
     def build(self, xp, yp, x_p):
+      xp = tf.cast(xp, tf.float64)
+      yp = tf.cast(yp, tf.float64)
+      x_p = tf.cast(x_p, tf.float64)
+
       L = self.construct_loss_graph(xp, yp)
       # construct prediction computation graph
       y_, var_ = self.construct_prediction_graph(xp, yp, x_p)
@@ -67,7 +76,8 @@ class GaussianProcess(object):
       grad_ls = tf.gradients(L, self.ls)
       grad_amp = tf.gradients(L, self.amp)
       #self.init = tf.initialize_all_variables()
-      return L, y_, var_, opt_op, grad_ls, grad_amp
+      #return L, y_, var_, opt_op, grad_ls, grad_amp
+      return tf.cast(L, tf.float32), tf.cast(y_, tf.float32), tf.cast(var_, tf.float32), opt_op, [tf.cast(grad, tf.float32) for grad in grad_ls], [tf.cast(grad, tf.float32) for grad in grad_amp]
       
     def construct_covariance_graph(self, xs, ys=None):
       add_noise = True if ys is None else False
@@ -80,8 +90,8 @@ class GaussianProcess(object):
       sqdist = xsq + ysq - 2*tf.matmul(xs, tf.transpose(ys))
       K = tf.square(self.amp) * tf.exp(-0.5*sqdist)
       if add_noise:
-        ones = tf.ones(tf.stack([tf.shape(xs)[0]]), dtype=tf.float32)
-        K = K + tf.diag(ones)*(1e-9 + tf.square(self.noise))
+        ones = tf.ones(tf.stack([tf.shape(xs)[0]]), dtype=tf.float64)
+        K = K + tf.diag(ones)*(1. + tf.square(self.noise))
         # compute loss
         Ki = tf.matrix_inverse(K)
         self.tmp.append([K,Ki])
@@ -96,7 +106,7 @@ class GaussianProcess(object):
       Kiy = tf.matmul(Ki, y)
       lK = tf.log(tf.matrix_determinant(K))
       L = tf.matmul(yT, Kiy) + lK
-      ones = tf.ones(tf.stack([tf.shape(xs)[0]]), dtype=tf.float32)
+      ones = tf.ones(tf.stack([tf.shape(xs)[0]]), dtype=tf.float64)
       L = L/tf.reduce_sum(ones) * 0.5
       return L
 
@@ -165,9 +175,9 @@ def main():
 def main2():
     gp2 = multivariate_gaussian_process([None, 4], [None, 3])
 
-    x = tf.placeholder(tf.float32, [None, 4])
-    y = tf.placeholder(tf.float32, [None, 3])
-    xtest = tf.placeholder(tf.float32, [None, 4])
+    x = tf.placeholder(tf.float64, [None, 4])
+    y = tf.placeholder(tf.float64, [None, 3])
+    xtest = tf.placeholder(tf.float64, [None, 4])
 
     gp2.build(x, y, xtest)
 
