@@ -27,7 +27,7 @@ class dmlac:
         self.trace_decay = trace_decay
         self.model = model
 
-        self.update_value_with_model = False
+        self.update_value_with_model = True
 
         #Placeholders (for tuples [s, a, r, s', d])
         self.states = tf.placeholder(shape=state_shape, dtype=tf.float32)
