@@ -7,7 +7,7 @@ def get_next(th, thdot, u):
     newth = th + newthdot / 20.
     return np.cos(newth), np.sin(newth), newthdot
 
-class real_env_state_pendulum:
+class real_env_pendulum_state:
     def __init__(self, input_shape=[None, 3], action_shape=[None, 1]):
         self.input_shape = input_shape
         self.action_shape = action_shape
@@ -21,9 +21,9 @@ class real_env_state_pendulum:
         newsinth = states[:, 1] * tf.cos(newthdot / 20.) + states[:, 0] * tf.sin(newthdot / 20.)
         newthdot = tf.clip_by_value(newthdot, -8., 8.)
 
-        return tf.stack([newcosth, newsinth, newthdot], axis=-1).shape
+        return tf.stack([newcosth, newsinth, newthdot], axis=-1)
 
-class real_env_reward_pendulum:
+class real_env_pendulum_reward:
     def __init__(self, input_shape=[None, 3], action_shape=[None, 1]):
         self.input_shape = input_shape
         self.action_shape = action_shape
@@ -32,8 +32,17 @@ class real_env_reward_pendulum:
         assert states.shape.as_list() == self.input_shape
         assert actions.shape.as_list() == self.action_shape
 
-    
+        cossgn = (tf.sign(states[:, 0])+1.)/2.
+        sinsgn = (tf.sign(states[:, 1])+1.)/2.
 
+        th = tf.asin(tf.abs(states[:, 1]))
+
+        th = sinsgn * tf.abs(cossgn - 1.) * (np.pi - 2. * th) +\
+             tf.abs(sinsgn - 1.) * cossgn * (-2. * th) +\
+             tf.abs(sinsgn - 1.) * tf.abs(cossgn - 1.) * -np.pi
+
+        rewards = -(tf.square(th) + .1*tf.square(states[:, -1]) + .001*tf.square(actions[:, 0]))
+        return tf.expand_dims(rewards, axis=-1)
 
 def main():
     u = np.linspace(-2., 2., 10)
@@ -60,6 +69,6 @@ def main():
     plt.show()
 
 if __name__ == '__main__':
-    testing1 = real_env_state_pendulum()
-    testing2 = real_env_reward_pendulum()
+    testing1 = real_env_pendulum_state()
+    testing2 = real_env_pendulum_reward()
     #main()
