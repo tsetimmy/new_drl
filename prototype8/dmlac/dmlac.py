@@ -17,7 +17,7 @@ class dmlac:
                  output_bound_high=[1.], learning_rate=.9, tau=.01, forward_steps=1, trace_decay=.9, model='dmlac_mlp'):
         assert (-np.array(output_bound_low) == np.array(output_bound_high)).all()
         assert forward_steps >= 1
-        assert model in ['dmlac_mlp', 'dmlac_gated', 'dmlac_gan']
+        assert model in ['dmlac_mlp', 'dmlac_gated', 'dmlac_gan', 'dmlac_truth']
         self.state_shape = state_shape
         self.action_shape = action_shape
         self.output_bound_high = output_bound_high
@@ -65,13 +65,15 @@ class dmlac:
 
         #Reward model squared loss
         self.reward_predict = self.rmodel.build(self.states, self.actions)
-        self.rmodel_loss, self.rmodel_vars = self.rmodel.get_losses(self.states, tf.expand_dims(self.rewards, axis=-1), self.actions)
-        self.rmodel_opt = tf.train.AdamOptimizer().minimize(self.rmodel_loss, var_list=self.rmodel_vars)
+        if self.model != 'dmlac_truth':
+            self.rmodel_loss, self.rmodel_vars = self.rmodel.get_losses(self.states, tf.expand_dims(self.rewards, axis=-1), self.actions)
+            self.rmodel_opt = tf.train.AdamOptimizer().minimize(self.rmodel_loss, var_list=self.rmodel_vars)
 
         #State model squared loss
         self.state_predict = self.smodel.build(self.states, self.actions)
-        self.smodel_loss, self.smodel_vars = self.smodel.get_losses(self.states, self.next_states, self.actions)
-        self.smodel_opt = tf.train.AdamOptimizer().minimize(self.smodel_loss, var_list=self.smodel_vars)
+        if self.model != 'dmlac_truth':
+            self.smodel_loss, self.smodel_vars = self.smodel.get_losses(self.states, self.next_states, self.actions)
+            self.smodel_opt = tf.train.AdamOptimizer().minimize(self.smodel_loss, var_list=self.smodel_vars)
 
         # Update and copy operators
         self.update_target_actor = update_target_graph2('actor_source', 'actor_target', tau)
@@ -84,10 +86,12 @@ class dmlac:
         dones = dones.astype(np.float64)
 
         #Train state model
-        sess.run(self.smodel_opt, feed_dict={self.states:states, self.actions:actions, self.next_states:next_states})#Update state model
+        if self.model != 'dmlac_truth':
+            sess.run(self.smodel_opt, feed_dict={self.states:states, self.actions:actions, self.next_states:next_states})#Update state model
 
         #Train reward model
-        sess.run(self.rmodel_opt, feed_dict={self.states:states, self.actions:actions, self.rewards:rewards})#Update reward model
+        if self.model != 'dmlac_truth':
+            sess.run(self.rmodel_opt, feed_dict={self.states:states, self.actions:actions, self.rewards:rewards})#Update reward model
 
         #Train policy function
         sess.run(self.actor_opt, feed_dict={self.states:states})#Update policy
@@ -133,6 +137,10 @@ class dmlac:
                                        out_shape=self.state_shape, a_type='continuous', numfactors=128)
             rmodel = gated_env_modeler(s_shape=self.state_shape, a_size=self.action_shape[-1],
                                        out_shape=[None, 1], a_type='continuous', numfactors=128)
+        elif self.model == 'dmlac_truth':
+            from real_env_pendulum import real_env_pendulum_state, real_env_pendulum_reward
+            smodel = real_env_pendulum_state()
+            rmodel = real_env_pendulum_reward()
         elif self.model == 'dmlac_gan':
             pass
         return smodel, rmodel

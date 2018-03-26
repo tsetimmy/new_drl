@@ -178,7 +178,9 @@ def main():
     args = parser.parse_args()
 
     assert args.mode in ['none', 'test', 'transfer']
-    assert args.model in ['mlp', 'gan', 'gated', 'dmlac_mlp', 'dmlac_gan', 'dmlac_gated', 'ddpg_unrolled_pg_mlp', 'dmlac_gp']
+    assert args.model in ['mlp', 'gan', 'gated', 'dmlac_mlp', 'dmlac_gan', 'dmlac_gated', 'ddpg_unrolled_pg_mlp', 'dmlac_gp', 'dmlac_truth']
+    if args.model == 'dmlac_truth':
+        assert args.environment == 'Pendulum-v0'
     # Initialize environment
     env = gym.make(args.environment)
     args.state_dim = env.observation_space.shape[0]
@@ -217,6 +219,7 @@ def main():
             action = exploration_strategy.action(sess, state[np.newaxis, ...], exploration)
             # Execute action
             state1, reward, done, _ = env.step(action)
+
             total_rewards += float(reward)
             # Store tuple in replay memory
             memory.add([state[np.newaxis, ...], action[np.newaxis, ...], reward, state1[np.newaxis, ...], done])
