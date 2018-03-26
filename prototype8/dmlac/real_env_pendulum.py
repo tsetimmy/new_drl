@@ -16,7 +16,7 @@ class real_env_pendulum_state:
         assert states.shape.as_list() == self.input_shape
         assert actions.shape.as_list() == self.action_shape
 
-        newthdot = states[:, -1] + (30. * states[:, 1] + 3. * actions[:, 0]) / 20.
+        newthdot = states[:, -1] + (15. * states[:, 1] + 3. * actions[:, 0]) / 20.
         newcosth = states[:, 0] * tf.cos(newthdot / 20.) - states[:, 1] * tf.sin(newthdot / 20.)
         newsinth = states[:, 1] * tf.cos(newthdot / 20.) + states[:, 0] * tf.sin(newthdot / 20.)
         newthdot = tf.clip_by_value(newthdot, -8., 8.)
