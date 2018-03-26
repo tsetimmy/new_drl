@@ -49,6 +49,11 @@ def main():
     thdot = np.linspace(-8., 8., 20)
     th = np.linspace(0., 2.*np.pi, 10)
 
+    costh = []
+    sinth = []
+    newthdot = []
+    X = []
+    x = 0.
     counter = 0
     for i in range(len(u)):
         for j in range(len(thdot)):
@@ -69,6 +74,6 @@ def main():
     plt.show()
 
 if __name__ == '__main__':
-    testing1 = real_env_pendulum_state()
-    testing2 = real_env_pendulum_reward()
-    #main()
+    #testing1 = real_env_pendulum_state()
+    #testing2 = real_env_pendulum_reward()
+    main()
