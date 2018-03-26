@@ -37,9 +37,9 @@ class real_env_pendulum_reward:
 
         th = tf.asin(tf.abs(states[:, 1]))
 
-        th = sinsgn * tf.abs(cossgn - 1.) * (np.pi - 2. * th) +\
-             tf.abs(sinsgn - 1.) * cossgn * (-2. * th) +\
-             tf.abs(sinsgn - 1.) * tf.abs(cossgn - 1.) * -np.pi
+        th += sinsgn * tf.abs(cossgn - 1.) * (np.pi - 2. * th) +\
+              tf.abs(sinsgn - 1.) * cossgn * (-2. * th) +\
+              tf.abs(sinsgn - 1.) * tf.abs(cossgn - 1.) * -np.pi
 
         rewards = -(tf.square(th) + .1*tf.square(states[:, -1]) + .001*tf.square(actions[:, 0]))
         return tf.expand_dims(rewards, axis=-1)
