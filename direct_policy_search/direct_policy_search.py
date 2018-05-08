@@ -102,7 +102,7 @@ def main():
     parser.add_argument("--learning-rate", type=float, default=.9)
     args = parser.parse_args()
 
-    env = gym.make('Pendulum-v0')
+    env = gym.make(args.environment)
     unroll = 20
 
     state_dim = env.observation_space.shape[0]

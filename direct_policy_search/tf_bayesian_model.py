@@ -47,7 +47,7 @@ class bayesian_model:
     # Basis functions using RBFs (to model nonlinear data)
     def basis_functions(self, X):
         assert self.no_basis > 1
-        sigma = 20.
+        sigma = .96
         means = np.stack([np.linspace(self.observation_space_low[i], self.observation_space_high[i], self.no_basis - 1) \
                          for i in range(len(self.observation_space_high))], axis=0)
         tf_means = tf.Variable(means, dtype=tf.float32)
@@ -93,7 +93,7 @@ def sinusoid_experiment():
     priorPrecision = 2.
     likelihoodSD = noiseSD
 
-    number_of_basis = 20
+    number_of_basis = 100
 
     #Generate the training points
     xtrain = np.random.uniform(-1., 1., size=trainingPoints)
@@ -115,10 +115,96 @@ def sinusoid_experiment():
         mu, sigma = model.update(sess, xtrain, ytrain)
         plot_sample_lines(mu, sigma, 6, [xtrain, ytrain], number_of_basis, sess, model)
 
+def get_training_data(training_points):
+    import sys
+    sys.path.append('..')
+    from prototype8.dmlac.real_env_pendulum import get_next
+    u = np.random.uniform(-2., 2., training_points)
+    thdot = np.random.uniform(-8., 8., training_points)
+    th = np.random.uniform(0., 2.*np.pi, training_points)
+
+    costh = []
+    sinth = []
+    newthdot = []
+    x = 0.
+    counter = 0
+
+    for i in range(training_points):
+        a, b, c = get_next(th[i], thdot[i], u[i])
+        costh.append(a)
+        sinth.append(b)
+        newthdot.append(c)
+
+    return np.stack([np.cos(th), np.sin(th), thdot, u], axis=-1), costh
+
 def pendulum_experiment():
     import sys
     sys.path.append('..')
-    from prototype8.dmlac.real_env_pendulum import real_env_pendulum_state, real_env_pendulum_reward
+    from prototype8.dmlac.real_env_pendulum import get_next
+    def plot_truth_data():
+        u = np.linspace(-2., 2., 10)
+        thdot = np.linspace(-8., 8., 20)
+        th = np.linspace(0., 2.*np.pi, 10)
+
+        costh = []
+        sinth = []
+        newthdot = []
+        X = []
+        x = 0.
+        counter = 0
+        for i in range(len(u)):
+            for j in range(len(thdot)):
+                for k in range(len(th)):
+                    counter += 1
+                    a, b, c = get_next(th[k], thdot[j], u[i])
+                    costh.append(a)
+                    sinth.append(b)
+                    newthdot.append(c)
+                    X.append(x)
+                    x += .1
+
+        plt.scatter(X, costh)
+        #plt.scatter(X, sinth)
+        #plt.scatter(X, newthdot)
+        plt.grid()
+        ##plt.show()
+
+    def plot_model_data(mu, sigma, sess, model):
+        number_of_lines = 6
+        lines = np.random.multivariate_normal(np.squeeze(mu, axis=-1), sigma, number_of_lines)
+
+        u = np.linspace(-2., 2., 10)
+        thdot = np.linspace(-8., 8., 20)
+        th = np.linspace(0., 2.*np.pi, 10)
+
+        states = []
+        for i in range(len(u)):
+            for j in range(len(thdot)):
+                for k in range(len(th)):
+                    states.append([np.cos(th[k]), np.sin(th[k]), thdot[j], u[i]])
+        states_basis = sess.run(model.X_basis, feed_dict={model.X:np.stack(states, axis=0)})
+
+        for line in lines:
+            y = np.matmul(states_basis, line)
+            plt.scatter(np.arange(len(y)) / 10., y)
+        plt.show()
+
+    training_points = 400*3
+    noise_sd = .2
+    prior_precision = 2.
+    likelihood_sd = noise_sd
+    no_basis = 20
+
+    xtrain, ytrain = get_training_data(training_points)
+    model = bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),
+                           observation_space_high=np.array([1., 1., 8., 2.]), no_basis=no_basis)
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        mu, sigma = model.update(sess, xtrain, ytrain)
+
+        plot_truth_data()
+        plot_model_data(mu, sigma, sess, model)
 
 if __name__ == '__main__':
     #sinusoid_experiment()

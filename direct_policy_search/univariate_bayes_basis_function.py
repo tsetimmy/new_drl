@@ -4,17 +4,30 @@ from matplotlib import cm
 from scipy.stats import multivariate_normal
 from scipy.stats import norm
 
-def basisFunctions(xtrain, numberOfBasis=7):
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.ticker import LinearLocator, FormatStrFormatter
+
+def basisFunctions(xtrain, numberOfBasis=20, low=np.array([-1.]), high=np.array([1.]), sigma=20.):
+    xtrain = np.atleast_1d(xtrain)
+    if xtrain.ndim == 1:
+        xtrain = xtrain[..., np.newaxis]
+
     assert numberOfBasis > 1
+    assert xtrain.shape[-1] == len(low)
+    np.testing.assert_array_equal(-low, high)
+
     numberOfBasis -= 1
-    sigma = 20.
-    means = np.linspace(-1., 1., numberOfBasis)
+
+    means = []
+    for i in range(len(low)):
+        means.append(np.linspace(low[i], high[i], numberOfBasis))
+    means = np.stack(means, axis=0)
 
     basis = np.zeros((len(xtrain), numberOfBasis))
 
     for i in range(len(xtrain)):
         for j in range(numberOfBasis):
-            basis[i, j] = np.exp(-pow(xtrain[i] - means[j], 2) / 2. * pow(sigma, 2))
+            basis[i, j] = np.exp(-pow(np.linalg.norm(xtrain[i, :] - means[:, j]), 2) / 2. * pow(sigma, 2))
 
     basis = np.concatenate([np.ones((len(xtrain), 1)), basis], axis=-1)
     return basis
@@ -55,6 +68,7 @@ def univariate_bayes():
 
     #Generate the training points
     xtrain = np.random.uniform(-1., 1., size=trainingPoints)
+    xtrain2 = basisFunctions(xtrain, numberOfBasis=numberOfBasis)
     #ytrain = (a0 + a1 * xtrain) + np.random.normal(loc=0., scale=noiseSD, size=trainingPoints)
     ytrain = np.sin(10.*xtrain) + np.random.normal(loc=0., scale=noiseSD, size=trainingPoints)
 
@@ -83,8 +97,129 @@ def univariate_bayes():
     #contourPlot(mu, sigma, [a0, a1])
     plotSampleLines(mu, sigma, 6, [xtrain, ytrain], numberOfBasis)
 
+def multivariate_domain_bayes():
+    #True parameters
+    a0 = .1
+    a1 = -.2
+    a2 = .5
+
+    noise_sd = .2
+    prior_precision = 2.
+    likelihood_sd = noise_sd
+    number_of_lines = 7
+
+    #Generate the training points
+    training_points = 100*800
+    xtrain = np.random.uniform(-1., 1., size=[training_points, 2])
+    ytrain = a0 + a1 * xtrain[:, 0] + a2 * xtrain[:, 1] + np.random.normal(loc=0., scale=noise_sd, size=training_points)
+
+    prior_mean = np.zeros(3)
+    prior_sigma = np.eye(3) / prior_precision
+
+    xtrain = np.concatenate([np.ones([len(xtrain), 1]), xtrain], axis=-1)
+    mu, sigma = update(xtrain, ytrain, 1. / noise_sd ** 2, prior_mean, prior_sigma)
+
+    #Mesh grid
+    X = np.linspace(-1., 1., 100)
+    Y = np.linspace(-1., 1., 100)
+    X, Y = np.meshgrid(X, Y)
+
+    Z = a0 * a1 * X + a2 * Y
+
+    fig = plt.figure()
+    ax = fig.gca(projection='3d')
+
+    surf = ax.plot_surface(X, Y, Z, cmap=cm.coolwarm, linewidth=0, antialiased=False)
+
+    #Plot the experiments
+    lines = np.random.multivariate_normal(mu, sigma, number_of_lines)
+
+    for line in lines:
+        Z = line[0] + line[1] * X + line[2] * Y
+        surf = ax.plot_surface(X, Y, Z, cmap=cm.jet, linewidth=0, antialiased=False)
+
+    ax.scatter(xtrain[:,1], xtrain[:,2], ytrain)
+
+    # Customize the z axis.
+    ax.set_zlim(-1.01, 1.01)
+    ax.zaxis.set_major_locator(LinearLocator(10))
+    ax.zaxis.set_major_formatter(FormatStrFormatter('%.02f'))
+
+    # Add a color bar which maps values to colors.
+    fig.colorbar(surf, shrink=0.5, aspect=5)
+
+    plt.show()
+
+def multivariate_domain_nonlinear_bayes():
+    noise_sd = .2
+    prior_precision = 2.
+    likelihood_sd = noise_sd
+    number_of_lines = 7
+    no_basis = 50
+    sigma_basis = 4.5
+
+    #Generate the training points
+    training_points = 100
+    xtrain = np.random.uniform(-1., 1., size=[training_points, 2])
+    ytrain = np.sin(4.*np.sqrt(xtrain[:, 0]**2 + xtrain[:, 1]**2)) + np.random.normal(loc=0., scale=noise_sd, size=training_points)
+    xtrain2 = basisFunctions(xtrain, numberOfBasis=no_basis, low=np.array([-1., -1.]), high=np.array([1., 1.]), sigma=sigma_basis)
+
+    prior_mean = np.zeros(no_basis)
+    prior_sigma = np.eye(no_basis) / prior_precision
+
+    mu, sigma = update(xtrain2, ytrain, 1. / noise_sd ** 2, prior_mean, prior_sigma)
+
+    #Mesh grid
+    X = np.linspace(-1., 1., 100)
+    Y = np.linspace(-1., 1., 100)
+    X, Y = np.meshgrid(X, Y)
+
+    Z = np.sin(4.*np.sqrt(X**2 + Y**2))
+
+    fig = plt.figure()
+    ax = fig.gca(projection='3d')
+
+    surf = ax.plot_surface(X, Y, Z, cmap=cm.coolwarm, linewidth=0, antialiased=False)
+
+
+    #Plot the experiments
+    lines = np.random.multivariate_normal(mu, sigma, number_of_lines)
+
+    for line in lines:
+        basis = basisFunctions(np.stack([X.flatten(), Y.flatten()], axis=-1), numberOfBasis=no_basis, low=np.array([-1., -1.]), high=np.array([1., 1.]), sigma=sigma_basis)
+        Z = np.matmul(basis, line).reshape(X.shape)
+        surf = ax.plot_surface(X, Y, Z, cmap=cm.jet, linewidth=0, antialiased=False)
+        print 'surf!'
+        '''
+        Z = np.zeros_like(X)
+        for i in range(len(Z)):
+            for j in range(len(Z[i])):
+                basis = basisFunctions(np.array([X[i, j], Y[i, j]])[np.newaxis, ...], numberOfBasis=no_basis, low=np.array([-1., -1.]), high=np.array([1., 1.]), sigma=sigma_basis)
+                Z[i, j] = np.matmul(basis, line)[0]
+        print 'surf!'
+        surf = ax.plot_surface(X, Y, Z, cmap=cm.jet, linewidth=0, antialiased=False)
+        '''
+
+    ax.scatter(xtrain[:,0], xtrain[:,1], ytrain)
+
+    # Customize the z axis.
+    ax.set_zlim(-1.01, 1.01)
+    ax.zaxis.set_major_locator(LinearLocator(10))
+    ax.zaxis.set_major_formatter(FormatStrFormatter('%.02f'))
+
+    # Add a color bar which maps values to colors.
+    fig.colorbar(surf, shrink=0.5, aspect=5)
+
+    plt.show()
+
+
+
+
 def main():
     univariate_bayes()
+    #multivariate_domain_bayes()
+    #multivariate_domain_nonlinear_bayes()
 
 if __name__ == '__main__':
+    #basisFunctions(np.zeros([100, 4]), numberOfBasis=20, low=np.array([-1., -2., -3., -4.]), high=np.array([1., 2., 3., 4.]))
     main()
