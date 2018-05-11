@@ -17,17 +17,30 @@ def basisFunctions(xtrain, numberOfBasis=20, low=np.array([-1.]), high=np.array(
     np.testing.assert_array_equal(-low, high)
 
     numberOfBasis -= 1
+    numberOfBasisOriginal = numberOfBasis
+    grid_intervals = int(np.ceil(numberOfBasis ** (1. / len(low))))
+    numberOfBasis = grid_intervals ** len(low)
 
+    if numberOfBasis != numberOfBasisOriginal:
+        print 'Warning, number of basis is', numberOfBasis
+
+    '''
     means = []
     for i in range(len(low)):
         means.append(np.linspace(low[i], high[i], numberOfBasis))
     means = np.stack(means, axis=0)
+    '''
 
+    grid = [np.linspace(low[i], high[i], grid_intervals) for i in range(len(low))]
+    means = np.meshgrid(*grid)
+    means = np.stack([m.flatten() for m in means], axis=-1)
+
+    assert len(means) == numberOfBasis
     basis = np.zeros((len(xtrain), numberOfBasis))
 
     for i in range(len(xtrain)):
         for j in range(numberOfBasis):
-            basis[i, j] = np.exp(-pow(np.linalg.norm(xtrain[i, :] - means[:, j]), 2) / 2. * pow(sigma, 2))
+            basis[i, j] = np.exp(-pow(np.linalg.norm(xtrain[i, :] - means[j, :]), 2) / 2. * pow(sigma, 2))
 
     basis = np.concatenate([np.ones((len(xtrain), 1)), basis], axis=-1)
     return basis
@@ -154,12 +167,12 @@ def multivariate_domain_nonlinear_bayes():
     noise_sd = .2
     prior_precision = 2.
     likelihood_sd = noise_sd
-    number_of_lines = 7
+    number_of_lines = 1
     no_basis = 50
     sigma_basis = 4.5
 
     #Generate the training points
-    training_points = 100
+    training_points = 100*4
     xtrain = np.random.uniform(-1., 1., size=[training_points, 2])
     ytrain = np.sin(4.*np.sqrt(xtrain[:, 0]**2 + xtrain[:, 1]**2)) + np.random.normal(loc=0., scale=noise_sd, size=training_points)
     xtrain2 = basisFunctions(xtrain, numberOfBasis=no_basis, low=np.array([-1., -1.]), high=np.array([1., 1.]), sigma=sigma_basis)
@@ -179,8 +192,7 @@ def multivariate_domain_nonlinear_bayes():
     fig = plt.figure()
     ax = fig.gca(projection='3d')
 
-    surf = ax.plot_surface(X, Y, Z, cmap=cm.coolwarm, linewidth=0, antialiased=False)
-
+    #surf = ax.plot_surface(X, Y, Z, cmap=cm.coolwarm, linewidth=0, antialiased=False)
 
     #Plot the experiments
     lines = np.random.multivariate_normal(mu, sigma, number_of_lines)
@@ -189,18 +201,8 @@ def multivariate_domain_nonlinear_bayes():
         basis = basisFunctions(np.stack([X.flatten(), Y.flatten()], axis=-1), numberOfBasis=no_basis, low=np.array([-1., -1.]), high=np.array([1., 1.]), sigma=sigma_basis)
         Z = np.matmul(basis, line).reshape(X.shape)
         surf = ax.plot_surface(X, Y, Z, cmap=cm.jet, linewidth=0, antialiased=False)
-        print 'surf!'
-        '''
-        Z = np.zeros_like(X)
-        for i in range(len(Z)):
-            for j in range(len(Z[i])):
-                basis = basisFunctions(np.array([X[i, j], Y[i, j]])[np.newaxis, ...], numberOfBasis=no_basis, low=np.array([-1., -1.]), high=np.array([1., 1.]), sigma=sigma_basis)
-                Z[i, j] = np.matmul(basis, line)[0]
-        print 'surf!'
-        surf = ax.plot_surface(X, Y, Z, cmap=cm.jet, linewidth=0, antialiased=False)
-        '''
 
-    ax.scatter(xtrain[:,0], xtrain[:,1], ytrain)
+    #ax.scatter(xtrain[:,0], xtrain[:,1], ytrain)
 
     # Customize the z axis.
     ax.set_zlim(-1.01, 1.01)
@@ -212,13 +214,10 @@ def multivariate_domain_nonlinear_bayes():
 
     plt.show()
 
-
-
-
 def main():
-    univariate_bayes()
+    #univariate_bayes()
     #multivariate_domain_bayes()
-    #multivariate_domain_nonlinear_bayes()
+    multivariate_domain_nonlinear_bayes()
 
 if __name__ == '__main__':
     #basisFunctions(np.zeros([100, 4]), numberOfBasis=20, low=np.array([-1., -2., -3., -4.]), high=np.array([1., 2., 3., 4.]))
