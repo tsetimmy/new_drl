@@ -24,13 +24,6 @@ def basisFunctions(xtrain, numberOfBasis=20, low=np.array([-1.]), high=np.array(
     if numberOfBasis != numberOfBasisOriginal:
         print 'Warning, number of basis is', numberOfBasis
 
-    '''
-    means = []
-    for i in range(len(low)):
-        means.append(np.linspace(low[i], high[i], numberOfBasis))
-    means = np.stack(means, axis=0)
-    '''
-
     grid = [np.linspace(low[i], high[i], grid_intervals) for i in range(len(low))]
     means = np.meshgrid(*grid)
     means = np.stack([m.flatten() for m in means], axis=-1)
