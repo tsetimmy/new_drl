@@ -16,6 +16,7 @@ class bayesian_dynamics_model:
 
         # Declare placholder.
         self.x = tf.placeholder(shape=[None, self.input_size], dtype=tf.float32)
+        self.y_ph = tf.placeholder(shape=[None, 1], dtype=tf.float32)
 
         # Declare weights.
         self.W_0 = Normal(loc=tf.zeros([self.input_size, self.hidden_size]), scale=tf.ones([self.input_size, self.hidden_size]))
@@ -65,7 +66,59 @@ class bayesian_dynamics_model:
 
         return x[..., np.newaxis], y
 
-def main():
+    def function(self, x):
+        return np.sin(x)
+
+    def get_batch(self, noise_sd=.1, size=50):
+        x = np.random.uniform(-3., 3., size)
+        y = self.function(x) + np.random.normal(0, noise_sd, size=size)
+
+        return x[..., np.newaxis], y[..., np.newaxis]
+
+    def visualize(self, sess, xeval, animate=False):
+        plt.cla()
+        plt.scatter(xeval, self.function(xeval))
+        for _ in range(10):
+            yeval = sess.run(self.mus, feed_dict={self.x:xeval})
+            plt.plot(xeval, yeval)
+        plt.grid()
+        if animate == False:
+            plt.show()
+        else:
+            plt.pause(1. / 60.)
+
+def multi_batch_demo():
+    model = bayesian_dynamics_model(1, 1)
+    #x, y = model.generate_toy_data()
+
+    xeval = np.linspace(-3., 3., 100)[..., np.newaxis]
+
+    #sess = ed.get_session()
+    #tf.global_variables_initializer().run()
+    inference = ed.KLqp({model.W_0: model.qW_0, model.b_0: model.qb_0,
+                         model.W_1: model.qW_1, model.b_1: model.qb_1,
+                         model.W_2: model.qW_2, model.b_2: model.qb_2}, data={model.y: model.y_ph})
+    inference.initialize(n_iter=1000*5, n_samples=5)
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+
+        # Plot the prior
+        model.visualize(sess, xeval)
+
+        # Train the model
+        for _ in range(1000*5):
+            x_batch, y_batch = model.get_batch(size=np.random.randint(low=100))
+            info_dict = inference.update({model.x: x_batch, model.y_ph: y_batch})
+            inference.print_progress(info_dict)
+
+            # Visualize the evolution of the posterior plots
+            #model.visualize(sess, xeval, animate=True)
+
+        # Plot the posterior
+        model.visualize(sess, xeval)
+
+def single_batch_demo():
     model = bayesian_dynamics_model(1, 2)
     x, y = model.generate_toy_data()
 
@@ -113,9 +166,6 @@ def main():
         plt.grid()
         plt.show()
 
-
-
-
-
 if __name__ == '__main__':
-    main()
+    #multi_batch_demo()
+    single_batch_demo()
