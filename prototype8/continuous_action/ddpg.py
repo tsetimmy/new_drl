@@ -41,7 +41,7 @@ class actorcritic:
         self.aloss = -tf.reduce_mean(tf.reduce_sum(self.q_src, axis=-1))
         self.actor_solver = tf.train.AdamOptimizer(1e-4).minimize(self.aloss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'actor_src'))
 
-        #Paramter assertions
+        #Parameter assertions
         params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'actor_src') +\
                  tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'critic_src') +\
                  tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'actor_tar') +\
