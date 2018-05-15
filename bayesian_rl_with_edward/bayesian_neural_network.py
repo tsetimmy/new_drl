@@ -61,6 +61,7 @@ x_train, y_train = build_toy_dataset(N)
 # In[4]:
 
 
+'''
 W_0 = Normal(loc=tf.zeros([D, 2]), scale=tf.ones([D, 2]))
 W_1 = Normal(loc=tf.zeros([2, 1]), scale=tf.ones([2, 1]))
 b_0 = Normal(loc=tf.zeros(2), scale=tf.ones(2))
@@ -71,7 +72,7 @@ y = Normal(loc=neural_network(x, W_0, W_1, b_0, b_1),
            scale=0.1 * tf.ones(N))
 print(y.shape)
 print(type(y))
-exit()
+'''
 
 
 # Next, make inferences about the model from data. We will use variational inference. Specify a normal approximation over the weights and biases.
