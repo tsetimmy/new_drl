@@ -58,22 +58,15 @@ class bayesian_dynamics_model:
 
     def generate_toy_data(self, noise_sd=.1, size=50):
         x = np.random.uniform(-3., 3., size)
-        y = np.cos(x) + np.random.normal(0, noise_sd, size=size)
+        y1 = np.cos(x) + np.random.normal(0, noise_sd, size=size)
+        y2 = np.sin(x) + np.random.normal(0, noise_sd, size=size)
 
-        return x[..., np.newaxis], y[..., np.newaxis]
+        y = np.stack([y1, y2], axis=-1)
 
-
-
-
-        
-
-
-
-
-        
+        return x[..., np.newaxis], y
 
 def main():
-    model = bayesian_dynamics_model(1, 1)
+    model = bayesian_dynamics_model(1, 2)
     x, y = model.generate_toy_data()
 
     xeval = np.linspace(-3., 3., 100)[..., np.newaxis]
@@ -85,10 +78,17 @@ def main():
         sess.run(tf.global_variables_initializer())
 
         # Plot the prior
-        plt.scatter(x, y)
+        plt.scatter(x, y[:, 0])
         for _ in range(10):
             yeval = sess.run(model.mus, feed_dict={model.x:xeval})
-            plt.plot(xeval, yeval)
+            plt.plot(xeval, yeval[:, 0])
+        plt.grid()
+        plt.show()
+
+        plt.scatter(x, y[:, 1])
+        for _ in range(10):
+            yeval = sess.run(model.mus, feed_dict={model.x:xeval})
+            plt.plot(xeval, yeval[:, 1])
         plt.grid()
         plt.show()
 
@@ -99,13 +99,19 @@ def main():
         inference.run(n_iter=1000, n_samples=5)
 
         # Plot the posterior
-        plt.scatter(x, y)
+        plt.scatter(x, y[:, 0])
         for _ in range(10):
             yeval = sess.run(model.mus, feed_dict={model.x:xeval})
-            plt.plot(xeval, yeval)
+            plt.plot(xeval, yeval[:, 0])
         plt.grid()
         plt.show()
     
+        plt.scatter(x, y[:, 1])
+        for _ in range(10):
+            yeval = sess.run(model.mus, feed_dict={model.x:xeval})
+            plt.plot(xeval, yeval[:, 1])
+        plt.grid()
+        plt.show()
 
 
 
