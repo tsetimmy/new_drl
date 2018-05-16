@@ -2,9 +2,28 @@ import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
 
+def get_next_state(states, actions):
+    '''Get the next state for Pendulum-v0 environment.'''
+    states = np.atleast_2d(states)
+    actions = np.atleast_1d(actions)
+    if len(actions.shape) == 1:
+        actions = actions[..., np.newaxis]
+    assert len(states.shape) == 2
+    assert len(actions.shape) == 2
+
+    newthdot = states[:, -1] + (15. * states[:, 1] + 3. * actions[:, 0]) / 20.
+    newcosth = np.clip(states[:, 0] * np.cos(newthdot / 20.) - states[:, 1] * np.sin(newthdot / 20.), -1., 1.)
+    newsinth = np.clip(states[:, 1] * np.cos(newthdot / 20.) + states[:, 0] * np.sin(newthdot / 20.), -1., 1.)
+    newthdot = np.clip(newthdot, -8., 8.)
+    return np.stack([newcosth, newsinth, newthdot], axis=-1)
+
 def get_next(th, thdot, u):
-    newthdot = thdot + (-30. * np.sin(th + np.pi) + 3. * u) / 20.
+    '''Get the next state for Pendulum-v0 environment.
+       Same behavior as get_next_state() with the difference
+       being that argument (format) is different.'''
+    newthdot = thdot + (-15. * np.sin(th + np.pi) + 3. * u) / 20.
     newth = th + newthdot / 20.
+    newthdot = np.clip(newthdot, -8., 8.)
     return np.cos(newth), np.sin(newth), newthdot
 
 class real_env_pendulum_state:

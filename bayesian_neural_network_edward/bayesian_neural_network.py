@@ -13,7 +13,7 @@ class bayesian_dynamics_model:
 
         # Declare placholder.
         self.x = tf.placeholder(shape=[None, self.input_size], dtype=tf.float32)
-        self.y_ph = tf.placeholder(shape=[None, 1], dtype=tf.float32)
+        self.y_ph = tf.placeholder(shape=[None, self.output_size], dtype=tf.float32)
 
         # Declare weights.
         self.W_0 = Normal(loc=tf.zeros([self.input_size, self.hidden_size]), scale=tf.ones([self.input_size, self.hidden_size]))
@@ -46,8 +46,17 @@ class bayesian_dynamics_model:
         # Sample functions from variational model to visualize fits.
         self.mus = self.build(self.x, self.qW_0.sample(), self.qW_1.sample(), self.qW_2.sample(), self.qb_0.sample(), self.qb_1.sample(), self.qb_2.sample())
 
+    def initialize_inference(self, n_iter=1000*5, n_samples=5):
+        self.inference = ed.KLqp({self.W_0: self.qW_0, self.b_0: self.qb_0,
+                                  self.W_1: self.qW_1, self.b_1: self.qb_1,
+                                  self.W_2: self.qW_2, self.b_2: self.qb_2}, data={self.y: self.y_ph})
+        self.inference.initialize(n_iter=n_iter, n_samples=n_samples)
+
     def rbf(self, x):
         return tf.exp(-tf.square(x))
+
+    def function(self, x):
+        return np.sin(x)
 
     def build(self, x, W_0, W_1, W_2, b_0, b_1, b_2):
         '''Builds the computational graph.'''
@@ -65,9 +74,6 @@ class bayesian_dynamics_model:
         y = np.stack([y1, y2], axis=-1)
 
         return x[..., np.newaxis], y
-
-    def function(self, x):
-        return np.sin(x)
 
     def get_batch(self, noise_sd=.1, size=50):
         x = np.random.uniform(-3., 3., size)
@@ -148,7 +154,7 @@ def single_batch_demo():
         # Train the model
         inference = ed.KLqp({model.W_0: model.qW_0, model.b_0: model.qb_0,
                              model.W_1: model.qW_1, model.b_1: model.qb_1,
-                             model.W_2: model.qW_2, model.b_2: model.qb_2}, data={model.x:x, model.y: y})
+                             model.W_2: model.qW_2, model.b_2: model.qb_2}, data={model.x: x, model.y: y})
         inference.run(n_iter=1000, n_samples=5)
 
         # Plot the posterior
