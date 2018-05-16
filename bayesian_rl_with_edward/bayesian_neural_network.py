@@ -1,166 +1,171 @@
-
-# coding: utf-8
-
-# # Your first Edward program
-# 
-# Probabilistic modeling in Edward uses a simple language of random variables. Here we will show a Bayesian neural network. It is a neural network with a prior distribution on its weights.
-# 
-# A webpage version is available at 
-# http://edwardlib.org/getting-started.
-
-# In[1]:
-
-
-#get_ipython().run_line_magic('matplotlib', 'inline')
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-import edward as ed
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
 import tensorflow as tf
+import edward as ed
 
 from edward.models import Normal
 
-plt.style.use('ggplot')
+class bayesian_dynamics_model:
+    def __init__(self, input_size, output_size):
+        self.input_size = input_size
+        self.output_size = output_size
+        self.hidden_size = 20
 
+        # Declare placholder.
+        self.x = tf.placeholder(shape=[None, self.input_size], dtype=tf.float32)
+        self.y_ph = tf.placeholder(shape=[None, 1], dtype=tf.float32)
 
-# In[2]:
+        # Declare weights.
+        self.W_0 = Normal(loc=tf.zeros([self.input_size, self.hidden_size]), scale=tf.ones([self.input_size, self.hidden_size]))
+        self.W_1 = Normal(loc=tf.zeros([self.hidden_size, self.hidden_size]), scale=tf.ones([self.hidden_size, self.hidden_size]))
+        self.W_2 = Normal(loc=tf.zeros([self.hidden_size, self.output_size]), scale=tf.ones([self.hidden_size, self.output_size]))
 
+        self.b_0 = Normal(loc=tf.zeros(self.hidden_size), scale=tf.ones(self.hidden_size))
+        self.b_1 = Normal(loc=tf.zeros(self.hidden_size), scale=tf.ones(self.hidden_size))
+        self.b_2 = Normal(loc=tf.zeros(self.output_size), scale=tf.ones(self.output_size))
 
-def build_toy_dataset(N=50, noise_std=0.1):
-  x = np.linspace(-3, 3, num=N)
-  y = np.cos(x) + np.random.normal(0, noise_std, size=N)
-  x = x.astype(np.float32).reshape((N, 1))
-  y = y.astype(np.float32)
-  return x, y
+        # Output of computational graph.
+        nn_out = self.build(self.x, self.W_0, self.W_1, self.W_2, self.b_0, self.b_1, self.b_2)
+        self.y = Normal(loc=nn_out, scale=tf.ones_like(nn_out) * .1)
 
+        # Variables.
+        self.qW_0 = Normal(loc=tf.get_variable('qW_0/loc', [self.input_size, self.hidden_size]),
+                           scale=tf.nn.softplus(tf.get_variable('qW_0/scale', [self.input_size, self.hidden_size])))
+        self.qW_1 = Normal(loc=tf.get_variable('qW_1/loc', [self.hidden_size, self.hidden_size]),
+                           scale=tf.nn.softplus(tf.get_variable('qW_1/scale', [self.hidden_size, self.hidden_size])))
+        self.qW_2 = Normal(loc=tf.get_variable('qW_2/loc', [self.hidden_size, self.output_size]),
+                           scale=tf.nn.softplus(tf.get_variable('qW_2/scale', [self.hidden_size, self.output_size])))
 
-def neural_network(x, W_0, W_1, b_0, b_1):
-  h = tf.tanh(tf.matmul(x, W_0) + b_0)
-  h = tf.matmul(h, W_1) + b_1
-  return tf.reshape(h, [-1])
+        self.qb_0 = Normal(loc=tf.get_variable('qb_0/loc', [self.hidden_size]),
+                           scale=tf.nn.softplus(tf.get_variable('qb_0/scale', [self.hidden_size])))
+        self.qb_1 = Normal(loc=tf.get_variable('qb_1/loc', [self.hidden_size]),
+                           scale=tf.nn.softplus(tf.get_variable('qb_1/scale', [self.hidden_size])))
+        self.qb_2 = Normal(loc=tf.get_variable('qb_2/loc', [self.output_size]),
+                           scale=tf.nn.softplus(tf.get_variable('qb_2/scale', [self.output_size])))
 
+        # Sample functions from variational model to visualize fits.
+        self.mus = self.build(self.x, self.qW_0.sample(), self.qW_1.sample(), self.qW_2.sample(), self.qb_0.sample(), self.qb_1.sample(), self.qb_2.sample())
 
-# First, simulate a toy dataset of 50 observations with a cosine relationship.
+    def rbf(self, x):
+        return tf.exp(-tf.square(x))
 
-# In[3]:
+    def build(self, x, W_0, W_1, W_2, b_0, b_1, b_2):
+        '''Builds the computational graph.'''
 
+        h_0 = self.rbf(tf.matmul(x, W_0) + b_0)
+        h_1 = self.rbf(tf.matmul(h_0, W_1) + b_1)
+        out = tf.matmul(h_1, W_2) + b_2
+        return out
 
-ed.set_seed(42)
+    def generate_toy_data(self, noise_sd=.1, size=50):
+        x = np.random.uniform(-3., 3., size)
+        y1 = np.cos(x) + np.random.normal(0, noise_sd, size=size)
+        y2 = np.sin(x) + np.random.normal(0, noise_sd, size=size)
 
-N = 50  # number of data ponts
-D = 1   # number of features
+        y = np.stack([y1, y2], axis=-1)
 
-x_train, y_train = build_toy_dataset(N)
+        return x[..., np.newaxis], y
 
+    def function(self, x):
+        return np.sin(x)
 
-# Next, define a two-layer Bayesian neural network. Here, we define the neural network manually with `tanh` nonlinearities.
+    def get_batch(self, noise_sd=.1, size=50):
+        x = np.random.uniform(-3., 3., size)
+        y = self.function(x) + np.random.normal(0, noise_sd, size=size)
 
-# In[4]:
+        return x[..., np.newaxis], y[..., np.newaxis]
 
+    def visualize(self, sess, xeval, animate=False):
+        plt.cla()
+        plt.scatter(xeval, self.function(xeval))
+        for _ in range(10):
+            yeval = sess.run(self.mus, feed_dict={self.x:xeval})
+            plt.plot(xeval, yeval)
+        plt.grid()
+        if animate == False:
+            plt.show()
+        else:
+            plt.pause(1. / 60.)
 
-'''
-W_0 = Normal(loc=tf.zeros([D, 2]), scale=tf.ones([D, 2]))
-W_1 = Normal(loc=tf.zeros([2, 1]), scale=tf.ones([2, 1]))
-b_0 = Normal(loc=tf.zeros(2), scale=tf.ones(2))
-b_1 = Normal(loc=tf.zeros(1), scale=tf.ones(1))
+def multi_batch_demo():
+    model = bayesian_dynamics_model(1, 1)
+    #x, y = model.generate_toy_data()
 
-x = x_train
-y = Normal(loc=neural_network(x, W_0, W_1, b_0, b_1),
-           scale=0.1 * tf.ones(N))
-print(y.shape)
-print(type(y))
-'''
+    xeval = np.linspace(-3., 3., 100)[..., np.newaxis]
 
+    #sess = ed.get_session()
+    #tf.global_variables_initializer().run()
+    inference = ed.KLqp({model.W_0: model.qW_0, model.b_0: model.qb_0,
+                         model.W_1: model.qW_1, model.b_1: model.qb_1,
+                         model.W_2: model.qW_2, model.b_2: model.qb_2}, data={model.y: model.y_ph})
+    inference.initialize(n_iter=1000*5, n_samples=5)
 
-# Next, make inferences about the model from data. We will use variational inference. Specify a normal approximation over the weights and biases.
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
 
-# In[5]:
+        # Plot the prior
+        model.visualize(sess, xeval)
 
+        # Train the model
+        for _ in range(1000*5):
+            x_batch, y_batch = model.get_batch(size=np.random.randint(low=100))
+            info_dict = inference.update({model.x: x_batch, model.y_ph: y_batch})
+            inference.print_progress(info_dict)
 
-qW_0 = Normal(loc=tf.get_variable("qW_0/loc", [D, 2]),
-              scale=tf.nn.softplus(tf.get_variable("qW_0/scale", [D, 2])))
-qW_1 = Normal(loc=tf.get_variable("qW_1/loc", [2, 1]),
-              scale=tf.nn.softplus(tf.get_variable("qW_1/scale", [2, 1])))
-qb_0 = Normal(loc=tf.get_variable("qb_0/loc", [2]),
-              scale=tf.nn.softplus(tf.get_variable("qb_0/scale", [2])))
-qb_1 = Normal(loc=tf.get_variable("qb_1/loc", [1]),
-              scale=tf.nn.softplus(tf.get_variable("qb_1/scale", [1])))
+            # Visualize the evolution of the posterior plots
+            #model.visualize(sess, xeval, animate=True)
 
+        # Plot the posterior
+        model.visualize(sess, xeval)
 
-# Defining `tf.get_variable` allows the variational factors’ parameters to vary. They are initialized randomly. The standard deviation parameters are constrained to be greater than zero according to a [softplus](https://en.wikipedia.org/wiki/Rectifier_(neural_networks)) transformation.
+def single_batch_demo():
+    model = bayesian_dynamics_model(1, 2)
+    x, y = model.generate_toy_data()
 
-# In[6]:
+    xeval = np.linspace(-3., 3., 100)[..., np.newaxis]
 
+    #sess = ed.get_session()
+    #tf.global_variables_initializer().run()
 
-# Sample functions from variational model to visualize fits.
-rs = np.random.RandomState(0)
-inputs = np.linspace(-5, 5, num=400, dtype=np.float32)
-x = tf.expand_dims(inputs, 1)
-mus = tf.stack(
-    [neural_network(x, qW_0.sample(), qW_1.sample(),
-                    qb_0.sample(), qb_1.sample())
-     for _ in range(10)])
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
 
+        # Plot the prior
+        plt.scatter(x, y[:, 0])
+        for _ in range(10):
+            yeval = sess.run(model.mus, feed_dict={model.x:xeval})
+            plt.plot(xeval, yeval[:, 0])
+        plt.grid()
+        plt.show()
 
-# In[7]:
+        plt.scatter(x, y[:, 1])
+        for _ in range(10):
+            yeval = sess.run(model.mus, feed_dict={model.x:xeval})
+            plt.plot(xeval, yeval[:, 1])
+        plt.grid()
+        plt.show()
 
+        # Train the model
+        inference = ed.KLqp({model.W_0: model.qW_0, model.b_0: model.qb_0,
+                             model.W_1: model.qW_1, model.b_1: model.qb_1,
+                             model.W_2: model.qW_2, model.b_2: model.qb_2}, data={model.x:x, model.y: y})
+        inference.run(n_iter=1000, n_samples=5)
 
-# FIRST VISUALIZATION (prior)
+        # Plot the posterior
+        plt.scatter(x, y[:, 0])
+        for _ in range(10):
+            yeval = sess.run(model.mus, feed_dict={model.x:xeval})
+            plt.plot(xeval, yeval[:, 0])
+        plt.grid()
+        plt.show()
+    
+        plt.scatter(x, y[:, 1])
+        for _ in range(10):
+            yeval = sess.run(model.mus, feed_dict={model.x:xeval})
+            plt.plot(xeval, yeval[:, 1])
+        plt.grid()
+        plt.show()
 
-sess = ed.get_session()
-tf.global_variables_initializer().run()
-outputs = mus.eval()
-
-fig = plt.figure(figsize=(10, 6))
-ax = fig.add_subplot(111)
-ax.set_title("Iteration: 0")
-ax.plot(x_train, y_train, 'ks', alpha=0.5, label='(x, y)')
-ax.plot(inputs, outputs[0].T, 'r', lw=2, alpha=0.5, label='prior draws')
-ax.plot(inputs, outputs[1:].T, 'r', lw=2, alpha=0.5)
-ax.set_xlim([-5, 5])
-ax.set_ylim([-2, 2])
-ax.legend()
-plt.show()
-
-
-# Now, run variational inference with the [Kullback-Leibler](https://en.wikipedia.org/wiki/Kullback–Leibler_divergence) divergence in order to infer the model’s latent variables with the given data. We specify `1000` iterations.
-
-# In[8]:
-
-
-inference = ed.KLqp({W_0: qW_0, b_0: qb_0,
-                     W_1: qW_1, b_1: qb_1}, data={y: y_train})
-inference.run(n_iter=1000, n_samples=5)
-
-
-# Finally, criticize the model fit. Bayesian neural networks define a distribution over neural networks, so we can perform a graphical check. Draw neural networks from the inferred model and visualize how well it fits the data.
-
-# In[9]:
-
-
-# SECOND VISUALIZATION (posterior)
-
-outputs = mus.eval()
-
-fig = plt.figure(figsize=(10, 6))
-ax = fig.add_subplot(111)
-ax.set_title("Iteration: 1000")
-ax.plot(x_train, y_train, 'ks', alpha=0.5, label='(x, y)')
-ax.plot(inputs, outputs[0].T, 'r', lw=2, alpha=0.5, label='posterior draws')
-ax.plot(inputs, outputs[1:].T, 'r', lw=2, alpha=0.5)
-ax.set_xlim([-5, 5])
-ax.set_ylim([-2, 2])
-ax.legend()
-plt.show()
-
-
-# The model has captured the cosine relationship between $x$ and $y$ in the observed domain.
-# 
-# 
-# To learn more about Edward, [delve in](http://edwardlib.org/api)!
-# 
-# If you prefer to learn via examples, then check out some
-# [tutorials](http://edwardlib.org/tutorials/).
+if __name__ == '__main__':
+    #multi_batch_demo()
+    single_batch_demo()
