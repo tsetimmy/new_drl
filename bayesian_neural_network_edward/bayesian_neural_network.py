@@ -43,6 +43,10 @@ class bayesian_dynamics_model:
         self.qb_2 = Normal(loc=tf.get_variable('qb_2/loc', [self.output_size]),
                            scale=tf.nn.softplus(tf.get_variable('qb_2/scale', [self.output_size])))
 
+        # Sample of the posterior model.
+        self.sample_model = [self.qW_0.sample(), self.qW_1.sample(), self.qW_2.sample(), self.qb_0.sample(),
+                             self.qb_1.sample(), self.qb_2.sample()]
+
         # Sample functions from variational model to visualize fits.
         self.mus = self.build(self.x, self.qW_0.sample(), self.qW_1.sample(), self.qW_2.sample(), self.qb_0.sample(), self.qb_1.sample(), self.qb_2.sample())
 

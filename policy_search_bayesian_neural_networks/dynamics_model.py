@@ -40,7 +40,7 @@ class dynamics_model:
 
         return states, actions, next_states
 
-    def random_policy(self, T=100):
+    def random_policy(self, T=20):
         '''Gets a random policy for the Pendulum-v0 environment.'''
         action_bound_high = 2.
         action_bound_low = -2.
@@ -55,27 +55,12 @@ class dynamics_model:
 
         return np.array([np.cos(theta), np.sin(theta), thetadot])
 
-def visualize_trajectory():
-    pass
-
-    thetas = []
-    state = np.copy(seed_state)
-    for action in policy:
-        state = get_next_state(state, action)
-        thetas.append(state[0, 0])
-
-    plt.plot(np.arange(len(thetas)), thetas)
-    plt.grid()
-    plt.show()
-    exit()
-
-
 def main():
     batch_size = 32
-    iterations = 10000
+    iterations = 10000*5
     model = dynamics_model(4, 3, iterations)
 
-    policy = model.random_policy()
+    policy = model.random_policy(T=100)
     seed_state = model.random_seed_state()
 
     # Train ANN
@@ -87,18 +72,39 @@ def main():
             model.train(x=np.concatenate([batch[0], batch[1][..., np.newaxis]], axis=-1), y=batch[2])
 
         # Evaluation step
-        for _ in range(1):
+        # 1) Plot real dynamics
+        Y = [seed_state[0]]
+        state = np.copy(seed_state)
+        for action in policy:
+            state = get_next_state(state, action)
+            Y.append(state[0, 0])
+        plt.plot(np.arange(len(Y)), Y)
+
+        # 2) Plot models sampled from BNN
+        for _ in range(10):
+            Y = [seed_state[0]]
+            state = np.copy(seed_state)
+            sample_model = sess.run(model.bnn.sample_model)
+            for action in policy:
+                sa_concat = np.atleast_2d(np.append(state, action)).astype(np.float32)
+                state = model.bnn.build(*([sa_concat]+sample_model)).eval()
+                Y.append(state[0, 0])
+            plt.plot(np.arange(len(Y)), Y)
+
+        '''
+        # 3) Plot models by resampling every time step
+        for _ in range(10):
+            Y = [seed_state[0]]
             state = np.copy(seed_state)
             for action in policy:
+                sa_concat = np.atleast_2d(np.append(state, action)).astype(np.float32)
+                state = sess.run(model.bnn.mus, feed_dict={model.bnn.x:sa_concat})
+                Y.append(state[0, 0])
+            plt.plot(np.arange(len(Y)), Y)
+        '''
 
-                next_state = sess.run(model)
-
-
-    
-
-
-
-
+        plt.grid()
+        plt.show()
 
 if __name__ == '__main__':
     main()
