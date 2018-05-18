@@ -31,7 +31,7 @@ class qnetwork:
         q = sess.run(self.q, feed_dict={self.states:state[np.newaxis, ...]})
         return np.argmax(q)
 
-    def train(self, sess, batch, learning_rate, tnet):
+    def train(self, sess, batch, discount_factor, tnet):
         assert len(batch) > 0
         states = np.vstack(batch[:, 0])
         actions = np.array(batch[:, 1])
@@ -40,7 +40,7 @@ class qnetwork:
         dones = batch[:, 4]
 
         next_q = sess.run(tnet.q, feed_dict={tnet.states:next_states})
-        next_q = rewards + (1. - dones.astype(np.float32)) * learning_rate * np.amax(next_q, axis=1, keepdims=False)
+        next_q = rewards + (1. - dones.astype(np.float32)) * discount_factor * np.amax(next_q, axis=1, keepdims=False)
 
         sess.run(self.update_model, feed_dict={self.states:states, self.actions:actions, self.target_q:next_q})
 

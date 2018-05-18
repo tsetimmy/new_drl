@@ -18,7 +18,7 @@ def main():
     parser.add_argument("--epsilon-min", type=float, default=.01)
     parser.add_argument("--epsilon-decay", type=float, default=.001)
 
-    parser.add_argument("--learning-rate", type=float, default=.99)
+    parser.add_argument("--discount-factor", type=float, default=.99)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=300)
 
@@ -68,7 +68,7 @@ def main():
 
                 # Training step
                 batch = np.array(memory.sample(args.batch_size))
-                qnet.train(sess, batch, args.learning_rate, tnet)
+                qnet.train(sess, batch, args.discount_factor, tnet)
 
                 # s <- s'
                 state = np.copy(next_state)
