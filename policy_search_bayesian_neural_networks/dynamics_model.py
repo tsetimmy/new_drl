@@ -57,7 +57,7 @@ class dynamics_model:
 
 def main():
     batch_size = 32
-    iterations = 10000*5
+    iterations = 10000
     model = dynamics_model(4, 3, iterations)
 
     policy = model.random_policy(T=100)
@@ -81,7 +81,8 @@ def main():
         plt.plot(np.arange(len(Y)), Y)
 
         # 2) Plot models sampled from BNN
-        for _ in range(10):
+        for i in range(5):
+            print i
             Y = [seed_state[0]]
             state = np.copy(seed_state)
             sample_model = sess.run(model.bnn.sample_model)
