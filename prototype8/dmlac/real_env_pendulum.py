@@ -48,8 +48,12 @@ class real_env_pendulum_reward:
         self.action_shape = action_shape
 
     def build(self, states, actions):
-        assert states.shape.as_list() == self.input_shape
-        assert actions.shape.as_list() == self.action_shape
+        #assert states.shape.as_list() == self.input_shape
+        #assert actions.shape.as_list() == self.action_shape
+        assert len(states.shape.as_list()) == 2
+        assert states.shape.as_list()[-1] == self.input_shape[-1]
+        assert len(actions.shape.as_list()) == 2
+        assert actions.shape.as_list()[-1] == self.action_shape[-1]
 
         cossgn = (tf.sign(states[:, 0])+1.)/2.
         sinsgn = (tf.sign(states[:, 1])+1.)/2.
