@@ -61,7 +61,7 @@ class PAI:
 
         # Initialize the Bayesian neural network.
         self.bnn = bayesian_dynamics_model(self.state_size + self.action_size, self.state_size)
-        self.bnn.initialize_inference(n_iter=self.it_dyn, n_samples=self.bs_dyn)
+        self.bnn.initialize_inference(n_iter=self.it_tloop*self.it_dyn*300, n_samples=10)
 
         # Declare variables and assignment operators for each W_k.
         self.assign_op = []
@@ -116,25 +116,21 @@ class PAI:
         return action[0]
 
     def train(self, sess, memory):
-        if len(memory.mem) < self.bs_dyn:
+        if len(memory.mem) < self.bs_dyn or len(memory.mem) < self.K:
             return
 
-        batch = np.array(memory.mem)
-        states = np.concatenate(batch[:, 0], axis=0)
-        actions = np.concatenate(batch[:, 1], axis=0)
-        rewards = batch[:, 2]
-        next_states = np.concatenate(batch[:, 3], axis=0)
-        dones = batch[:, 4]
-
-        for _ in range(self.it_tloop):
+        for i in range(self.it_tloop):
             # Train model dynamics.
-            self.bnn.inference.run({self.bnn.x:np.concatenate([states, actions], axis=-1),
-                                    self.bnn.y_ph:next_states})
-            '''
-            info_dict = self.bnn.inference.update({self.bnn.x:np.concatenate([states, actions], axis=-1),
-                                                   self.bnn.y_ph:next_states})
-            self.bnn.inference.print_progress(info_dict)
-            '''
+            print i, 'of', self.it_tloop, 'iterations'
+            for _ in range(self.it_dyn):
+                batch = np.array(memory.sample(self.bs_dyn))
+                states = np.concatenate(batch[:, 0], axis=0)
+                actions = np.concatenate(batch[:, 1], axis=0)
+                next_states = np.concatenate(batch[:, 3], axis=0)
+
+                info_dict = self.bnn.inference.update({self.bnn.x:np.concatenate([states, actions], axis=-1),
+                                                       self.bnn.y_ph:next_states})
+                #self.bnn.inference.print_progress(info_dict)
 
             # Train policy.
             for _ in range(self.it_policy):
