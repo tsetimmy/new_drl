@@ -6,10 +6,10 @@ import edward as ed
 from edward.models import Normal
 
 class bayesian_dynamics_model:
-    def __init__(self, input_size, output_size):
+    def __init__(self, input_size, output_size, hidden_size=20):
         self.input_size = input_size
         self.output_size = output_size
-        self.hidden_size = 20
+        self.hidden_size = hidden_size
 
         # Declare placholder.
         self.x = tf.placeholder(shape=[None, self.input_size], dtype=tf.float32)
@@ -43,9 +43,11 @@ class bayesian_dynamics_model:
         self.qb_2 = Normal(loc=tf.get_variable('qb_2/loc', [self.output_size]),
                            scale=tf.nn.softplus(tf.get_variable('qb_2/scale', [self.output_size])))
 
+        # Keep track of the variables in a list.
+        self.random_vars = [self.qW_0, self.qW_1, self.qW_2, self.qb_0, self.qb_1, self.qb_2]
+
         # Sample of the posterior model.
-        self.sample_model = [self.qW_0.sample(), self.qW_1.sample(), self.qW_2.sample(), self.qb_0.sample(),
-                             self.qb_1.sample(), self.qb_2.sample()]
+        self.sample_model = [var.sample() for var in self.random_vars]
 
         # Sample functions from variational model to visualize fits.
         self.mus = self.build(self.x, self.qW_0.sample(), self.qW_1.sample(), self.qW_2.sample(), self.qb_0.sample(), self.qb_1.sample(), self.qb_2.sample())
@@ -68,6 +70,7 @@ class bayesian_dynamics_model:
         h_0 = self.rbf(tf.matmul(x, W_0) + b_0)
         h_1 = self.rbf(tf.matmul(h_0, W_1) + b_1)
         out = tf.matmul(h_1, W_2) + b_2
+
         return out
 
     def generate_toy_data(self, noise_sd=.1, size=50):

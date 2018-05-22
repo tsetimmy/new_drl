@@ -8,7 +8,7 @@ from prototype8.dmlac.real_env_pendulum import get_next, get_next_state
 from bayesian_neural_network_edward.bayesian_neural_network\
      import bayesian_dynamics_model
 
-class dynamics_model:
+class dynamics_model_visualize:
     def __init__(self, input_size, output_size, iterations):
         self.iterations = iterations
 
@@ -57,8 +57,8 @@ class dynamics_model:
 
 def main():
     batch_size = 32
-    iterations = 10000
-    model = dynamics_model(4, 3, iterations)
+    iterations = 1000*5
+    model = dynamics_model_visualize(4, 3, iterations)
 
     policy = model.random_policy(T=100)
     seed_state = model.random_seed_state()
