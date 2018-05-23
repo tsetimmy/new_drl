@@ -12,7 +12,7 @@ def plot_model_data(mu, sigma, number_of_basis, sigma_basis):
     number_of_lines = 6
     lines = np.random.multivariate_normal(mu, sigma, number_of_lines)
 
-    th = np.linspace(-1., 1., 30)
+    th = np.linspace(-np.pi, np.pi, 30)
     thdot = np.linspace(-8., 8., 30)
     u = np.linspace(-2., 2., 30)
 

@@ -45,9 +45,8 @@ class bayesian_model:
         self.op_pos2prior_assign = [self.prior_mu.assign(self.posterior_mu_in), self.prior_sigma.assign(self.posterior_sigma_in)]
 
     # Basis functions using RBFs (to model nonlinear data)
-    def basis_functions(self, X):
+    def basis_functions(self, X, sigma=.96):
         assert self.no_basis > 1
-        sigma = .96
         means = np.stack([np.linspace(self.observation_space_low[i], self.observation_space_high[i], self.no_basis - 1) \
                          for i in range(len(self.observation_space_high))], axis=0)
         tf_means = tf.Variable(means, dtype=tf.float32)
@@ -121,7 +120,7 @@ def get_training_data(training_points):
     from prototype8.dmlac.real_env_pendulum import get_next
     u = np.random.uniform(-2., 2., training_points)
     thdot = np.random.uniform(-8., 8., training_points)
-    th = np.random.uniform(0., 2.*np.pi, training_points)
+    th = np.random.uniform(-np.pi, np.pi, training_points)
 
     costh = []
     sinth = []
@@ -144,7 +143,7 @@ def pendulum_experiment():
     def plot_truth_data():
         u = np.linspace(-2., 2., 10)
         thdot = np.linspace(-8., 8., 20)
-        th = np.linspace(0., 2.*np.pi, 10)
+        th = np.linspace(-np.pi, np.pi, 10)
 
         costh = []
         sinth = []
@@ -175,7 +174,7 @@ def pendulum_experiment():
 
         u = np.linspace(-2., 2., 10)
         thdot = np.linspace(-8., 8., 20)
-        th = np.linspace(0., 2.*np.pi, 10)
+        th = np.linspace(-np.pi, np.pi, 10)
 
         states = []
         for i in range(len(u)):
