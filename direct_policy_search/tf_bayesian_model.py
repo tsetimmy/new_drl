@@ -45,11 +45,24 @@ class bayesian_model:
         self.op_pos2prior_assign = [self.prior_mu.assign(self.posterior_mu_in), self.prior_sigma.assign(self.posterior_sigma_in)]
 
     # Basis functions using RBFs (to model nonlinear data)
-    def basis_functions(self, X, sigma=.96):
+    def basis_functions(self, X, sigma=.09):
         assert self.no_basis > 1
-        means = np.stack([np.linspace(self.observation_space_low[i], self.observation_space_high[i], self.no_basis - 1) \
-                         for i in range(len(self.observation_space_high))], axis=0)
-        tf_means = tf.Variable(means, dtype=tf.float32)
+
+        no_basis = self.no_basis
+        no_basis -= 1
+        no_basis_original = no_basis
+        grid_intervals = int(np.ceil(no_basis ** (1. / len(self.observation_space_low))))
+        no_basis = grid_intervals ** len(self.observation_space_low)
+        if no_basis != no_basis_original:
+            print 'Warning, number of basis is', no_basis
+
+        grid = [np.linspace(self.observation_space_low[i], self.observation_space_high[i], grid_intervals)
+                for i in range(len(self.observation_space_low))]
+        means = np.meshgrid(*grid)
+        means = np.stack([m.flatten() for m in means], axis=-1)
+        assert len(means) == no_basis
+
+        tf_means = tf.Variable(means.T, dtype=tf.float32)
         norm_of_difference = tf.square(tf.norm(X, axis=-1, keep_dims=True)) + (-2. * tf.matmul(X, tf_means)) + tf.square(tf.norm(tf_means, axis=0, keep_dims=True))
         bases = tf.exp(-norm_of_difference / 2. * pow(sigma, 2))
         bases = tf.concat([tf.ones_like(bases[:, 0:1]), bases], axis=-1)
@@ -148,23 +161,17 @@ def pendulum_experiment():
         costh = []
         sinth = []
         newthdot = []
-        X = []
-        x = 0.
-        counter = 0
         for i in range(len(u)):
             for j in range(len(thdot)):
                 for k in range(len(th)):
-                    counter += 1
                     a, b, c = get_next(th[k], thdot[j], u[i])
                     costh.append(a)
                     sinth.append(b)
                     newthdot.append(c)
-                    X.append(x)
-                    x += .1
 
-        plt.scatter(X, costh)
-        #plt.scatter(X, sinth)
-        #plt.scatter(X, newthdot)
+        plt.scatter(np.arange(len(costh)) / 10., costh)
+        #plt.scatter(np.arange(len(sinth)) / 10., sinth)
+        #plt.scatter(np.arange(len(newthdot)) / 10., newthdot)
         plt.grid()
         ##plt.show()
 
@@ -188,11 +195,11 @@ def pendulum_experiment():
             plt.scatter(np.arange(len(y)) / 10., y)
         plt.show()
 
-    training_points = 400*3
+    training_points = 400*5
     noise_sd = .2
     prior_precision = 2.
     likelihood_sd = noise_sd
-    no_basis = 20
+    no_basis = (5**4)+1
 
     xtrain, ytrain = get_training_data(training_points)
     model = bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),

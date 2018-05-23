@@ -27,16 +27,14 @@ def basisFunctions(xtrain, numberOfBasis=20, low=np.array([-1.]), high=np.array(
     grid = [np.linspace(low[i], high[i], grid_intervals) for i in range(len(low))]
     means = np.meshgrid(*grid)
     means = np.stack([m.flatten() for m in means], axis=-1)
-
     assert len(means) == numberOfBasis
-    basis = np.zeros((len(xtrain), numberOfBasis))
 
-    for i in range(len(xtrain)):
-        for j in range(numberOfBasis):
-            basis[i, j] = np.exp(-pow(np.linalg.norm(xtrain[i, :] - means[j, :]), 2) / 2. * pow(sigma, 2))
-
-    basis = np.concatenate([np.ones((len(xtrain), 1)), basis], axis=-1)
-    return basis
+    means = means.T
+    norm_of_difference = np.square(np.linalg.norm(xtrain, axis=-1, keepdims=True)) + (-2. * np.matmul(xtrain, means)) +\
+                         np.square(np.linalg.norm(means, axis=0, keepdims=True))
+    bases = np.exp(-norm_of_difference / 2. * pow(sigma, 2))
+    bases = np.concatenate([np.ones((len(xtrain), 1)), bases], axis=-1)
+    return bases
 
 def plotSampleLines(mu, sigma, numberOfLines, dataPoints, numberOfBasis):
     x = np.linspace(-1., 1., 50)

@@ -8,6 +8,47 @@ import sys
 sys.path.append('..')
 from prototype8.dmlac.real_env_pendulum import get_next
 
+def plot_model_data2(mu, sigma, number_of_basis, sigma_basis):
+    number_of_lines = 6
+    lines = np.random.multivariate_normal(mu, sigma, number_of_lines)
+
+    th = np.linspace(-np.pi, np.pi, 10)
+    thdot = np.linspace(-8., 8., 20)
+    u = np.linspace(-2., 2., 10)
+
+    # Real model
+    costh = []
+    sinth = []
+    newthdot = []
+    for i in range(len(u)):
+        for j in range(len(thdot)):
+            for k in range(len(th)):
+                a, b, c = get_next(th[k], thdot[j], u[i])
+                costh.append(a)
+                sinth.append(b)
+                newthdot.append(c)
+
+    plt.scatter(np.arange(len(costh)) / 10., costh)
+    #plt.scatter(np.arange(len(sinth)) / 10., sinth)
+    #plt.scatter(np.arange(len(newthdot)) / 10., newthdot)
+    #plt.grid()
+
+    # Bayesian model
+    states = []
+    for i in range(len(u)):
+        for j in range(len(thdot)):
+            for k in range(len(th)):
+                states.append([np.cos(th[k]), np.sin(th[k]), thdot[j], u[i]])
+    states = np.stack(states, axis=0)
+    states_basis = basisFunctions(states, number_of_basis, low=np.array([-1., -1., -8., -2.]), high=np.array([1., 1., 8., 2.]), sigma=sigma_basis)
+
+    for line in lines:
+        y = np.matmul(states_basis, line)
+        plt.scatter(np.arange(len(y)) / 10., y)
+
+    plt.grid()
+    plt.show()
+
 def plot_model_data(mu, sigma, number_of_basis, sigma_basis):
     number_of_lines = 6
     lines = np.random.multivariate_normal(mu, sigma, number_of_lines)
@@ -61,6 +102,7 @@ def pendulum_experiment_numpy():
     mu, sigma = update(xtrain_basis, ytrain, 1. / noise_sd ** 2, prior_mean, prior_sigma)
 
     plot_model_data(mu, sigma, number_of_basis, sigma_basis)
+    plot_model_data2(mu, sigma, number_of_basis, sigma_basis)
 
 def main():
     pendulum_experiment_numpy()
