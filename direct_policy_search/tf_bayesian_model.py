@@ -142,7 +142,7 @@ class bayesian_model:
         posterior_mu, posterior_sigma = sess.run([self.posterior_mu, self.posterior_sigma], feed_dict={self.X:self.basis_functions2(X), self.y:y, self.prior_mu:self.mu, self.prior_sigma:self.sigma})
         self.mu = np.copy(posterior_mu)
         self.sigma = np.copy(posterior_sigma)
-        print self.mu
+        #print self.mu
         #sess.run(self.op_pos2prior_assign, feed_dict={self.posterior_mu_in:posterior_mu, self.posterior_sigma_in:posterior_sigma})
         return posterior_mu, posterior_sigma
 
@@ -215,6 +215,60 @@ def get_training_data(training_points):
 
     return np.stack([np.cos(th), np.sin(th), thdot, u], axis=-1), costh
 
+def get_training_data2(training_points):
+    '''
+    import pickle
+    data = pickle.load(open("save.p", "rb" ))
+    return data[0], data[1]
+    '''
+    import sys
+    sys.path.append('..')
+    from prototype8.dmlac.real_env_pendulum import get_next
+    u = np.random.uniform(-2., 2., training_points)
+    thdot = np.random.uniform(-8., 8., training_points)
+    th = np.random.uniform(-np.pi, np.pi, training_points)
+
+    costh = []
+    sinth = []
+    newthdot = []
+    x = 0.
+    counter = 0
+
+    for i in range(training_points):
+        a, b, c = get_next(th[i], thdot[i], u[i])
+        costh.append(a)
+        sinth.append(b)
+        newthdot.append(c)
+
+    costh = np.array(costh)
+    sinth = np.array(sinth)
+    newthdot = np.array(newthdot)
+    return np.stack([np.cos(th), np.sin(th), thdot, u], axis=-1), np.stack([costh, sinth, newthdot], axis=-1)
+
+def get_training_data3(training_points):
+    import gym
+    env = gym.make('Pendulum-v0')
+    xtrain = []
+    ytrain = []
+
+    state = env.reset()
+
+    while True:
+        action = np.random.uniform(-2., 2., 1)
+        next_state, reward, done, _ = env.step(action)
+
+        xtrain.append(np.append(state, action))
+        ytrain.append(next_state)
+        assert len(xtrain) == len(ytrain)
+
+        if len(xtrain) == training_points:
+            return np.stack(xtrain, axis=0), np.stack(ytrain, axis=0)
+
+        if done:
+            state = env.reset()
+        else:
+            state = np.copy(next_state)
+
 def pendulum_experiment():
     import sys
     sys.path.append('..')
@@ -262,8 +316,8 @@ def pendulum_experiment():
             plt.scatter(np.arange(len(y)) / 10., y)
         plt.show()
 
-    training_points = 400*5
-    interval = 400*5/10
+    training_points = 200*10
+    interval = 200*10
     noise_sd = .2
     prior_precision = 2.
     likelihood_sd = noise_sd
@@ -277,14 +331,78 @@ def pendulum_experiment():
         sess.run(tf.global_variables_initializer())
 
         for i in range(0, training_points, interval):
-            print i
+            #print i
             mu, sigma = model.update(sess, xtrain[i:i+interval], ytrain[i:i+interval])
             plot_truth_data()
             plot_model_data(mu, sigma, sess, model)
 
+def random_seed_state():
+    theta = np.random.uniform(-np.pi, np.pi)
+    thetadot = np.random.uniform(-8., 8.)
+
+    return np.array([np.cos(theta), np.sin(theta), thetadot])
+
 def future_state_prediciton_experiment():
-    pass
+    import sys
+    sys.path.append('..')
+    from prototype8.dmlac.real_env_pendulum import get_next_state
+
+    training_points = 200*20
+    noise_sd = .2
+    prior_precision = 2.
+    likelihood_sd = noise_sd
+    no_basis = (5**4)+1
+
+    xtrain, ytrain = get_training_data3(training_points)
+    model0 = bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),
+                            observation_space_high=np.array([1., 1., 8., 2.]), no_basis=no_basis)
+    model1 = bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),
+                            observation_space_high=np.array([1., 1., 8., 2.]), no_basis=no_basis)
+    model2 = bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),
+                            observation_space_high=np.array([1., 1., 8., 2.]), no_basis=no_basis)
+
+    T = 100#Time horizon
+    policy = np.random.uniform(-2., 2., T)
+    seed_state = random_seed_state()
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        mu0, sigma0 = model0.update(sess, xtrain, ytrain[:, 0])
+        mu1, sigma1 = model1.update(sess, xtrain, ytrain[:, 1])
+        mu2, sigma2 = model2.update(sess, xtrain, ytrain[:, 2])
+
+        # 2) Plot trajectories from model
+        lines0 = np.random.multivariate_normal(np.squeeze(mu0, axis=-1), sigma0, 50)
+        lines1 = np.random.multivariate_normal(np.squeeze(mu1, axis=-1), sigma1, 50)
+        lines2 = np.random.multivariate_normal(np.squeeze(mu2, axis=-1), sigma2, 50)
+        for i in range(len(lines0)):
+            state = np.copy(seed_state)
+            Y = [seed_state[0]]
+            for action in policy:
+                sa_concat = np.atleast_2d(np.append(state, action)).astype(np.float64)
+                states_basis = model0.basis_functions2(sa_concat)
+
+                next_states0 = np.matmul(states_basis, lines0[i])
+                next_states1 = np.matmul(states_basis, lines1[i])
+                next_states2 = np.matmul(states_basis, lines2[i])
+
+                next_state = np.concatenate([next_states0, next_states1, next_states2], axis=0)
+                state = np.copy(next_state)
+                Y.append(state[0])
+            plt.plot(np.arange(len(Y)), Y, color='r')
+
+        # 1) Plot real dynamics
+        Y = [seed_state[0]]
+        state = np.copy(seed_state)
+        for action in policy:
+            state = get_next_state(state, action)
+            Y.append(state[0, 0])
+        plt.plot(np.arange(len(Y)), Y)
+
+        plt.grid()
+        plt.show()
 
 if __name__ == '__main__':
     #sinusoid_experiment()
     pendulum_experiment()
+    #future_state_prediciton_experiment()
