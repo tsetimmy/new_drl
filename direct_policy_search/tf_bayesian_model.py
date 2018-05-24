@@ -16,33 +16,39 @@ class bayesian_model:
 
         # Assertions
         np.testing.assert_array_equal(-self.observation_space_low, self.observation_space_high)
-        assert len(self.observation_space_high) == dim
+        assert len(self.observation_space_high) == self.dim
+
+        # Keep track of mu and sigma
+        self.prior_precision = 2.#Assume known beforehand
+        self.mu = np.zeros([self.no_basis, 1])
+        self.sigma = np.eye(self.no_basis) / self.prior_precision
 
         # Placeholders
-        self.X = tf.placeholder(shape=[None, self.dim], dtype=tf.float32)
-        self.y = tf.placeholder(shape=[None, 1], dtype=tf.float32)
-        self.X_basis = self.basis_functions(self.X)
+        self.X = tf.placeholder(shape=[None, self.no_basis], dtype=tf.float64)
+        self.y = tf.placeholder(shape=[None, 1], dtype=tf.float64)
+        #self.X_basis = self.basis_functions(self.X)
 
         # Mean and variance of prior
-        self.prior_precision = 2.#Assume known beforehand
-        self.prior_mu = tf.Variable(np.zeros([self.no_basis, 1]), dtype=tf.float32)
-        self.prior_sigma = tf.Variable(np.eye(self.no_basis) / self.prior_precision, dtype=tf.float32)
+        self.prior_mu = tf.placeholder(shape=[self.no_basis, 1], dtype=tf.float64)
+        self.prior_sigma = tf.placeholder(shape=[self.no_basis, self.no_basis], dtype=tf.float64)
 
         self.likelihood_sd = .2#Assume known beforehand
 
         # Mean and variance of posterior
         self.posterior_sigma = tf.matrix_inverse(tf.matrix_inverse(self.prior_sigma) + \
                                                  pow(self.likelihood_sd, -2) * \
-                                                 tf.matmul(tf.transpose(self.X_basis), self.X_basis))
+                                                 tf.matmul(tf.transpose(self.X), self.X))
 
         self.posterior_mu = tf.matmul(tf.matmul(self.posterior_sigma, tf.matrix_inverse(self.prior_sigma)), self.prior_mu) + \
-                            pow(self.likelihood_sd, -2) * tf.matmul(tf.matmul(self.posterior_sigma, tf.transpose(self.X_basis)), self.y)
+                            pow(self.likelihood_sd, -2) * tf.matmul(tf.matmul(self.posterior_sigma, tf.transpose(self.X)), self.y)
 
+        '''
         # Operation for assigning prior = posterior
-        self.posterior_mu_in = tf.placeholder(shape=[self.no_basis, 1], dtype=tf.float32)
-        self.posterior_sigma_in = tf.placeholder(shape=[self.no_basis, self.no_basis], dtype=tf.float32)
+        self.posterior_mu_in = tf.placeholder(shape=[self.no_basis, 1], dtype=tf.float64)
+        self.posterior_sigma_in = tf.placeholder(shape=[self.no_basis, self.no_basis], dtype=tf.float64)
 
         self.op_pos2prior_assign = [self.prior_mu.assign(self.posterior_mu_in), self.prior_sigma.assign(self.posterior_sigma_in)]
+        '''
 
     # Basis functions using RBFs (to model nonlinear data)
     def basis_functions(self, X, sigma=.09):
@@ -62,10 +68,63 @@ class bayesian_model:
         means = np.stack([m.flatten() for m in means], axis=-1)
         assert len(means) == no_basis
 
-        tf_means = tf.Variable(means.T, dtype=tf.float32)
+        tf_means = tf.Variable(means.T, dtype=tf.float64, trainable=False)
         norm_of_difference = tf.square(tf.norm(X, axis=-1, keep_dims=True)) + (-2. * tf.matmul(X, tf_means)) + tf.square(tf.norm(tf_means, axis=0, keep_dims=True))
         bases = tf.exp(-norm_of_difference / 2. * pow(sigma, 2))
         bases = tf.concat([tf.ones_like(bases[:, 0:1]), bases], axis=-1)
+        return bases
+
+    # Basis functions using RBFs (to model nonlinear data)
+    def basis_functions2(self, X, sigma=.09):
+        assert self.no_basis > 1
+
+        no_basis = self.no_basis
+        no_basis -= 1
+        no_basis_original = no_basis
+        grid_intervals = int(np.ceil(no_basis ** (1. / len(self.observation_space_low))))
+        no_basis = grid_intervals ** len(self.observation_space_low)
+        if no_basis != no_basis_original:
+            print 'Warning, number of basis is', no_basis
+
+        grid = [np.linspace(self.observation_space_low[i], self.observation_space_high[i], grid_intervals)
+                for i in range(len(self.observation_space_low))]
+        means = np.meshgrid(*grid)
+        means = np.stack([m.flatten() for m in means], axis=-1)
+        assert len(means) == no_basis
+
+        means = means.T
+        norm_of_difference = np.square(np.linalg.norm(X, axis=-1, keepdims=True)) + (-2. * np.matmul(X, means)) + np.square(np.linalg.norm(means, axis=0, keepdims=True))
+        bases = np.exp(-norm_of_difference / 2. * pow(sigma, 2))
+        bases = np.concatenate([np.ones_like(bases[:, 0:1]), bases], axis=-1)
+        return bases
+
+    def basisFunctions(self, xtrain, numberOfBasis=(5**4)+1, low=np.array([-1., -1., -8., -2.]), high=np.array([1., 1., 8., 2.]), sigma=.09):
+        xtrain = np.atleast_1d(xtrain)
+        if xtrain.ndim == 1:
+            xtrain = xtrain[..., np.newaxis]
+
+        assert numberOfBasis > 1
+        assert xtrain.shape[-1] == len(low)
+        np.testing.assert_array_equal(-low, high)
+
+        numberOfBasis -= 1
+        numberOfBasisOriginal = numberOfBasis
+        grid_intervals = int(np.ceil(numberOfBasis ** (1. / len(low))))
+        numberOfBasis = grid_intervals ** len(low)
+
+        if numberOfBasis != numberOfBasisOriginal:
+            print 'Warning, number of basis is', numberOfBasis
+
+        grid = [np.linspace(low[i], high[i], grid_intervals) for i in range(len(low))]
+        means = np.meshgrid(*grid)
+        means = np.stack([m.flatten() for m in means], axis=-1)
+        assert len(means) == numberOfBasis
+
+        means = means.T
+        norm_of_difference = np.square(np.linalg.norm(xtrain, axis=-1, keepdims=True)) + (-2. * np.matmul(xtrain, means)) +\
+                             np.square(np.linalg.norm(means, axis=0, keepdims=True))
+        bases = np.exp(-norm_of_difference / 2. * pow(sigma, 2))
+        bases = np.concatenate([np.ones((len(xtrain), 1)), bases], axis=-1)
         return bases
 
     def process(self, X, y):
@@ -79,8 +138,12 @@ class bayesian_model:
 
     def update(self, sess, X, y):
         X, y = self.process(X, y)
-        posterior_mu, posterior_sigma = sess.run([self.posterior_mu, self.posterior_sigma], feed_dict={self.X:X, self.y:y})
-        sess.run(self.op_pos2prior_assign, feed_dict={self.posterior_mu_in:posterior_mu, self.posterior_sigma_in:posterior_sigma})
+
+        posterior_mu, posterior_sigma = sess.run([self.posterior_mu, self.posterior_sigma], feed_dict={self.X:self.basis_functions2(X), self.y:y, self.prior_mu:self.mu, self.prior_sigma:self.sigma})
+        self.mu = np.copy(posterior_mu)
+        self.sigma = np.copy(posterior_sigma)
+        print self.mu
+        #sess.run(self.op_pos2prior_assign, feed_dict={self.posterior_mu_in:posterior_mu, self.posterior_sigma_in:posterior_sigma})
         return posterior_mu, posterior_sigma
 
 def plot_sample_lines(mu, sigma, number_of_lines, data_points, number_of_basis, sess, model):
@@ -128,6 +191,9 @@ def sinusoid_experiment():
         plot_sample_lines(mu, sigma, 6, [xtrain, ytrain], number_of_basis, sess, model)
 
 def get_training_data(training_points):
+    import pickle
+    data = pickle.load(open("save.p", "rb" ))
+    return data[0], data[1]
     import sys
     sys.path.append('..')
     from prototype8.dmlac.real_env_pendulum import get_next
@@ -188,7 +254,8 @@ def pendulum_experiment():
             for j in range(len(thdot)):
                 for k in range(len(th)):
                     states.append([np.cos(th[k]), np.sin(th[k]), thdot[j], u[i]])
-        states_basis = sess.run(model.X_basis, feed_dict={model.X:np.stack(states, axis=0)})
+        #states_basis = sess.run(model.X_basis, feed_dict={model.X:np.stack(states, axis=0)})
+        states_basis = model.basis_functions2(np.stack(states, axis=0))
 
         for line in lines:
             y = np.matmul(states_basis, line)
@@ -196,6 +263,7 @@ def pendulum_experiment():
         plt.show()
 
     training_points = 400*5
+    interval = 400*5/10
     noise_sd = .2
     prior_precision = 2.
     likelihood_sd = noise_sd
@@ -207,10 +275,15 @@ def pendulum_experiment():
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        mu, sigma = model.update(sess, xtrain, ytrain)
 
-        plot_truth_data()
-        plot_model_data(mu, sigma, sess, model)
+        for i in range(0, training_points, interval):
+            print i
+            mu, sigma = model.update(sess, xtrain[i:i+interval], ytrain[i:i+interval])
+            plot_truth_data()
+            plot_model_data(mu, sigma, sess, model)
+
+def future_state_prediciton_experiment():
+    pass
 
 if __name__ == '__main__':
     #sinusoid_experiment()

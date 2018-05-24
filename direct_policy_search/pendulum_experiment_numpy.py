@@ -89,6 +89,8 @@ def pendulum_experiment_numpy():
     number_of_basis = (5**4)+1
     training_points = 400*5
 
+    interval = 400*5
+
     noise_sd = .2
     prior_precision = 2.
     likelihood_sd = noise_sd
@@ -99,10 +101,14 @@ def pendulum_experiment_numpy():
     prior_mean = np.zeros(number_of_basis)
     prior_sigma = np.eye(number_of_basis) / prior_precision
 
-    mu, sigma = update(xtrain_basis, ytrain, 1. / noise_sd ** 2, prior_mean, prior_sigma)
-
-    plot_model_data(mu, sigma, number_of_basis, sigma_basis)
-    plot_model_data2(mu, sigma, number_of_basis, sigma_basis)
+    for i in range(0, training_points, interval):
+        print i
+        mu, sigma = update(xtrain_basis[i:i+interval], ytrain[i:i+interval], 1. / noise_sd ** 2, prior_mean, prior_sigma)
+        plot_model_data(mu, sigma, number_of_basis, sigma_basis)
+        plot_model_data2(mu, sigma, number_of_basis, sigma_basis)
+        prior_mean = np.copy(mu)
+        prior_sigma = np.copy(sigma)
+        print prior_mean
 
 def main():
     pendulum_experiment_numpy()
