@@ -404,5 +404,5 @@ def future_state_prediciton_experiment():
 
 if __name__ == '__main__':
     #sinusoid_experiment()
-    pendulum_experiment()
-    #future_state_prediciton_experiment()
+    #pendulum_experiment()
+    future_state_prediciton_experiment()
