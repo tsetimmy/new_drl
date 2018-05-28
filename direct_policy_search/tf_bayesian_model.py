@@ -24,9 +24,9 @@ class bayesian_model:
         self.sigma = np.eye(self.no_basis) / self.prior_precision
 
         # Placeholders
-        self.X = tf.placeholder(shape=[None, self.no_basis], dtype=tf.float64)
+        self.X = tf.placeholder(shape=[None, self.dim], dtype=tf.float64)
         self.y = tf.placeholder(shape=[None, 1], dtype=tf.float64)
-        #self.X_basis = self.basis_functions(self.X)
+        self.X_basis = self.basis_functions(self.X)
 
         # Mean and variance of prior
         self.prior_mu = tf.placeholder(shape=[self.no_basis, 1], dtype=tf.float64)
@@ -37,10 +37,10 @@ class bayesian_model:
         # Mean and variance of posterior
         self.posterior_sigma = tf.matrix_inverse(tf.matrix_inverse(self.prior_sigma) + \
                                                  pow(self.likelihood_sd, -2) * \
-                                                 tf.matmul(tf.transpose(self.X), self.X))
+                                                 tf.matmul(tf.transpose(self.X_basis), self.X_basis))
 
         self.posterior_mu = tf.matmul(tf.matmul(self.posterior_sigma, tf.matrix_inverse(self.prior_sigma)), self.prior_mu) + \
-                            pow(self.likelihood_sd, -2) * tf.matmul(tf.matmul(self.posterior_sigma, tf.transpose(self.X)), self.y)
+                            pow(self.likelihood_sd, -2) * tf.matmul(tf.matmul(self.posterior_sigma, tf.transpose(self.X_basis)), self.y)
 
         '''
         # Operation for assigning prior = posterior
@@ -51,7 +51,7 @@ class bayesian_model:
         '''
 
     # Basis functions using RBFs (to model nonlinear data)
-    def basis_functions(self, X, sigma=.09):
+    def basis_functions(self, X, sigma=.25):
         assert self.no_basis > 1
 
         no_basis = self.no_basis
@@ -75,8 +75,9 @@ class bayesian_model:
         return bases
 
     # Basis functions using RBFs (to model nonlinear data)
-    def basis_functions2(self, X, sigma=.09):
+    def basis_functions2(self, X, sigma=.25):
         assert self.no_basis > 1
+        print sigma
 
         no_basis = self.no_basis
         no_basis -= 1
@@ -131,15 +132,18 @@ class bayesian_model:
         X = np.atleast_1d(X)
         y = np.atleast_1d(y)
         if X.ndim == 1:
-            X = X[..., np.newaxis]
+            X = X[np.newaxis, ...]
         if y.ndim == 1:
             y = y[..., np.newaxis]
+        assert len(X) == len(y)
+        assert X.shape[-1] == self.dim
+        assert y.shape[-1] == 1
         return X, y
 
     def update(self, sess, X, y):
         X, y = self.process(X, y)
 
-        posterior_mu, posterior_sigma = sess.run([self.posterior_mu, self.posterior_sigma], feed_dict={self.X:self.basis_functions2(X), self.y:y, self.prior_mu:self.mu, self.prior_sigma:self.sigma})
+        posterior_mu, posterior_sigma = sess.run([self.posterior_mu, self.posterior_sigma], feed_dict={self.X:X, self.y:y, self.prior_mu:self.mu, self.prior_sigma:self.sigma})
         self.mu = np.copy(posterior_mu)
         self.sigma = np.copy(posterior_sigma)
         #print self.mu
@@ -216,11 +220,6 @@ def get_training_data(training_points):
     return np.stack([np.cos(th), np.sin(th), thdot, u], axis=-1), costh
 
 def get_training_data2(training_points):
-    '''
-    import pickle
-    data = pickle.load(open("save.p", "rb" ))
-    return data[0], data[1]
-    '''
     import sys
     sys.path.append('..')
     from prototype8.dmlac.real_env_pendulum import get_next
@@ -308,8 +307,8 @@ def pendulum_experiment():
             for j in range(len(thdot)):
                 for k in range(len(th)):
                     states.append([np.cos(th[k]), np.sin(th[k]), thdot[j], u[i]])
-        #states_basis = sess.run(model.X_basis, feed_dict={model.X:np.stack(states, axis=0)})
-        states_basis = model.basis_functions2(np.stack(states, axis=0))
+        states_basis = sess.run(model.X_basis, feed_dict={model.X:np.stack(states, axis=0)})
+        #states_basis = model.basis_functions2(np.stack(states, axis=0))
 
         for line in lines:
             y = np.matmul(states_basis, line)
@@ -335,6 +334,7 @@ def pendulum_experiment():
             mu, sigma = model.update(sess, xtrain[i:i+interval], ytrain[i:i+interval])
             plot_truth_data()
             plot_model_data(mu, sigma, sess, model)
+            print mu
 
 def random_seed_state():
     theta = np.random.uniform(-np.pi, np.pi)
@@ -342,7 +342,7 @@ def random_seed_state():
 
     return np.array([np.cos(theta), np.sin(theta), thetadot])
 
-def future_state_prediciton_experiment():
+def future_state_prediction_experiment():
     import sys
     sys.path.append('..')
     from prototype8.dmlac.real_env_pendulum import get_next_state
@@ -351,7 +351,7 @@ def future_state_prediciton_experiment():
     noise_sd = .2
     prior_precision = 2.
     likelihood_sd = noise_sd
-    no_basis = (5**4)+1
+    no_basis = (6**4)+1
 
     xtrain, ytrain = get_training_data3(training_points)
     model0 = bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),
@@ -361,9 +361,12 @@ def future_state_prediciton_experiment():
     model2 = bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),
                             observation_space_high=np.array([1., 1., 8., 2.]), no_basis=no_basis)
 
+    import pickle
     T = 100#Time horizon
-    policy = np.random.uniform(-2., 2., T)
-    seed_state = random_seed_state()
+    seed_state = pickle.load(open("random_state.p", "rb"))
+    policy = pickle.load(open("random_policy.p", "rb"))
+    #policy = np.random.uniform(-2., 2., T)
+    #seed_state = random_seed_state()
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
@@ -380,7 +383,8 @@ def future_state_prediciton_experiment():
             Y = [seed_state[0]]
             for action in policy:
                 sa_concat = np.atleast_2d(np.append(state, action)).astype(np.float64)
-                states_basis = model0.basis_functions2(sa_concat)
+                #states_basis = model0.basis_functions2(sa_concat)
+                states_basis = sess.run(model0.X_basis, feed_dict={model0.X:sa_concat})
 
                 next_states0 = np.matmul(states_basis, lines0[i])
                 next_states1 = np.matmul(states_basis, lines1[i])
@@ -405,4 +409,4 @@ def future_state_prediciton_experiment():
 if __name__ == '__main__':
     #sinusoid_experiment()
     #pendulum_experiment()
-    future_state_prediciton_experiment()
+    future_state_prediction_experiment()
