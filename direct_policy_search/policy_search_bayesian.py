@@ -34,10 +34,12 @@ class policy_search_bayesian:
 
         # Declare placeholders.
         self.states = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float64)
-        self.actions = tf.placeholder(shape=[None, self.action_dim], dtype=tf.float64)
 
         # Build computational graph (i.e., unroll policy).
     
+    def unroll_one_step(self, states):
+        assert states.shape.as_list() == [None, 
+
     def act(self, sess, states):
         states = np.atleast_2d(states)
         # TODO: implement this.
@@ -58,8 +60,8 @@ class policy_search_bayesian:
     def train_policy(self, sess):
         pass
 
-    def build_policy(self, states):
-        assert states.shape.as_list() == [None, self.state_dim]
+    def build_policy(self, states_actions):
+        assert states_actions.shape.as_list() == [None, self.state_dim + self.action_dim]
 
         #Fully connected layer 1
         fc1 = slim.fully_connected(states, 256, activation_fn=tf.nn.relu, scope=self.scope+'/fc1', reuse=self.policy_reuse_vars)
