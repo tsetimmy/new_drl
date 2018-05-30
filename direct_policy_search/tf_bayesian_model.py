@@ -14,27 +14,27 @@ class bayesian_model:
         self.observation_space_low = observation_space_low
         self.no_basis = no_basis
 
-        # Assertions
+        # Assertions.
         np.testing.assert_array_equal(-self.observation_space_low, self.observation_space_high)
         assert len(self.observation_space_high) == self.dim
 
-        # Keep track of mu and sigma
+        # Keep track of mu and sigma.
         self.prior_precision = 2.#Assume known beforehand
         self.mu = np.zeros([self.no_basis, 1])
         self.sigma = np.eye(self.no_basis) / self.prior_precision
 
-        # Placeholders
+        # Placeholders.
         self.X = tf.placeholder(shape=[None, self.dim], dtype=tf.float64)
         self.y = tf.placeholder(shape=[None, 1], dtype=tf.float64)
         self.X_basis = self.basis_functions(self.X)
 
-        # Mean and variance of prior
+        # Mean and variance of prior.
         self.prior_mu = tf.placeholder(shape=[self.no_basis, 1], dtype=tf.float64)
         self.prior_sigma = tf.placeholder(shape=[self.no_basis, self.no_basis], dtype=tf.float64)
 
         self.likelihood_sd = .2#Assume known beforehand
 
-        # Mean and variance of posterior
+        # Mean and variance of posterior.
         self.posterior_sigma = tf.matrix_inverse(tf.matrix_inverse(self.prior_sigma) + \
                                                  pow(self.likelihood_sd, -2) * \
                                                  tf.matmul(tf.transpose(self.X_basis), self.X_basis))
@@ -50,7 +50,18 @@ class bayesian_model:
         self.op_pos2prior_assign = [self.prior_mu.assign(self.posterior_mu_in), self.prior_sigma.assign(self.posterior_sigma_in)]
         '''
 
-    # Basis functions using RBFs (to model nonlinear data)
+    # Given test points, return the posterior predictive distributions.
+    def posterior_predictive_distribution(self, states_actions):
+        assert states_actions.shape.as_list() == [None, self.dim]
+
+        bases = self.basis_functions(states_actions)
+
+        posterior_predictive_mu = tf.matmul(bases, self.prior_mu)
+        posterior_predictive_sigma = pow(self.likelihood_sd, 2) + tf.reduce_sum(tf.multiply(tf.matmul(bases, self.prior_sigma), bases), axis=-1, keep_dims=True)
+
+        return tf.concat([posterior_predictive_mu, posterior_predictive_sigma], axis=-1)
+
+    # Basis functions using RBFs (to model nonlinear data).
     def basis_functions(self, X, sigma=.25):
         assert self.no_basis > 1
 
@@ -74,7 +85,7 @@ class bayesian_model:
         bases = tf.concat([tf.ones_like(bases[:, 0:1]), bases], axis=-1)
         return bases
 
-    # Basis functions using RBFs (to model nonlinear data)
+    # Basis functions using RBFs (to model nonlinear data).
     def basis_functions2(self, X, sigma=.25):
         assert self.no_basis > 1
         print sigma

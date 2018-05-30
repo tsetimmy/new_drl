@@ -6,9 +6,13 @@ import gym
 
 from tf_bayesian_model import bayesian_model
 
+import sys
+sys.path.append('..')
+from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
+
 class policy_search_bayesian:
     def __init__(self, state_dim, action_dim, observation_space_low, observation_space_high,
-                 no_basis, action_bound_low, action_bound_high, unroll_length, discount_factor):
+                 no_basis, action_bound_low, action_bound_high, unroll_steps, discount_factor):
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.observation_space_low = observation_space_low
@@ -16,7 +20,7 @@ class policy_search_bayesian:
         self.no_basis = no_basis
         self.action_bound_low = action_bound_low
         self.action_bound_high = action_bound_high
-        self.unroll_length = unroll_length
+        self.unroll_steps = unroll_steps
         self.discount_factor = discount_factor
 
         # Make sure bounds are same (assumption can be relaxed later).
@@ -29,21 +33,81 @@ class policy_search_bayesian:
                                      observation_space_high=np.append(self.observation_space_high, self.action_bound_high),
                                      no_basis=self.no_basis) for _ in range(self.state_dim)]
 
-        # Flags.
+        # Scope and flags.
+        self.policy_scope = 'policy_scope'
         self.policy_reuse_vars = None
 
         # Declare placeholders.
         self.states = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float64)
+        self.batch_size = tf.placeholder(tf.int32, shape=[])
 
-        # Build computational graph (i.e., unroll policy).
-    
-    def unroll_one_step(self, states):
-        assert states.shape.as_list() == [None, 
+        # Policy.
+        self.actions = self.build_policy(self.states)
+
+        # Unroll to get trajectories.
+        self.trajectories = self.unroll(tf.concat([self.states, self.build_policy(self.states)], axis=-1))
+
+        # Loss.
+        self.loss = self.build_loss(self.trajectories)
+
+        # Optimizer
+        self.opt = tf.train.AdamOptimizer().minimize(self.loss)
+
+    def build_loss(self, trajectories):
+        no_samples = 10
+        self.reward_model = real_env_pendulum_reward()#Use true model.
+
+        costs = []
+        for i in range(len(trajectories)):
+            samples_standard_normal = tf.random_normal(shape=([self.batch_size] + trajectories[i].shape.as_list()[1:-1] + [no_samples]), dtype=tf.float64)
+            #samples_standard_normal = tf.random_normal(shape=tf.shape(tf.placeholder(shape=(trajectories[i].shape.as_list()[:-1] + [no_samples]), dtype=tf.float64)), dtype=tf.float64)
+
+            samples = trajectories[i][..., 0:1] + tf.sqrt(trajectories[i][..., 1:2]) * samples_standard_normal
+            samples_transposed = tf.transpose(samples, perm=[0, 2, 1])
+            samples_transposed_reshaped = tf.reshape(samples_transposed, shape=[-1, self.state_dim])
+
+            rewards = (self.discount_factor ** i) * self.reward_model.build(samples_transposed_reshaped, self.build_policy(samples_transposed_reshaped))
+            rewards_reshaped = tf.reshape(rewards, shape=[-1, no_samples, 1])
+            costs.append(-tf.reduce_mean(tf.squeeze(rewards_reshaped, axis=-1), axis=-1))
+
+        loss = tf.reduce_mean(tf.reduce_sum(tf.stack(costs, axis=-1), axis=-1))
+        return loss
+
+    def unroll(self, states_actions):
+        assert states_actions.shape.as_list() == [None, self.state_dim + self.action_dim]
+        trajectories = []
+        in_no_samples = 10
+        out_no_samples = 10
+
+        # Posterior predictive distributions
+        ppd = tf.stack([m.posterior_predictive_distribution(states_actions) for m in self.model], axis=1)
+        trajectories.append(ppd)
+
+        # Unroll
+        for _ in range(self.unroll_steps - 1):
+            in_samples_standard_normal = tf.random_normal(shape=([self.batch_size] + ppd.shape.as_list()[1:-1] + [in_no_samples]), dtype=tf.float64)
+            #in_samples_standard_normal = tf.random_normal(shape=tf.shape(tf.placeholder(shape=(ppd.shape.as_list()[:-1] + [in_no_samples]), dtype=tf.float64)), dtype=tf.float64)
+
+            in_samples = ppd[..., 0:1] + tf.sqrt(ppd[..., 1:2]) * in_samples_standard_normal
+            in_sampled_states = tf.reshape(tf.transpose(in_samples, perm=[0, 2, 1]), shape=[-1, 3])
+            in_sampled_states_actions = tf.concat([in_sampled_states, self.build_policy(in_sampled_states)], axis=-1)
+
+            ppd = tf.stack([m.posterior_predictive_distribution(in_sampled_states_actions) for m in self.model], axis=1)
+            ppd_reshaped = tf.reshape(ppd, shape=[-1, out_no_samples, self.state_dim, 2])
+            ppd_reshaped_transposed = tf.transpose(ppd_reshaped, perm=[0, 2, 1, 3])
+
+            out_samples_standard_normal = tf.random_normal(shape=([self.batch_size] + ppd_reshaped_transposed.shape.as_list()[1:-1] + [out_no_samples]), dtype=tf.float64)
+            #out_samples_standard_normal = tf.random_normal(shape=tf.shape(tf.placeholder(shape=(ppd_reshaped_transposed.shape.as_list()[:-1] + [out_no_samples]), dtype=tf.float64)), dtype=tf.float64)
+
+            out_samples = ppd_reshaped_transposed[..., 0:1] + tf.sqrt(ppd_reshaped_transposed[..., 1:2]) * out_samples_standard_normal
+            ppd = tf.concat(tf.nn.moments(tf.reshape(out_samples, shape=[-1, self.state_dim, in_no_samples * out_no_samples]), axes=[-1], keep_dims=True), axis=-1)
+            trajectories.append(ppd)
+
+        return trajectories
 
     def act(self, sess, states):
         states = np.atleast_2d(states)
-        # TODO: implement this.
-        return np.random.uniform(-2., 2., 1)
+        return sess.run(self.actions, feed_dict={self.states:states})[0]
 
     def train_dynamics(self, sess, states, actions, next_states):
         if states.ndim == 1:
@@ -57,17 +121,22 @@ class policy_search_bayesian:
         for i in range(self.state_dim):
             self.model[i].update(sess, states_actions, next_states[:, i])
 
-    def train_policy(self, sess):
-        pass
+    def train_policy(self, sess, states):
+        feed_dict = {self.states:states, self.batch_size:states.shape[0]}
+        for m in self. model:
+            feed_dict[m.prior_mu] = m.mu
+            feed_dict[m.prior_sigma] = m.sigma
+        for _ in range(10):
+            sess.run(self.opt, feed_dict=feed_dict)
 
-    def build_policy(self, states_actions):
-        assert states_actions.shape.as_list() == [None, self.state_dim + self.action_dim]
+    def build_policy(self, states):
+        assert states.shape.as_list() == [None, self.state_dim]
 
         #Fully connected layer 1
-        fc1 = slim.fully_connected(states, 256, activation_fn=tf.nn.relu, scope=self.scope+'/fc1', reuse=self.policy_reuse_vars)
+        fc1 = slim.fully_connected(states, 256, activation_fn=tf.nn.relu, scope=self.policy_scope+'/fc1', reuse=self.policy_reuse_vars)
 
         #Output layer
-        output = slim.fully_connected(fc1, self.action_dim, activation_fn=tf.nn.tanh, scope=self.scope+'/output', reuse=self.policy_reuse_vars)
+        output = slim.fully_connected(fc1, self.action_dim, activation_fn=tf.nn.tanh, scope=self.policy_scope+'/output', reuse=self.policy_reuse_vars)
 
         #Apply action bounds
         action_bound = tf.constant(self.action_bound_high, dtype=tf.float64)
@@ -131,7 +200,7 @@ def main():
                                  no_basis=(6**4)+1,
                                  action_bound_low=env.action_space.low,
                                  action_bound_high=env.action_space.high,
-                                 unroll_length=20, discount_factor=.9)
+                                 unroll_steps=20, discount_factor=.9)
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
@@ -162,7 +231,8 @@ def main():
                 next_states = np.stack([b[3] for b in batch], axis=0)
                 dones = np.array([float(b[4]) for b in batch])
                 psb.train_dynamics(sess, states, actions, next_states)
-                psb.visualize_trajectories(sess)
+                #psb.visualize_trajectories(sess)
+                psb.train_policy(sess, states)
 
                 state = env.reset()
 
