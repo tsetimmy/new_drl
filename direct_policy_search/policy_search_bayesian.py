@@ -121,6 +121,19 @@ class policy_search_bayesian:
 
         return trajectories
 
+    # For testing purposes!!
+    def get_next_states(self, states_actions):
+        exit()
+        from prototype8.dmlac.real_env_pendulum import real_env_pendulum_state
+        state_model = real_env_pendulum_state()
+
+        samples = []
+        for _ in range(self.no_samples):
+            samples.append(state_model.build(states_actions[:, 0:3], states_actions[:, 3:4]))
+        samples = tf.stack(samples, axis=0)
+        return samples
+    # For testing purposes!!
+
     def unroll2(self, states, actions):
         assert states.shape.as_list() == [None, self.state_dim]
         assert actions.shape.as_list() == [None, self.action_dim]
@@ -134,6 +147,9 @@ class policy_search_bayesian:
         states_actions = tf.concat([states, actions], axis=-1)
         ppd = tf.stack([m.posterior_predictive_distribution(states_actions) for m in self.model], axis=1)
         particles = tfd.MultivariateNormalDiag(loc=ppd[..., 0], scale_diag=ppd[..., 1]).sample(self.no_samples)
+        '''
+        particles = self.get_next_states(states_actions)# For testing purposes!!
+        '''
 
         for unroll_step in range(self.unroll_steps - 1):
             print 'unrolling step:', unroll_step
@@ -157,6 +173,9 @@ class policy_search_bayesian:
                 if random_selections[i] > 0:
                     particles.append(tfd.MultivariateNormalDiag(loc=ppd[:, i, :, 0], scale_diag=ppd[:, i, :, 1]).sample(random_selections[i]))
             particles = tf.concat(particles, axis=0)
+            '''
+            particles = self.get_next_states(states_actions)# For testing purposes!!
+            '''
 
         particles_transposed = tf.transpose(particles, perm=[1, 0, 2])
         trajectories.append(particles_transposed)
@@ -167,7 +186,7 @@ class policy_search_bayesian:
         return trajectories, loss
 
     def act(self, sess, states, epoch):
-        if epoch <= 8:
+        if epoch <= 2:
             actions = np.random.uniform(-2., 2., 1)
         else:
             states = np.atleast_2d(states)
@@ -190,7 +209,7 @@ class policy_search_bayesian:
         if epoch <= 2:
             return
         feed_dict = {self.states:states, self.batch_size:states.shape[0]}
-        for m in self. model:
+        for m in self.model:
             feed_dict[m.prior_mu] = m.mu
             feed_dict[m.prior_sigma] = m.sigma
         for _ in range(1):
