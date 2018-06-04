@@ -345,7 +345,7 @@ class policy_search_bayesian:
                 action = np.random.uniform(-2., 2., 1)
                 next_state, reward, done, _ = env.step(action)
                 batch.append([np.atleast_2d(state), np.atleast_2d(action), np.atleast_2d(next_state)])
-                next_state = np.copy(state)
+                state = np.copy(next_state)
                 if done == True:
                     states = np.concatenate([b[0] for b in batch], axis=0)
                     actions = np.concatenate([b[1] for b in batch], axis=0)
