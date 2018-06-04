@@ -147,11 +147,11 @@ class policy_search_bayesian:
         rewards = self.reward_model.build(states, actions)
         costs.append(-rewards)
         states_actions = tf.concat([states, actions], axis=-1)
-        '''
-        ppd = tf.stack([m.posterior_predictive_distribution(states_actions) for m in self.model], axis=1)
-        particles = tfd.MultivariateNormalDiag(loc=ppd[..., 0], scale_diag=ppd[..., 1]).sample(self.no_samples)
+        ppd = tf.stack([self.model[i].posterior_predictive_distribution(states_actions, i) for i in range(len(self.model))], axis=1)
+        particles = tfd.MultivariateNormalDiag(loc=ppd[..., 0], scale_diag=tf.sqrt(ppd[..., 1])).sample(self.no_samples)
         '''
         particles = self.get_next_states(states_actions)# For testing purposes!!
+        '''
 
         for unroll_step in range(self.unroll_steps - 1):
             print 'unrolling step:', unroll_step
@@ -167,18 +167,18 @@ class policy_search_bayesian:
             costs.append(-rewards)
 
             states_actions = tf.concat([particles_transposed_flattened, actions], axis=-1)
-            '''
-            ppd = tf.stack([m.posterior_predictive_distribution(states_actions) for m in self.model], axis=1)
+            ppd = tf.stack([self.model[i].posterior_predictive_distribution(states_actions, i) for i in range(len(self.model))], axis=1)
             ppd = tf.reshape(ppd, shape=[-1, self.no_samples, self.state_dim, 2])
 
             random_selections = np.random.multinomial(self.no_samples, [1./self.no_samples]*self.no_samples)
             particles = []
             for i in range(len(random_selections)):
                 if random_selections[i] > 0:
-                    particles.append(tfd.MultivariateNormalDiag(loc=ppd[:, i, :, 0], scale_diag=ppd[:, i, :, 1]).sample(random_selections[i]))
+                    particles.append(tfd.MultivariateNormalDiag(loc=ppd[:, i, :, 0], scale_diag=tf.sqrt(ppd[:, i, :, 1])).sample(random_selections[i]))
             particles = tf.concat(particles, axis=0)
             '''
             particles = self.get_next_states(tf.reshape(states_actions, shape=[-1, self.no_samples, self.state_dim + self.action_dim])[:, 0, :])# For testing purposes!!
+            '''
 
         particles_transposed = tf.transpose(particles, perm=[1, 0, 2])
         trajectories.append(particles_transposed)
@@ -401,8 +401,8 @@ def main():
             # Training step
             batch = memory.sample(args.batch_size)
             states = np.concatenate([b[0] for b in batch], axis=0)
-            psb.train2(sess, states)
-            #psb.train_policy(sess, states, epoch)
+            #psb.train2(sess, states)
+            psb.train_policy(sess, states, epoch)
 
             # s <- s'
             state = np.copy(next_state)

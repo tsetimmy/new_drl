@@ -51,13 +51,26 @@ class bayesian_model:
         '''
 
     # Given test points, return the posterior predictive distributions.
-    def posterior_predictive_distribution(self, states_actions):
+    def posterior_predictive_distribution(self, states_actions, _):
         assert states_actions.shape.as_list() == [None, self.dim]
 
         bases = self.basis_functions(states_actions)
 
         posterior_predictive_mu = tf.matmul(bases, self.prior_mu)
         posterior_predictive_sigma = pow(self.likelihood_sd, 2) + tf.reduce_sum(tf.multiply(tf.matmul(bases, self.prior_sigma), bases), axis=-1, keep_dims=True)
+
+        return tf.concat([posterior_predictive_mu, posterior_predictive_sigma], axis=-1)
+
+    # For testing purposes
+    def posterior_predictive_distribution2(self, states_actions, idx=0):
+        import sys
+        sys.path.append('..')
+        from prototype8.dmlac.real_env_pendulum import real_env_pendulum_state
+        assert states_actions.shape.as_list() == [None, self.dim]
+        state_model = real_env_pendulum_state()
+
+        posterior_predictive_mu = state_model.build(states_actions[:, 0:3], states_actions[:, 3:4])[:, idx:idx + 1]
+        posterior_predictive_sigma = tf.reduce_sum((states_actions * 0.), axis=-1, keep_dims=True)
 
         return tf.concat([posterior_predictive_mu, posterior_predictive_sigma], axis=-1)
 
