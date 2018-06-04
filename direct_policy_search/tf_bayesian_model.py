@@ -70,7 +70,7 @@ class bayesian_model:
         state_model = real_env_pendulum_state()
 
         posterior_predictive_mu = state_model.build(states_actions[:, 0:3], states_actions[:, 3:4])[:, idx:idx + 1]
-        posterior_predictive_sigma = tf.reduce_sum((states_actions * 0.), axis=-1, keep_dims=True)
+        posterior_predictive_sigma = tf.reduce_sum((states_actions * 0.), axis=-1, keep_dims=True) + .01
 
         return tf.concat([posterior_predictive_mu, posterior_predictive_sigma], axis=-1)
 

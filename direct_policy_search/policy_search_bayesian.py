@@ -46,21 +46,16 @@ class policy_search_bayesian:
         self.states = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float64)
         self.batch_size = tf.placeholder(tf.int32, shape=[])
 
-        # Policy.
-        self.actions = self.build_policy(self.states)
-
-        '''
         # -- For testing purposes --
         self.test_policy = tf.placeholder(shape=[self.unroll_steps, self.action_dim], dtype=tf.float64)
         self.test_policy_idx = 0
-        '''
 
         # Unroll to get trajectories.
         #self.trajectories = self.unroll2(tf.concat([self.states, self.build_policy(self.states)], axis=-1))
-        self.trajectories, self.loss = self.unroll2(self.states, self.actions)
+        self.trajectories, self.loss = self.unroll2(self.states)
 
         # Optimizer
-        self.opt = tf.train.AdamOptimizer().minimize(self.loss)
+        #self.opt = tf.train.AdamOptimizer().minimize(self.loss)
 
         '''
         self.trajectories = self.unroll(tf.concat([self.states, self.build_policy(self.states)], axis=-1))
@@ -136,18 +131,20 @@ class policy_search_bayesian:
         return samples
     # For testing purposes!!
 
-    def unroll2(self, states, actions):
+    def unroll2(self, states):
         assert states.shape.as_list() == [None, self.state_dim]
-        assert actions.shape.as_list() == [None, self.action_dim]
         self.reward_model = real_env_pendulum_reward()#Use true model.
-        trajectories = []
+        trajectories = [tf.tile(tf.expand_dims(states, axis=1), [1, self.no_samples, 1])]
         costs = []
 
+        # Action
+        self.actions = self.build_policy2(states)
+
         # Posterior predictive distributions
-        rewards = self.reward_model.build(states, actions)
+        rewards = self.reward_model.build(states, self.actions)
         costs.append(-rewards)
-        states_actions = tf.concat([states, actions], axis=-1)
-        ppd = tf.stack([self.model[i].posterior_predictive_distribution(states_actions, i) for i in range(len(self.model))], axis=1)
+        states_actions = tf.concat([states, self.actions], axis=-1)
+        ppd = tf.stack([self.model[i].posterior_predictive_distribution2(states_actions, i) for i in range(len(self.model))], axis=1)
         particles = tfd.MultivariateNormalDiag(loc=ppd[..., 0], scale_diag=tf.sqrt(ppd[..., 1])).sample(self.no_samples)
         '''
         particles = self.get_next_states(states_actions)# For testing purposes!!
@@ -159,7 +156,7 @@ class policy_search_bayesian:
             trajectories.append(particles_transposed)
 
             particles_transposed_flattened = tf.reshape(particles_transposed, shape=[-1, self.state_dim])
-            actions = self.build_policy(particles_transposed_flattened)
+            actions = self.build_policy2(particles_transposed_flattened)
 
             rewards = self.reward_model.build(particles_transposed_flattened, actions)
             rewards = tf.reshape(rewards, shape=[-1, self.no_samples, 1])
@@ -167,7 +164,7 @@ class policy_search_bayesian:
             costs.append(-rewards)
 
             states_actions = tf.concat([particles_transposed_flattened, actions], axis=-1)
-            ppd = tf.stack([self.model[i].posterior_predictive_distribution(states_actions, i) for i in range(len(self.model))], axis=1)
+            ppd = tf.stack([self.model[i].posterior_predictive_distribution2(states_actions, i) for i in range(len(self.model))], axis=1)
             ppd = tf.reshape(ppd, shape=[-1, self.no_samples, self.state_dim, 2])
 
             random_selections = np.random.multinomial(self.no_samples, [1./self.no_samples]*self.no_samples)
@@ -189,7 +186,7 @@ class policy_search_bayesian:
         return trajectories, loss
 
     def act(self, sess, states, epoch):
-        if epoch <= -1:
+        if epoch <= 1000000:
             actions = np.random.uniform(-2., 2., 1)
         else:
             states = np.atleast_2d(states)
@@ -278,7 +275,8 @@ class policy_search_bayesian:
             feed_dict[m.prior_mu] = m.mu
             feed_dict[m.prior_sigma] = m.sigma
         trajectories = sess.run(self.trajectories, feed_dict=feed_dict)
-        assert len(trajectories) == self.unroll_steps
+        assert len(trajectories) == self.unroll_steps + 1
+        assert len(trajectories) == len(real_trajectory)
         trajectories = np.concatenate(trajectories, axis=0)
 
         for i in range(dims):
@@ -380,7 +378,7 @@ def main():
                                  discount_factor=.9)
 
     # Initialize the memory
-    memory = Memory(args.replay_mem_size)
+    #memory = Memory(args.replay_mem_size)
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
@@ -388,6 +386,7 @@ def main():
         state = env.reset()
         total_rewards = 0.0
         epoch = 1
+        batch = []
         for time_steps in range(30000):
             #env.render()
             # Get action and step in environment
@@ -396,13 +395,17 @@ def main():
             total_rewards += float(reward)
 
             # Append to the batch
-            memory.add([np.atleast_2d(state), np.atleast_2d(action), reward, np.atleast_2d(next_state), done])
+            #memory.add([np.atleast_2d(state), np.atleast_2d(action), reward, np.atleast_2d(next_state), done])
 
+            batch.append([state, action, reward, next_state, done])
+
+            '''
             # Training step
             batch = memory.sample(args.batch_size)
             states = np.concatenate([b[0] for b in batch], axis=0)
             #psb.train2(sess, states)
             psb.train_policy(sess, states, epoch)
+            '''
 
             # s <- s'
             state = np.copy(next_state)
@@ -412,20 +415,18 @@ def main():
                 epoch += 1
                 total_rewards = 0.
 
-                '''
-                for i in range(0, len(batch), args.batch_size):
-                    B = batch[i: i + args.batch_size]
-                    states = np.stack([b[0] for b in B], axis=0)
-                    actions = np.stack([b[1] for b in B], axis=0)
-                    rewards = np.array([b[2] for b in B])
-                    next_states = np.stack([b[3] for b in B], axis=0)
-                    dones = np.array([float(b[4]) for b in B])
-                    psb.train_dynamics(sess, states, actions, next_states)
-                    #psb.visualize_trajectories2(sess)
-                    #psb.visualize_trajectories(sess)
-                    psb.train_policy(sess, states, epoch)
-                '''
+                B = batch
+                states = np.stack([b[0] for b in B], axis=0)
+                actions = np.stack([b[1] for b in B], axis=0)
+                rewards = np.array([b[2] for b in B])
+                next_states = np.stack([b[3] for b in B], axis=0)
+                dones = np.array([float(b[4]) for b in B])
+                psb.train_dynamics(sess, states, actions, next_states)
+                psb.visualize_trajectories2(sess)
+                psb.visualize_trajectories(sess)
+                #psb.train_policy(sess, states, epoch)
 
+                batch = []
                 state = env.reset()
 
 if __name__ == '__main__':
