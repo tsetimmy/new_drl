@@ -430,7 +430,83 @@ def future_state_prediction_experiment():
         plt.grid()
         plt.show()
 
+def future_state_prediction_experiment_with_every_visit_sampling():
+    import sys
+    sys.path.append('..')
+    from prototype8.dmlac.real_env_pendulum import get_next_state
+
+    training_points = 200*20*5
+    noise_sd = .2
+    prior_precision = 2.
+    likelihood_sd = noise_sd
+    no_basis = (6**4)+1
+
+    xtrain, ytrain = get_training_data3(training_points)
+
+    models = [bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),
+                             observation_space_high=np.array([1., 1., 8., 2.]), no_basis=no_basis) for _ in range(3)]
+
+    states_actions = tf.placeholder(shape=[None, 4], dtype=tf.float64)
+    ppd = tf.stack([model.posterior_predictive_distribution(states_actions, None) for model in models], axis=0)
+
+    T = 100#Time horizon
+    no_lines = 50*2*2
+    policy = np.random.uniform(-2., 2., T)
+    seed_state = random_seed_state()
+
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        for i in range(len(models)):
+            models[i].update(sess, xtrain, ytrain[:, i])
+
+        trajectories = []
+        for _ in range(no_lines):
+            trajectory = []
+            state = np.copy(seed_state)
+            trajectory.append(state)
+            for action in policy:
+                sa_concat = np.atleast_2d(np.append(state, action)).astype(np.float64)
+
+                feed_dict = {}
+                feed_dict[states_actions] = sa_concat
+                for model in models:
+                    feed_dict[model.prior_mu] = model.mu
+                    feed_dict[model.prior_sigma] = model.sigma
+
+                mu_sigma = np.squeeze(sess.run(ppd, feed_dict=feed_dict), axis=1)
+                state = np.random.multivariate_normal(mu_sigma[:, 0], np.diag(mu_sigma[:, 1]))
+                trajectory.append(state)
+
+            trajectory = np.stack(trajectory, axis=0)
+            trajectories.append(trajectory)
+
+        trajectories = np.stack(trajectories, axis=0)
+
+
+
+        state = np.copy(seed_state[np.newaxis, ...])
+        Y = [state]
+        for action in policy:
+            state = get_next_state(state, action)
+            Y.append(state)
+        Y = np.concatenate(Y, axis=0)
+
+        for i in range(3):
+            plt.subplot(1, 3, i + 1)
+
+            for l in range(no_lines):
+                plt.plot(np.arange(len(trajectories[l, :, i])), trajectories[l, :, i], color='r')
+            plt.plot(np.arange(len(Y[:, i])), Y[:, i])
+            plt.grid()
+        plt.show()
+
+
+
+
+
 if __name__ == '__main__':
     #sinusoid_experiment()
     #pendulum_experiment()
-    future_state_prediction_experiment()
+    #future_state_prediction_experiment()
+    future_state_prediction_experiment_with_every_visit_sampling()
