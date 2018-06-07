@@ -1,5 +1,6 @@
 import numpy as np
 import tensorflow as tf
+import uuid
 
 class gaussian_process:
     def __init__(self, x_dim, x_train_data=None, y_train_data=None):
@@ -7,12 +8,14 @@ class gaussian_process:
         self.x_train_data = x_train_data
         self.y_train_data = y_train_data
 
+        self.uuid = str(uuid.uuid4())
+
         # Hyperparameters.
-        self.length_scale = tf.get_variable(name='length_scale', shape=[], dtype=tf.float64,
+        self.length_scale = tf.get_variable(name='length_scale'+self.uuid, shape=[], dtype=tf.float64,
                                             initializer=tf.constant_initializer(.316))
-        self.signal_sd = tf.get_variable(name='signal_sd', shape=[], dtype=tf.float64,
+        self.signal_sd = tf.get_variable(name='signal_sd'+self.uuid, shape=[], dtype=tf.float64,
                                                initializer=tf.constant_initializer(1.))
-        self.noise_sd = tf.get_variable(name='noise_sd', shape=[], dtype=tf.float64,
+        self.noise_sd = tf.get_variable(name='noise_sd'+self.uuid, shape=[], dtype=tf.float64,
                                               initializer=tf.constant_initializer(1.))
 
         # Placholders.
