@@ -454,7 +454,6 @@ def future_state_prediction_experiment_with_every_visit_sampling():
     policy = np.random.uniform(-2., 2., T)
     seed_state = random_seed_state()
 
-
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         for i in range(len(models)):
@@ -483,8 +482,6 @@ def future_state_prediction_experiment_with_every_visit_sampling():
 
         trajectories = np.stack(trajectories, axis=0)
 
-
-
         state = np.copy(seed_state[np.newaxis, ...])
         Y = [state]
         for action in policy:
@@ -501,12 +498,71 @@ def future_state_prediction_experiment_with_every_visit_sampling():
             plt.grid()
         plt.show()
 
+def regression_experiment():
+    import gym
+
+    env = gym.make('Pendulum-v0')
+
+    epochs = 3
+
+    data = []
+    for epoch in range(epochs):
+        state = env.reset()
+        while True:
+            action = np.random.uniform(env.action_space.low, env.action_space.high, 1)
+            next_state, reward, done, _ = env.step(action)
+            data.append([state, action, next_state])
+            state = np.copy(next_state)
+            if done:
+                break
+
+    states = np.stack([d[0] for d in data], axis=0)
+    actions = np.stack([d[1] for d in data], axis=0)
+    next_states = np.stack([d[2] for d in data], axis=0)
+
+    states_actions = np.concatenate([states, actions], axis=-1)
+
+    x_train = states_actions[:400, ...]
+    y_train = next_states[:400, ...]
+    x_test = states_actions[400:, ...]
+    y_test = next_states[400:, ...]
 
 
+    no_basis = (6**4)+1
+    models = [bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),
+                             observation_space_high=np.array([1., 1., 8., 2.]), no_basis=no_basis) for _ in range(3)]
 
+    states_actions_placeholder = tf.placeholder(shape=[None, 4], dtype=tf.float64)
+    ppd = tf.stack([model.posterior_predictive_distribution(states_actions_placeholder, None) for model in models], axis=0)
+
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        for i in range(len(models)):
+            models[i].update(sess, x_train, y_train[:, i])
+
+        feed_dict = {}
+        feed_dict[states_actions_placeholder] = x_test
+        for model in models:
+            feed_dict[model.prior_mu] = model.mu
+            feed_dict[model.prior_sigma] = model.sigma
+
+        mu_sigma = sess.run(ppd, feed_dict=feed_dict)
+        #mu_sigma = np.squeeze(sess.run(ppd, feed_dict=feed_dict), axis=1)
+
+    means = mu_sigma[:, :, 0].T
+    sds = np.sqrt(mu_sigma[:, :, 1].T)
+
+    for i in range(3):
+        plt.subplot(1, 3, i+1)
+        plt.grid()
+        plt.plot(np.arange(len(y_test)), y_test[:, i])
+        plt.errorbar(np.arange(len(means)), means[:, i], yerr=sds[:, i])
+    plt.show()
 
 if __name__ == '__main__':
     #sinusoid_experiment()
     #pendulum_experiment()
     #future_state_prediction_experiment()
-    future_state_prediction_experiment_with_every_visit_sampling()
+    #future_state_prediction_experiment_with_every_visit_sampling()
+    regression_experiment()
