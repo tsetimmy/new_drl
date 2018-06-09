@@ -37,8 +37,6 @@ class gp_model:
         assert len(x_test.shape) == 2
         assert x_test.shape[-1] == self.x_train_data.shape[-1]
 
-        self.train_hyperparamters(sess)
-
         feed_dict = {}
         for i in range(len(self.models)):
             feed_dict[self.models[i].x_train] = self.models[i].x_train_data
@@ -60,8 +58,11 @@ class gp_model:
             for i in range(len(self.models)):
                 feed_dict = {self.models[i].x_train:self.models[i].x_train_data[idx, ...],
                              self.models[i].y_train:self.models[i].y_train_data[idx, ...]}
-                _, loss = sess.run([self.models[i].opt, self.models[i].log_marginal_likelihood], feed_dict=feed_dict)
-                print 'i:', i, 'iterations:', it, 'loss:', -loss, '|',
+                try:
+                    _, loss = sess.run([self.models[i].opt, self.models[i].log_marginal_likelihood], feed_dict=feed_dict)
+                    print 'i:', i, 'iterations:', it, 'loss:', -loss, '|',
+                except:
+                    print 'Cholesky decomposition failed.'
             print ''
 
         '''
@@ -73,19 +74,21 @@ class gp_model:
                 print 'i:', i, 'iterations:', it, 'loss:', -loss
         '''
 
-def plotting_experiment1():
+def plotting_experiment():
     gpm = gp_model(x_dim=4, y_dim=3)
 
     env = gym.make('Pendulum-v0')
 
-    epochs = 4
+    epochs = 3
     train_size = (epochs - 1) * 200
+    policy = []
 
     data = []
     for epoch in range(epochs):
         state = env.reset()
         while True:
             action = np.random.uniform(env.action_space.low, env.action_space.high, 1)
+            policy.append(action)
             next_state, reward, done, _ = env.step(action)
             data.append([state, action, next_state])
             state = np.copy(next_state)
@@ -107,17 +110,51 @@ def plotting_experiment1():
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
+        gpm.train_hyperparamters(sess)
         means, sds = gpm.predict(sess, x_test)
 
-    for i in range(3):
-        plt.subplot(1, 3, i+1)
-        plt.grid()
-        plt.plot(np.arange(len(y_test)), y_test[:, i])
-        plt.errorbar(np.arange(len(means)), means[:, i], yerr=sds[:, i], color='m', ecolor='g')
-    plt.show()
+        # ----- First plotting expierment. -----
+        plt.figure(1)
+        plt.clf()
+        for i in range(3):
+            plt.subplot(1, 3, i+1)
+            plt.grid()
+            plt.plot(np.arange(len(y_test)), y_test[:, i])
+            plt.errorbar(np.arange(len(means)), means[:, i], yerr=sds[:, i], color='m', ecolor='g')
+
+        # ----- Second plotting experiment. -----
+        plt.figure(2)
+        plt.clf()
+        no_lines = 50
+        policy = actions[-200:, ...]
+        seed_state = x_test[0, :3]
+
+        for line in range(no_lines):
+            print 'At line:', line
+            states = []
+            state = np.copy(seed_state)
+            states.append(np.copy(state))
+            for action in policy:
+                state_action = np.concatenate([state, action], axis=0)[np.newaxis, ...]
+                means, sds = gpm.predict(sess, state_action)
+                means = np.squeeze(means, axis=0)
+                sds = np.squeeze(sds, axis=0)
+                state = np.random.multivariate_normal(means, (sds**2)*np.eye(len(sds)))
+                states.append(np.copy(state))
+            states = np.stack(states, axis=0)
+
+            for i in range(3):
+                plt.subplot(1, 3, i+1)
+                plt.plot(np.arange(len(states[:, i])), states[:, i], color='r')
+
+        for i in range(3):
+            plt.subplot(1, 3, i+1)
+            plt.plot(np.arange(len(y_test)), y_test[:, i])
+            plt.grid()
+        plt.show()
 
 def main():
-    plotting_experiment1()
+    plotting_experiment()
 
 if __name__ == '__main__':
     main()
