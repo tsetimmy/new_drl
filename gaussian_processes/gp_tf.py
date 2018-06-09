@@ -40,6 +40,7 @@ class gaussian_process:
 
 
         self.opt = tf.train.AdamOptimizer().minimize(-self.log_marginal_likelihood)
+        #self.opt = tf.train.GradientDescentOptimizer(.1).minimize(-self.log_marginal_likelihood)
 
         '''
         n2 = tf.shape(self.x_test)[0]

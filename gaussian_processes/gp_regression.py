@@ -52,20 +52,34 @@ class gp_model:
 
         return means, sds
 
-    def train_hyperparamters(self, sess, iterations=3000):
+    def train_hyperparamters(self, sess, iterations=20000):
+        total_size = len(self.x_train_data)
+        batch_size = 64
+        for it in range(iterations):
+            idx = np.random.randint(total_size, size=batch_size)
+            for i in range(len(self.models)):
+                feed_dict = {self.models[i].x_train:self.models[i].x_train_data[idx, ...],
+                             self.models[i].y_train:self.models[i].y_train_data[idx, ...]}
+                _, loss = sess.run([self.models[i].opt, self.models[i].log_marginal_likelihood], feed_dict=feed_dict)
+                print 'i:', i, 'iterations:', it, 'loss:', -loss, '|',
+            print ''
+
+        '''
         for i in range(len(self.models)):
             feed_dict = {self.models[i].x_train:self.models[i].x_train_data,
                          self.models[i].y_train:self.models[i].y_train_data}
             for it in range(iterations):
                 _, loss = sess.run([self.models[i].opt, self.models[i].log_marginal_likelihood], feed_dict=feed_dict)
                 print 'i:', i, 'iterations:', it, 'loss:', -loss
+        '''
 
-def main():
+def plotting_experiment1():
     gpm = gp_model(x_dim=4, y_dim=3)
 
     env = gym.make('Pendulum-v0')
 
-    epochs = 3
+    epochs = 4
+    train_size = (epochs - 1) * 200
 
     data = []
     for epoch in range(epochs):
@@ -84,10 +98,10 @@ def main():
 
     states_actions = np.concatenate([states, actions], axis=-1)
 
-    x_train = states_actions[:400, ...]
-    y_train = next_states[:400, ...]
-    x_test = states_actions[400:, ...]
-    y_test = next_states[400:, ...]
+    x_train = states_actions[:train_size, ...]
+    y_train = next_states[:train_size, ...]
+    x_test = states_actions[train_size:, ...]
+    y_test = next_states[train_size:, ...]
 
     gpm.set_training_data(x_train, y_train)
 
@@ -99,11 +113,11 @@ def main():
         plt.subplot(1, 3, i+1)
         plt.grid()
         plt.plot(np.arange(len(y_test)), y_test[:, i])
-        plt.errorbar(np.arange(len(means)), means[:, i], yerr=sds[:, i])
+        plt.errorbar(np.arange(len(means)), means[:, i], yerr=sds[:, i], color='m', ecolor='g')
     plt.show()
 
-
-
+def main():
+    plotting_experiment1()
 
 if __name__ == '__main__':
     main()
