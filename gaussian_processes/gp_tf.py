@@ -23,11 +23,11 @@ class gaussian_process:
         self.y_train = tf.placeholder(shape=[None, 1], dtype=tf.float64)
         self.x_test = tf.placeholder(shape=[None, self.x_dim], dtype=tf.float64)
 
-        n = tf.shape(self.x_train)[0]
+        self.n = tf.shape(self.x_train)[0]
 
         # Get predictive distribution and log marginal likelihood (Algorithm 2.1 in the GP book).
         L = tf.cholesky(self.squared_exponential_kernel(self.x_train, self.x_train) +\
-                        tf.multiply(tf.square(self.noise_sd), tf.eye(n, dtype=tf.float64)))
+                        tf.multiply(tf.square(self.noise_sd), tf.eye(self.n, dtype=tf.float64)))
         v = tf.linalg.solve(L, self.squared_exponential_kernel(self.x_train, self.x_test))
 
         self.mu = tf.matmul(tf.transpose(v), tf.linalg.solve(L, self.y_train))
@@ -36,7 +36,7 @@ class gaussian_process:
         alpha = tf.linalg.solve(tf.transpose(L), tf.linalg.solve(L, self.y_train))
         self.log_marginal_likelihood = -.5 * tf.matmul(tf.transpose(self.y_train), alpha)[0, 0] +\
                                        -.5 * tf.reduce_sum(tf.log(tf.diag_part(L))) +\
-                                       -.5 * tf.cast(n, dtype=tf.float64) * np.log(2. * np.pi)
+                                       -.5 * tf.cast(self.n, dtype=tf.float64) * np.log(2. * np.pi)
 
 
         self.opt = tf.train.AdamOptimizer().minimize(-self.log_marginal_likelihood)
@@ -48,6 +48,26 @@ class gaussian_process:
         self.L1_ = tf.linalg.cholesky(K_ + tf.eye(n2, dtype=tf.float64)*1e-6)
         self.L2_ = tf.linalg.cholesky(K_ + 1e-6*tf.eye(n2, dtype=tf.float64) - tf.matmul(tf.transpose(v), v))
         '''
+
+        #self.get_prediction(self.x_test)
+
+    def build_mu_var(self, x_test):
+        assert x_test.shape.as_list() == self.x_test.shape.as_list()
+
+        L = tf.cholesky(self.squared_exponential_kernel(self.x_train, self.x_train) +\
+                        tf.multiply(tf.square(self.noise_sd), tf.eye(self.n, dtype=tf.float64)))
+        v = tf.linalg.solve(L, self.squared_exponential_kernel(self.x_train, x_test))
+
+        mu = tf.matmul(tf.transpose(v), tf.linalg.solve(L, self.y_train))
+        var = self.squared_exponential_kernel(x_test, x_test) - tf.matmul(tf.transpose(v), v)
+
+        return mu, var
+
+    def get_prediction(self, x_test):
+        assert x_test.shape.as_list() == self.x_test.shape.as_list()
+        mu, var = self.build_mu_var(x_test)
+        sd = tf.expand_dims(tf.sqrt(tf.diag_part(var)), axis=-1)
+        return mu, sd
 
     def squared_exponential_kernel(self, a, b):
         sqdist = tf.reduce_sum(tf.square(a), axis=-1, keep_dims=True) +\
@@ -89,7 +109,7 @@ def main():
     '''
 
 
-    gp = gaussian_process(1, x_train_data=X, y_train_data=y)
+    gp = gaussian_process(1, x_train_data=X, y_train_data=y[..., np.newaxis])
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
