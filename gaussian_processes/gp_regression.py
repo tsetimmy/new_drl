@@ -13,8 +13,9 @@ import sys
 sys.path.append('..')
 from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
 
+
 class gp_model:
-    def __init__(self, x_dim, y_dim, x_train_data=None, y_train_data=None):
+    def __init__(self, x_dim, y_dim, no_samples, unroll_steps, x_train_data=None, y_train_data=None):
         self.state_dim = 3
         self.action_dim = 1
         self.discount_factor = .9
@@ -25,6 +26,9 @@ class gp_model:
         self.x_train_data = x_train_data
         self.y_train_data = y_train_data
 
+        self.no_samples = no_samples
+        self.unroll_steps = unroll_steps
+
         self.policy_scope = 'policy_scope'
         self.policy_reuse_vars = None
 
@@ -33,16 +37,35 @@ class gp_model:
 
         self.outputs = [[model.mu, model.var] for model in self.models]
 
-        '''
         self.states = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float64)
         self.actions = self.build_policy(self.states)
         self.unroll(self.states)
-        '''
+
+    def train(self, sess, memory):
+
+        feed_dict = {}
+        for model in self.models:
+            feed_dict[model.x_train] = model.x_train_data
+            feed_dict[model.y_train] = model.y_train_data
+
+        for it in range(30):
+
+            batch = memory.sample(32)
+            states = np.concatenate([b[0] for b in batch], axis=0)
+            feed_dict[self.states] = states
+
+            loss, _ = sess.run([self.loss, self.opt], feed_dict=feed_dict)
+            print 'iteration:', it, 'loss:', loss
+
+    def act(self, sess, states):
+        states = np.atleast_2d(states)
+        assert states.shape == (1, self.state_dim)
+        return sess.run(self.actions, feed_dict={self.states:states})[0]
 
     def unroll(self, seed_states):
         assert seed_states.shape.as_list() == [None, self.state_dim]
-        no_samples = 20
-        unroll_steps = 25
+        no_samples = self.no_samples
+        unroll_steps = self.unroll_steps
         self.reward_model = real_env_pendulum_reward()#Use true model.
 
         states = tf.expand_dims(seed_states, axis=1)
@@ -63,9 +86,8 @@ class gp_model:
             states = next_states
 
         costs = tf.stack(costs, axis=-1)
-        loss = tf.reduce_mean(tf.reduce_sum(tf.reduce_mean(costs, axis=1), axis=-1))
-
-        self.opt = tf.train.AdamOptimizer().minimize(loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'policy_scope'))
+        self.loss = tf.reduce_mean(tf.reduce_sum(tf.reduce_mean(costs, axis=1), axis=-1))
+        self.opt = tf.train.AdamOptimizer().minimize(self.loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'policy_scope'))
 
     def get_next_states(self, states_actions):
         outputs = [model.get_prediction(states_actions) for model in self.models]
@@ -108,7 +130,7 @@ class gp_model:
 
         return means, sds
 
-    def train_hyperparamters(self, sess, iterations=50000):
+    def train_hyperparameters(self, sess, iterations=50000, verbose=True):
         total_size = len(self.x_train_data)
         batch_size = 64
         for it in range(iterations):
@@ -118,10 +140,13 @@ class gp_model:
                              self.models[i].y_train:self.models[i].y_train_data[idx, ...]}
                 try:
                     _, loss = sess.run([self.models[i].opt, self.models[i].log_marginal_likelihood], feed_dict=feed_dict)
-                    print 'i:', i, 'iterations:', it, 'loss:', -loss, '|',
+                    if verbose:
+                        print 'i:', i, 'iterations:', it, 'loss:', -loss, '|',
                 except:
-                    print 'Cholesky decomposition failed.',
-            print ''
+                    if verbose:
+                        print 'Cholesky decomposition failed.',
+            if verbose:
+                print ''
 
         '''
         for i in range(len(self.models)):
@@ -229,8 +254,82 @@ def plotting_experiment():
             plt.grid()
         plt.show()
 
+def policy_gradient_experiment():
+    import argparse
+    from utils import Memory
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--no-samples", type=int, default=20)
+    parser.add_argument("--unroll-steps", type=int, default=25)
+    parser.add_argument("--replay-mem-size", type=int, default=1000000)
+    parser.add_argument("--batch-size", type=int, default=64)
+    args = parser.parse_args()
+    
+    print args
+
+    env = gym.make('Pendulum-v0')
+
+    # Initialize the agent
+    gpm = gp_model(x_dim=4, y_dim=3, no_samples=args.no_samples, unroll_steps=args.unroll_steps)
+
+    # Initialize the memory
+    memory = Memory(args.replay_mem_size)
+
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        state = env.reset()
+        total_rewards = 0.0
+        epoch = 1
+        for time_steps in range(30000):
+            if epoch <= 2:
+                action = np.random.uniform(-2., 2., 1)
+            else:
+                action = gpm.act(sess, state)
+            next_state, reward, done, _ = env.step(action)
+            total_rewards += float(reward)
+
+            # Append to the batch
+            memory.add([np.atleast_2d(state), np.atleast_2d(action), reward, np.atleast_2d(next_state), done])
+
+            # s <- s'
+            state = np.copy(next_state)
+
+            if done == True:
+                print 'time steps', time_steps, 'epoch', epoch, 'total rewards', total_rewards
+
+                if epoch == 2:
+                    batch = memory.sample(memory.max_size)
+
+                    states = np.concatenate([b[0] for b in batch], axis=0)
+                    actions = np.concatenate([b[1] for b in batch], axis=0)
+                    next_states = np.concatenate([b[3] for b in batch], axis=0)
+
+                    states_actions = np.concatenate([states, actions], axis=-1)
+                    gpm.set_training_data(states_actions, next_states)
+                    gpm.train_hyperparameters(sess)
+
+                if epoch >= 2:
+                    gpm.train(sess, memory)
+
+                if epoch >= 3:
+                    batch = memory.sample(500)
+
+                    states = np.concatenate([b[0] for b in batch], axis=0)
+                    actions = np.concatenate([b[1] for b in batch], axis=0)
+                    next_states = np.concatenate([b[3] for b in batch], axis=0)
+
+                    states_actions = np.concatenate([states, actions], axis=-1)
+                    gpm.set_training_data(states_actions, next_states)
+                    gpm.train_hyperparameters(sess, 10000, verbose=False)
+
+
+                epoch += 1
+                total_rewards = 0.
+                state = env.reset()
 def main():
-    plotting_experiment()
+    #plotting_experiment()
+    policy_gradient_experiment()
+
 
 if __name__ == '__main__':
     main()
