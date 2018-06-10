@@ -39,8 +39,8 @@ class gaussian_process:
                                        -.5 * tf.cast(self.n, dtype=tf.float64) * np.log(2. * np.pi)
 
 
-        self.opt = tf.train.AdamOptimizer().minimize(-self.log_marginal_likelihood)
-        #self.opt = tf.train.GradientDescentOptimizer(.1).minimize(-self.log_marginal_likelihood)
+        self.opt = tf.train.AdamOptimizer().minimize(-self.log_marginal_likelihood, var_list=[self.length_scale, self.signal_sd, self.noise_sd])
+        #self.opt = tf.train.GradientDescentOptimizer(.1).minimize(-self.log_marginal_likelihood, var_list=[self.length_scale, self.signal_sd, self.noise_sd])
 
         '''
         n2 = tf.shape(self.x_test)[0]

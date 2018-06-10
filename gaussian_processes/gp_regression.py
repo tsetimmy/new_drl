@@ -66,6 +66,17 @@ class gp_model:
                 print 'iteration:', it, 'loss:', loss
             except:
                 print 'Cholesky decomposition failed.'
+                for model in self.models:
+                    print model.xtrain
+                    print '------------------'
+                    print model.squared_exponential_kernel(model.x_train, model.x_train)
+                    print '*******************'
+                    print sess.run(model.noise_sd)
+                    print ')))))))))))))))))))'
+                    print sess.run(model.signal_sd)
+                    print '+++++++++++++++++++++'
+                    print sess.run(model.length_scale)
+                    print '!!!!!!!!!!!!!!!!!!!!!!!!'
 
     def act(self, sess, states):
         states = np.atleast_2d(states)
