@@ -66,17 +66,32 @@ class gp_model:
                 print 'iteration:', it, 'loss:', loss
             except:
                 print 'Cholesky decomposition failed.'
+                '''
                 for model in self.models:
-                    print model.xtrain
+                    print model.x_train_data
                     print '------------------'
-                    print model.squared_exponential_kernel(model.x_train, model.x_train)
-                    print '*******************'
-                    print sess.run(model.noise_sd)
+                    noise_sd = sess.run(model.noise_sd)
+                    print  noise_sd
                     print ')))))))))))))))))))'
-                    print sess.run(model.signal_sd)
+                    signal_sd = sess.run(model.signal_sd)
+                    print signal_sd
                     print '+++++++++++++++++++++'
-                    print sess.run(model.length_scale)
+                    length_scale = sess.run(model.length_scale)
+                    print length_scale
                     print '!!!!!!!!!!!!!!!!!!!!!!!!'
+                    kernel = self.test(model.x_train_data, model.x_train_data, signal_sd, length_scale)
+                    print np.linalg.cholesky(kernel + np.square(noise_sd) * np.eye(len(kernel)))
+                    print 'CHOLESKY!!!'
+                '''
+
+    '''
+    def test(self, a, b, signal_sd, length_scale):
+        sqdist = np.sum(np.square(a), axis=-1, keepdims=True) +\
+                 -2. * np.matmul(a, b.T) +\
+                 np.sum(np.square(b), axis=-1, keepdims=True).T
+        kernel = np.square(signal_sd) * np.exp(-.5 * (1. / np.square(length_scale)) * sqdist)
+        return kernel
+    '''
 
     def act(self, sess, states):
         states = np.atleast_2d(states)
@@ -350,7 +365,8 @@ def policy_gradient_experiment():
                 if epoch >= args.replay_start_size_epochs:
                     gpm.train(sess, memory)
 
-                if epoch >= args.replay_start_size_epochs + 1:
+                # Train the hyperparameters 10000 timesteps for 5 more epochs
+                if epoch >= args.replay_start_size_epochs + 1 and epoch <= args.replay_start_size_epochs + 5:
                     gpm.set_and_train_hyperparameters(sess, memory, 500, 10000, False)
 
                 epoch += 1
