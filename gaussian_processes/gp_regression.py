@@ -224,9 +224,21 @@ class gp_model:
         return policy
 
 def plotting_experiment():
-    gpm = gp_model(x_dim=4, y_dim=3)
-
     env = gym.make('Pendulum-v0')
+
+    gpm = gp_model(x_dim=4,
+                   y_dim=3,
+                   state_dim=env.observation_space.shape[0],
+                   action_dim=env.action_space.shape[0],
+                   observation_space_low=env.observation_space.low,
+                   observation_space_high=env.observation_space.high,
+                   action_bound_low=env.action_space.low,
+                   action_bound_high=env.action_space.high,
+                   unroll_steps=2,#Not used
+                   no_samples=2,#Not used
+                   discount_factor=.95,#Not used
+                   train_policy_batch_size=2,#Not used
+                   train_policy_iterations=2)#Not used
 
     epochs = 3
     train_size = (epochs - 1) * 200
@@ -259,7 +271,7 @@ def plotting_experiment():
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        gpm.train_hyperparamters(sess)
+        gpm.train_hyperparameters(sess)
         means, sds = gpm.predict(sess, x_test)
 
         # ----- First plotting experiment. -----
@@ -374,8 +386,8 @@ def policy_gradient_experiment():
                 state = env.reset()
 
 def main():
-    #plotting_experiment()
-    policy_gradient_experiment()
+    plotting_experiment()
+    #policy_gradient_experiment()
 
 if __name__ == '__main__':
     main()

@@ -587,7 +587,6 @@ def regression_experiment():
     states_actions_placeholder = tf.placeholder(shape=[None, 4], dtype=tf.float64)
     ppd = tf.stack([model.posterior_predictive_distribution(states_actions_placeholder, None) for model in models], axis=0)
 
-
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         for i in range(len(models)):
@@ -618,5 +617,5 @@ if __name__ == '__main__':
     #sinusoid_experiment()
     #pendulum_experiment()
     #future_state_prediction_experiment()
-    #future_state_prediction_experiment_with_every_visit_sampling()
-    regression_experiment()
+    future_state_prediction_experiment_with_every_visit_sampling()
+    #regression_experiment()
