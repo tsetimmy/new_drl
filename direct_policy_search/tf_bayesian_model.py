@@ -7,41 +7,52 @@ from scipy.stats import multivariate_normal
 from scipy.stats import norm
 import matplotlib.pyplot as plt
 
+import uuid
+
 class bayesian_model:
-    def __init__(self, dim, observation_space_low, observation_space_high, no_basis):
+    def __init__(self, dim, observation_space_low, observation_space_high, no_basis, basis_functions='rbf'):
         self.dim = dim
         self.observation_space_high = observation_space_high
         self.observation_space_low = observation_space_low
         self.no_basis = no_basis
+        self.basis_functions = basis_functions
 
         # Assertions.
         np.testing.assert_array_equal(-self.observation_space_low, self.observation_space_high)
         assert len(self.observation_space_high) == self.dim
+        assert self.basis_functions in ['rbf', 'polynomial']
+
+        # UUID.
+        self.uuid = str(uuid.uuid4())
 
         # Keep track of mu and sigma.
-        self.prior_precision = 2.#Assume known beforehand
+        self.prior_precision = tf.get_variable(name='prior_precision'+self.uuid, shape=[], dtype=tf.float64,
+                                               initializer=tf.constant_initializer(2**-.5))
         self.mu = np.zeros([self.no_basis, 1])
-        self.sigma = np.eye(self.no_basis) / self.prior_precision
+        self.sigma = np.eye(self.no_basis) * (2 ** -1)
+
+        # Initialize basis function hyperparameters
+        self.init_basis_function_hyperparameters()
 
         # Placeholders.
         self.X = tf.placeholder(shape=[None, self.dim], dtype=tf.float64)
         self.y = tf.placeholder(shape=[None, 1], dtype=tf.float64)
-        self.X_basis = self.basis_functions(self.X)
+        self.X_basis = self.rbf_basis_functions(self.X)
 
         # Mean and variance of prior.
         self.prior_mu = tf.placeholder(shape=[self.no_basis, 1], dtype=tf.float64)
         self.prior_sigma = tf.placeholder(shape=[self.no_basis, self.no_basis], dtype=tf.float64)
 
-        self.likelihood_sd = .2#Assume known beforehand
-
         # Mean and variance of posterior.
         self.posterior_sigma = tf.matrix_inverse(tf.matrix_inverse(self.prior_sigma) + \
-                                                 pow(self.likelihood_sd, -2) * \
+                                                 (1. / tf.square(self.noise_sd)) * \
                                                  tf.matmul(tf.transpose(self.X_basis), self.X_basis))
 
         self.posterior_mu = tf.matmul(tf.matmul(self.posterior_sigma, tf.matrix_inverse(self.prior_sigma)), self.prior_mu) + \
-                            pow(self.likelihood_sd, -2) * tf.matmul(tf.matmul(self.posterior_sigma, tf.transpose(self.X_basis)), self.y)
+                            (1. / tf.square(self.noise_sd)) * tf.matmul(tf.matmul(self.posterior_sigma, tf.transpose(self.X_basis)), self.y)
 
+        # Loss function for training basis function hyperparameters
+        self.init_log_marginal_likelihood_loss()
         '''
         # Operation for assigning prior = posterior
         self.posterior_mu_in = tf.placeholder(shape=[self.no_basis, 1], dtype=tf.float64)
@@ -54,10 +65,10 @@ class bayesian_model:
     def posterior_predictive_distribution(self, states_actions, _):
         assert states_actions.shape.as_list() == [None, self.dim]
 
-        bases = self.basis_functions(states_actions)
+        bases = self.rbf_basis_functions(states_actions)
 
         posterior_predictive_mu = tf.matmul(bases, self.prior_mu)
-        posterior_predictive_sigma = pow(self.likelihood_sd, 2) + tf.reduce_sum(tf.multiply(tf.matmul(bases, self.prior_sigma), bases), axis=-1, keep_dims=True)
+        posterior_predictive_sigma = tf.square(self.noise_sd) + tf.reduce_sum(tf.multiply(tf.matmul(bases, self.prior_sigma), bases), axis=-1, keep_dims=True)
 
         return tf.concat([posterior_predictive_mu, posterior_predictive_sigma], axis=-1)
 
@@ -74,8 +85,39 @@ class bayesian_model:
 
         return tf.concat([posterior_predictive_mu, posterior_predictive_sigma], axis=-1)
 
+    def train_hyperparameters(self, sess, xtrain, ytrain, iterations, batched=0):
+        xtrain, ytrain = self.process(xtrain, ytrain)
+        for it in range(iterations):
+            if batched > 0:
+                idx = np.random.randint(len(xtrain), size=batched)
+                log_marginal_likelihood, _ = sess.run([self.log_marginal_likelihood, self.opt], feed_dict={self.X:xtrain[idx, ...], self.y:ytrain[idx, ...]})
+            else:
+                log_marginal_likelihood, _ = sess.run([self.log_marginal_likelihood, self.opt], feed_dict={self.X:xtrain, self.y:ytrain})
+            print 'iteration:', it, 'loss:', -log_marginal_likelihood
+        self.sigma = (sess.run(self.prior_precision) ** 2) * np.eye(self.no_basis)
+
+    def init_log_marginal_likelihood_loss(self):
+        if self.basis_functions == 'rbf':
+            K = tf.matmul(tf.matmul(self.X_basis, tf.square(self.prior_precision) * tf.eye(self.no_basis, dtype=tf.float64)), tf.transpose(self.X_basis)) + \
+                tf.square(self.noise_sd) * tf.eye(tf.shape(self.X_basis)[0], dtype=tf.float64)
+
+            self.log_marginal_likelihood = -.5 * tf.matmul(tf.matmul(tf.transpose(self.y), tf.matrix_inverse(K)), self.y)[0, 0] + \
+                                           -.5 * tf.linalg.logdet(K) + \
+                                           -.5 * tf.cast(tf.shape(self.X_basis)[0], dtype=tf.float64) * np.log(2. * np.pi)
+            self.opt = tf.train.AdamOptimizer().minimize(-self.log_marginal_likelihood, var_list=[self.length_scale, self.signal_sd, self.noise_sd])
+            #self.opt = tf.train.GradientDescentOptimizer(.1).minimize(-self.log_marginal_likelihood, var_list=[self.length_scale, self.signal_sd, self.noise_sd])
+
+    def init_basis_function_hyperparameters(self):
+        if self.basis_functions == 'rbf':
+            self.length_scale = tf.get_variable(name='length_scale'+self.uuid, shape=[], dtype=tf.float64,
+                                                initializer=tf.constant_initializer(.25))
+            self.signal_sd = tf.get_variable(name='signal_sd'+self.uuid, shape=[], dtype=tf.float64,
+                                                   initializer=tf.constant_initializer(1.))
+            self.noise_sd = tf.get_variable(name='noise_sd'+self.uuid, shape=[], dtype=tf.float64,
+                                                  initializer=tf.constant_initializer(.2))
+
     # Basis functions using RBFs (to model nonlinear data).
-    def basis_functions(self, X, sigma=.25):
+    def rbf_basis_functions(self, X):
         assert self.no_basis > 1
 
         no_basis = self.no_basis
@@ -94,10 +136,11 @@ class bayesian_model:
 
         tf_means = tf.Variable(means.T, dtype=tf.float64, trainable=False)
         norm_of_difference = tf.square(tf.norm(X, axis=-1, keep_dims=True)) + (-2. * tf.matmul(X, tf_means)) + tf.square(tf.norm(tf_means, axis=0, keep_dims=True))
-        bases = tf.exp(-norm_of_difference / 2. * pow(sigma, 2))
+        bases = tf.square(self.signal_sd) * tf.exp(-norm_of_difference / 2. * tf.square(self.length_scale))
         bases = tf.concat([tf.ones_like(bases[:, 0:1]), bases], axis=-1)
         return bases
 
+    '''
     # Basis functions using RBFs (to model nonlinear data).
     def basis_functions2(self, X, sigma=.25):
         assert self.no_basis > 1
@@ -151,14 +194,15 @@ class bayesian_model:
         bases = np.exp(-norm_of_difference / 2. * pow(sigma, 2))
         bases = np.concatenate([np.ones((len(xtrain), 1)), bases], axis=-1)
         return bases
+    '''
 
     def process(self, X, y):
         X = np.atleast_1d(X)
         y = np.atleast_1d(y)
         if X.ndim == 1:
-            X = X[np.newaxis, ...]
+            X = np.reshape(X, [-1, self.dim])
         if y.ndim == 1:
-            y = y[..., np.newaxis]
+            y = np.reshape(y, [-1, 1])
         assert len(X) == len(y)
         assert X.shape[-1] == self.dim
         assert y.shape[-1] == 1
@@ -215,6 +259,7 @@ def sinusoid_experiment():
             mu, sigma = model.update(sess, xtrain[i], ytrain[i])
             plot_sample_lines(mu, sigma, 6, [xtrain[0 : i + 1], ytrain[0 : i + 1]], number_of_basis, sess, model)
         '''
+        model.train_hyperparameters(sess, xtrain, ytrain, iterations=10000, batched=32)
         mu, sigma = model.update(sess, xtrain, ytrain)
         plot_sample_lines(mu, sigma, 6, [xtrain, ytrain], number_of_basis, sess, model)
 
@@ -353,6 +398,7 @@ def pendulum_experiment():
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
 
+        model.train_hyperparameters(sess, xtrain, ytrain, iterations=10000, batched=32)
         for i in range(0, training_points, interval):
             #print i
             mu, sigma = model.update(sess, xtrain[i:i+interval], ytrain[i:i+interval])
@@ -387,13 +433,18 @@ def future_state_prediction_experiment():
 
     import pickle
     T = 100#Time horizon
-    seed_state = pickle.load(open("random_state.p", "rb"))
-    policy = pickle.load(open("random_policy.p", "rb"))
-    #policy = np.random.uniform(-2., 2., T)
-    #seed_state = random_seed_state()
+    #seed_state = pickle.load(open("random_state.p", "rb"))
+    #policy = pickle.load(open("random_policy.p", "rb"))
+    policy = np.random.uniform(-2., 2., T)
+    seed_state = random_seed_state()
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
+
+        model0.train_hyperparameters(sess, xtrain, ytrain[:, 0], iterations=1000, batched=32)
+        model1.train_hyperparameters(sess, xtrain, ytrain[:, 1], iterations=1000, batched=32)
+        model2.train_hyperparameters(sess, xtrain, ytrain[:, 2], iterations=1000, batched=32)
+
         mu0, sigma0 = model0.update(sess, xtrain, ytrain[:, 0])
         mu1, sigma1 = model1.update(sess, xtrain, ytrain[:, 1])
         mu2, sigma2 = model2.update(sess, xtrain, ytrain[:, 2])
@@ -456,6 +507,8 @@ def future_state_prediction_experiment_with_every_visit_sampling():
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
+        for i in range(len(models)):
+            models[i].train_hyperparameters(sess, xtrain, ytrain[:, i], iterations=1000, batched=32)
         for i in range(len(models)):
             models[i].update(sess, xtrain, ytrain[:, i])
 
@@ -527,7 +580,6 @@ def regression_experiment():
     x_test = states_actions[400:, ...]
     y_test = next_states[400:, ...]
 
-
     no_basis = (6**4)+1
     models = [bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),
                              observation_space_high=np.array([1., 1., 8., 2.]), no_basis=no_basis) for _ in range(3)]
@@ -538,6 +590,8 @@ def regression_experiment():
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
+        for i in range(len(models)):
+            models[i].train_hyperparameters(sess, x_train, y_train[:, i], iterations=1000, batched=32)
         for i in range(len(models)):
             models[i].update(sess, x_train, y_train[:, i])
 
