@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
+import tensorflow.contrib.kernel_methods as km
 
 from matplotlib import cm
 from scipy.stats import multivariate_normal
@@ -9,35 +10,106 @@ import matplotlib.pyplot as plt
 
 import uuid
 
+def process(X, y, dim):
+    X = np.atleast_1d(X)
+    y = np.atleast_1d(y)
+    if X.ndim == 1:
+        X = np.reshape(X, [-1, dim])
+    if y.ndim == 1:
+        y = np.reshape(y, [-1, 1])
+    assert len(X) == len(y)
+    assert X.shape[-1] == dim
+    assert y.shape[-1] == 1
+    return X, y
+
+def squared_exponential_kernel(a, b, signal_sd, length_scale):
+    sqdist = tf.reduce_sum(tf.square(a), axis=-1, keep_dims=True) +\
+             -2. * tf.matmul(a, tf.transpose(b)) +\
+             tf.transpose(tf.reduce_sum(tf.square(b), axis=-1, keep_dims=True))
+    kernel = tf.square(signal_sd) * tf.exp(-.5 * (1. / tf.square(length_scale)) * sqdist)
+    return kernel
+
+class hyperparameter_search:
+    def __init__(self, dim):
+        self.dim = dim
+
+        # Placeholders.
+        self.X = tf.placeholder(shape=[None, self.dim], dtype=tf.float64)
+        self.y = tf.placeholder(shape=[None, 1], dtype=tf.float64)
+
+        # UUID.
+        self.uuid = str(uuid.uuid4())
+
+        # Batch size
+        self.n = tf.shape(self.X)[0]
+
+        # Variables.
+        self.length_scale = tf.get_variable(name='length_scale'+self.uuid, shape=[], dtype=tf.float64,
+                                            initializer=tf.constant_initializer(.25))#.25
+        self.signal_sd = tf.get_variable(name='signal_sd'+self.uuid, shape=[], dtype=tf.float64,
+                                               initializer=tf.constant_initializer(1.))#1.
+        self.noise_sd = tf.get_variable(name='noise_sd'+self.uuid, shape=[], dtype=tf.float64,
+                                              initializer=tf.constant_initializer(.2))#.2
+
+        # Get predictive distribution and log marginal likelihood (Algorithm 2.1 in the GP book).
+        L = tf.cholesky(squared_exponential_kernel(self.X, self.X, self.signal_sd, self.length_scale) +\
+                        tf.multiply(tf.square(self.noise_sd), tf.eye(self.n, dtype=tf.float64)))
+        alpha = tf.linalg.solve(tf.transpose(L), tf.linalg.solve(L, self.y))
+        self.log_marginal_likelihood = -.5 * tf.matmul(tf.transpose(self.y), alpha)[0, 0] +\
+                                       -.5 * tf.reduce_sum(tf.log(tf.diag_part(L))) +\
+                                       -.5 * tf.cast(self.n, dtype=tf.float64) * np.log(2. * np.pi)
+        self.opt = tf.train.AdamOptimizer().minimize(-self.log_marginal_likelihood, var_list=[self.length_scale, self.signal_sd, self.noise_sd])
+
+    def train_hyperparameters(self, sess, xtrain, ytrain, iterations, batched=0):
+        xtrain, ytrain = process(xtrain, ytrain, self.dim)
+        for it in range(iterations):
+            if batched > 0:
+                idx = np.random.randint(len(xtrain), size=batched)
+                try:
+                    log_marginal_likelihood, _ = sess.run([self.log_marginal_likelihood, self.opt], feed_dict={self.X:xtrain[idx, ...], self.y:ytrain[idx, ...]})
+                except:
+                    print 'Cholesky decomposition failed.'
+            else:
+                log_marginal_likelihood, _ = sess.run([self.log_marginal_likelihood, self.opt], feed_dict={self.X:xtrain, self.y:ytrain})
+            print 'iteration:', it, 'loss:', -log_marginal_likelihood
+
 class bayesian_model:
-    def __init__(self, dim, observation_space_low, observation_space_high, no_basis, basis_functions='rbf'):
+    def __init__(self, dim, observation_space_low, observation_space_high, no_basis,
+                 length_scale=.25, signal_sd=1., noise_sd=.2):
         self.dim = dim
         self.observation_space_high = observation_space_high
         self.observation_space_low = observation_space_low
         self.no_basis = no_basis
-        self.basis_functions = basis_functions
+
+        self.length_scale_np = length_scale
+        self.signal_sd_np = signal_sd
+        self.noise_sd_np = noise_sd
 
         # Assertions.
         np.testing.assert_array_equal(-self.observation_space_low, self.observation_space_high)
         assert len(self.observation_space_high) == self.dim
-        assert self.basis_functions in ['rbf', 'polynomial']
 
         # UUID.
         self.uuid = str(uuid.uuid4())
 
         # Keep track of mu and sigma.
-        self.prior_precision = tf.get_variable(name='prior_precision'+self.uuid, shape=[], dtype=tf.float64,
-                                               initializer=tf.constant_initializer(2**-.5))
+        self.s = 2**-.5
+        #self.prior_precision = tf.get_variable(name='prior_precision'+self.uuid, shape=[], dtype=tf.float64, initializer=tf.constant_initializer(self.s))
         self.mu = np.zeros([self.no_basis, 1])
-        self.sigma = np.eye(self.no_basis) * (2 ** -1)
+        self.sigma = np.eye(self.no_basis) * (self.s**2)
 
-        # Initialize basis function hyperparameters
-        self.init_basis_function_hyperparameters()
+        # Initialize basis function hyperparameters.
+        self.length_scale = tf.get_variable(name='length_scale'+self.uuid, shape=[], dtype=tf.float64,
+                                            initializer=tf.constant_initializer(self.length_scale_np))#.25
+        self.signal_sd = tf.get_variable(name='signal_sd'+self.uuid, shape=[], dtype=tf.float64,
+                                               initializer=tf.constant_initializer(self.signal_sd_np))#1.
+        self.noise_sd = tf.get_variable(name='noise_sd'+self.uuid, shape=[], dtype=tf.float64,
+                                              initializer=tf.constant_initializer(self.noise_sd_np))#.2
 
         # Placeholders.
         self.X = tf.placeholder(shape=[None, self.dim], dtype=tf.float64)
         self.y = tf.placeholder(shape=[None, 1], dtype=tf.float64)
-        self.X_basis = self.rbf_basis_functions(self.X)
+        self.X_basis = self.approx_rbf_kern_basis(self.X)
 
         # Mean and variance of prior.
         self.prior_mu = tf.placeholder(shape=[self.no_basis, 1], dtype=tf.float64)
@@ -52,20 +124,14 @@ class bayesian_model:
                             (1. / tf.square(self.noise_sd)) * tf.matmul(tf.matmul(self.posterior_sigma, tf.transpose(self.X_basis)), self.y)
 
         # Loss function for training basis function hyperparameters
-        self.init_log_marginal_likelihood_loss()
-        '''
-        # Operation for assigning prior = posterior
-        self.posterior_mu_in = tf.placeholder(shape=[self.no_basis, 1], dtype=tf.float64)
-        self.posterior_sigma_in = tf.placeholder(shape=[self.no_basis, self.no_basis], dtype=tf.float64)
-
-        self.op_pos2prior_assign = [self.prior_mu.assign(self.posterior_mu_in), self.prior_sigma.assign(self.posterior_sigma_in)]
-        '''
+        #self.init_log_marginal_likelihood_loss2()
+        #self.init_log_marginal_likelihood_loss()
 
     # Given test points, return the posterior predictive distributions.
     def posterior_predictive_distribution(self, states_actions, _):
         assert states_actions.shape.as_list() == [None, self.dim]
 
-        bases = self.rbf_basis_functions(states_actions)
+        bases = self.approx_rbf_kern_basis(states_actions)
 
         posterior_predictive_mu = tf.matmul(bases, self.prior_mu)
         posterior_predictive_sigma = tf.square(self.noise_sd) + tf.reduce_sum(tf.multiply(tf.matmul(bases, self.prior_sigma), bases), axis=-1, keep_dims=True)
@@ -85,6 +151,30 @@ class bayesian_model:
 
         return tf.concat([posterior_predictive_mu, posterior_predictive_sigma], axis=-1)
 
+    '''
+    def squared_exponential_kernel(self, a, b):
+        sqdist = tf.reduce_sum(tf.square(a), axis=-1, keep_dims=True) +\
+                 -2. * tf.matmul(a, tf.transpose(b)) +\
+                 tf.transpose(tf.reduce_sum(tf.square(b), axis=-1, keep_dims=True))
+        kernel = tf.square(self.signal_sd) * tf.exp(-.5 * (1. / tf.square(self.length_scale)) * sqdist)
+        return kernel
+    '''
+
+    '''
+    def init_log_marginal_likelihood_loss2(self):
+        # Batch size
+        self.n = tf.shape(self.X)[0]
+        # Get predictive distribution and log marginal likelihood (Algorithm 2.1 in the GP book).
+        L = tf.cholesky(self.squared_exponential_kernel(self.X, self.X) +\
+                        tf.multiply(tf.square(self.noise_sd), tf.eye(self.n, dtype=tf.float64)))
+        alpha = tf.linalg.solve(tf.transpose(L), tf.linalg.solve(L, self.y))
+        self.log_marginal_likelihood = -.5 * tf.matmul(tf.transpose(self.y), alpha)[0, 0] +\
+                                       -.5 * tf.reduce_sum(tf.log(tf.diag_part(L))) +\
+                                       -.5 * tf.cast(self.n, dtype=tf.float64) * np.log(2. * np.pi)
+        self.opt = tf.train.AdamOptimizer().minimize(-self.log_marginal_likelihood, var_list=[self.length_scale, self.signal_sd, self.noise_sd])
+    '''
+
+    '''
     def train_hyperparameters(self, sess, xtrain, ytrain, iterations, batched=0):
         xtrain, ytrain = self.process(xtrain, ytrain)
         for it in range(iterations):
@@ -94,27 +184,43 @@ class bayesian_model:
             else:
                 log_marginal_likelihood, _ = sess.run([self.log_marginal_likelihood, self.opt], feed_dict={self.X:xtrain, self.y:ytrain})
             print 'iteration:', it, 'loss:', -log_marginal_likelihood
-        self.sigma = (sess.run(self.prior_precision) ** 2) * np.eye(self.no_basis)
+        #self.sigma = (sess.run(self.prior_precision) ** 2) * np.eye(self.no_basis)
+    '''
 
+
+    '''
+    def init_basis_function_hyperparameters_assignment_ops(self):
+        self.length_scale_placeholder = tf.placeholder(shape=[], dtype=tf.float64)
+        self.signal_sd_placeholder = tf.placeholder(shape=[], dtype=tf.float64)
+        self.noise_sd_placeholder = tf.placeholder(shape=[], dtype=tf.float64)
+
+        self.hyperparameter_assign_op = [self.length_scale.assign(self.length_scale_placeholder),
+                                         self.signal_sd.assign(self.signal_sd_placeholder),
+                                         self.noise_sd.assign(self.noise_sd_placeholder)]
+    '''
+
+    def approx_rbf_kern_basis(self, X):
+        try:
+            self.rffm
+        except:
+            self.rffm = km.RandomFourierFeatureMapper(self.dim, self.no_basis, stddev=self.length_scale_np)
+
+        basis_phi = tf.multiply(self.signal_sd, tf.cast(self.rffm.map(tf.cast(X, dtype=tf.float32)), dtype=tf.float64))
+        sqrt_sigma_inv = tf.matrix_inverse(self.s * tf.eye(self.no_basis, dtype=tf.float64))
+        basis_psi = tf.transpose(tf.matmul(sqrt_sigma_inv, tf.transpose(basis_phi)))
+
+        return basis_psi
+
+    '''
     def init_log_marginal_likelihood_loss(self):
-        if self.basis_functions == 'rbf':
-            K = tf.matmul(tf.matmul(self.X_basis, tf.square(self.prior_precision) * tf.eye(self.no_basis, dtype=tf.float64)), tf.transpose(self.X_basis)) + \
-                tf.square(self.noise_sd) * tf.eye(tf.shape(self.X_basis)[0], dtype=tf.float64)
+        K = tf.matmul(tf.matmul(self.X_basis, tf.square(self.prior_precision) * tf.eye(self.no_basis, dtype=tf.float64)), tf.transpose(self.X_basis)) + \
+            tf.square(self.noise_sd) * tf.eye(tf.shape(self.X_basis)[0], dtype=tf.float64)
 
-            self.log_marginal_likelihood = -.5 * tf.matmul(tf.matmul(tf.transpose(self.y), tf.matrix_inverse(K)), self.y)[0, 0] + \
-                                           -.5 * tf.linalg.logdet(K) + \
-                                           -.5 * tf.cast(tf.shape(self.X_basis)[0], dtype=tf.float64) * np.log(2. * np.pi)
-            self.opt = tf.train.AdamOptimizer().minimize(-self.log_marginal_likelihood, var_list=[self.length_scale, self.signal_sd, self.noise_sd])
-            #self.opt = tf.train.GradientDescentOptimizer(.1).minimize(-self.log_marginal_likelihood, var_list=[self.length_scale, self.signal_sd, self.noise_sd])
-
-    def init_basis_function_hyperparameters(self):
-        if self.basis_functions == 'rbf':
-            self.length_scale = tf.get_variable(name='length_scale'+self.uuid, shape=[], dtype=tf.float64,
-                                                initializer=tf.constant_initializer(.25))
-            self.signal_sd = tf.get_variable(name='signal_sd'+self.uuid, shape=[], dtype=tf.float64,
-                                                   initializer=tf.constant_initializer(1.))
-            self.noise_sd = tf.get_variable(name='noise_sd'+self.uuid, shape=[], dtype=tf.float64,
-                                                  initializer=tf.constant_initializer(.2))
+        self.log_marginal_likelihood = -.5 * tf.matmul(tf.matmul(tf.transpose(self.y), tf.matrix_inverse(K)), self.y)[0, 0] + \
+                                       -.5 * tf.linalg.logdet(K) + \
+                                       -.5 * tf.cast(tf.shape(self.X_basis)[0], dtype=tf.float64) * np.log(2. * np.pi)
+        self.opt = tf.train.AdamOptimizer().minimize(-self.log_marginal_likelihood, var_list=[self.length_scale, self.signal_sd, self.noise_sd])
+        #self.opt = tf.train.GradientDescentOptimizer(.1).minimize(-self.log_marginal_likelihood, var_list=[self.length_scale, self.signal_sd, self.noise_sd])
 
     # Basis functions using RBFs (to model nonlinear data).
     def rbf_basis_functions(self, X):
@@ -140,7 +246,6 @@ class bayesian_model:
         bases = tf.concat([tf.ones_like(bases[:, 0:1]), bases], axis=-1)
         return bases
 
-    '''
     # Basis functions using RBFs (to model nonlinear data).
     def basis_functions2(self, X, sigma=.25):
         assert self.no_basis > 1
@@ -196,20 +301,8 @@ class bayesian_model:
         return bases
     '''
 
-    def process(self, X, y):
-        X = np.atleast_1d(X)
-        y = np.atleast_1d(y)
-        if X.ndim == 1:
-            X = np.reshape(X, [-1, self.dim])
-        if y.ndim == 1:
-            y = np.reshape(y, [-1, 1])
-        assert len(X) == len(y)
-        assert X.shape[-1] == self.dim
-        assert y.shape[-1] == 1
-        return X, y
-
     def update(self, sess, X, y):
-        X, y = self.process(X, y)
+        X, y = process(X, y, self.dim)
 
         posterior_mu, posterior_sigma = sess.run([self.posterior_mu, self.posterior_sigma], feed_dict={self.X:X, self.y:y, self.prior_mu:self.mu, self.prior_sigma:self.sigma})
         self.mu = np.copy(posterior_mu)
@@ -224,7 +317,7 @@ def plot_sample_lines(mu, sigma, number_of_lines, data_points, number_of_basis, 
     y = np.atleast_1d(y)
     mu = np.squeeze(mu, axis=-1)
 
-    x = np.linspace(-1., 1., 50)
+    x = np.linspace(-5., 5., 50)
     xbasis = sess.run(model.X_basis, feed_dict={model.X:x[..., np.newaxis]})
 
     lines = np.random.multivariate_normal(mu, sigma, number_of_lines)
@@ -235,7 +328,7 @@ def plot_sample_lines(mu, sigma, number_of_lines, data_points, number_of_basis, 
     plt.show()
 
 def sinusoid_experiment():
-    trainingPoints = 100
+    trainingPoints = 10
     noiseSD = .2
     priorPrecision = 2.
     likelihoodSD = noiseSD
@@ -243,25 +336,33 @@ def sinusoid_experiment():
     number_of_basis = 100
 
     #Generate the training points
-    xtrain = np.random.uniform(-1., 1., size=trainingPoints)
-    ytrain = np.sin(10.*xtrain) + np.random.normal(loc=0., scale=noiseSD, size=trainingPoints)
+    xtrain = np.random.uniform(-5., 5., size=trainingPoints)
+    #ytrain = np.sin(.9*xtrain) + np.random.normal(loc=0., scale=noiseSD, size=trainingPoints)
+    ytrain = np.sin(.9*xtrain) + 0.00005 * np.random.randn(trainingPoints)
 
     #Plot prior
     priorMean = np.zeros(number_of_basis)
     priorSigma = np.eye(number_of_basis) / priorPrecision
 
-    model = bayesian_model(1, np.array([-1.]), np.array([1.]), number_of_basis)
-    iterations = 100
+    hs = hyperparameter_search(dim=1)
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
+        hs.train_hyperparameters(sess, xtrain, ytrain, iterations=10000, batched=32)
+        hyperparameters = sess.run([hs.length_scale, hs.signal_sd, hs.noise_sd])
+
+    iterations = 100
+    model = bayesian_model(1, np.array([-1.]), np.array([1.]), number_of_basis, *hyperparameters)
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+
+        mu, sigma = model.update(sess, xtrain, ytrain)
+        plot_sample_lines(mu, sigma, 6, [xtrain, ytrain], number_of_basis, sess, model)
         '''
         for i in range(iterations):
             mu, sigma = model.update(sess, xtrain[i], ytrain[i])
             plot_sample_lines(mu, sigma, 6, [xtrain[0 : i + 1], ytrain[0 : i + 1]], number_of_basis, sess, model)
         '''
-        model.train_hyperparameters(sess, xtrain, ytrain, iterations=10000, batched=32)
-        mu, sigma = model.update(sess, xtrain, ytrain)
-        plot_sample_lines(mu, sigma, 6, [xtrain, ytrain], number_of_basis, sess, model)
+
 
 def get_training_data(training_points):
     import pickle
@@ -392,13 +493,16 @@ def pendulum_experiment():
     no_basis = (5**4)+1
 
     xtrain, ytrain = get_training_data(training_points)
-    model = bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),
-                           observation_space_high=np.array([1., 1., 8., 2.]), no_basis=no_basis)
-
+    hs = hyperparameter_search(dim=4)
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
+        hs.train_hyperparameters(sess, xtrain, ytrain, iterations=10000, batched=32)
+        hyperparameters = sess.run([hs.length_scale, hs.signal_sd, hs.noise_sd])
 
-        model.train_hyperparameters(sess, xtrain, ytrain, iterations=10000, batched=32)
+    model = bayesian_model(4, np.array([-1., -1., -8., -2.]), np.array([1., 1., 8., 2.]), no_basis, *hyperparameters)
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        #model.train_hyperparameters(sess, xtrain, ytrain, iterations=10000, batched=32)
         for i in range(0, training_points, interval):
             #print i
             mu, sigma = model.update(sess, xtrain[i:i+interval], ytrain[i:i+interval])
@@ -421,18 +525,28 @@ def future_state_prediction_experiment():
     noise_sd = .2
     prior_precision = 2.
     likelihood_sd = noise_sd
-    no_basis = (6**4)+1
+    no_basis = 256
 
     xtrain, ytrain = get_training_data3(training_points)
-    model0 = bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),
-                            observation_space_high=np.array([1., 1., 8., 2.]), no_basis=no_basis)
-    model1 = bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),
-                            observation_space_high=np.array([1., 1., 8., 2.]), no_basis=no_basis)
-    model2 = bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),
-                            observation_space_high=np.array([1., 1., 8., 2.]), no_basis=no_basis)
 
-    import pickle
+    hs0 = hyperparameter_search(dim=4)
+    hs1 = hyperparameter_search(dim=4)
+    hs2 = hyperparameter_search(dim=4)
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        hs0.train_hyperparameters(sess, xtrain, ytrain[:, 0], iterations=2000, batched=32)
+        hyperparameters0 = sess.run([hs0.length_scale, hs0.signal_sd, hs0.noise_sd])
+        hs1.train_hyperparameters(sess, xtrain, ytrain[:, 1], iterations=2000, batched=32)
+        hyperparameters1 = sess.run([hs1.length_scale, hs1.signal_sd, hs1.noise_sd])
+        hs2.train_hyperparameters(sess, xtrain, ytrain[:, 2], iterations=2000, batched=32)
+        hyperparameters2 = sess.run([hs2.length_scale, hs2.signal_sd, hs2.noise_sd])
+
+    model0 = bayesian_model(4, np.array([-1., -1., -8., -2.]), np.array([1., 1., 8., 2.]), no_basis, *hyperparameters0)
+    model1 = bayesian_model(4, np.array([-1., -1., -8., -2.]), np.array([1., 1., 8., 2.]), no_basis, *hyperparameters1)
+    model2 = bayesian_model(4, np.array([-1., -1., -8., -2.]), np.array([1., 1., 8., 2.]), no_basis, *hyperparameters2)
+
     T = 100#Time horizon
+    #import pickle
     #seed_state = pickle.load(open("random_state.p", "rb"))
     #policy = pickle.load(open("random_policy.p", "rb"))
     policy = np.random.uniform(-2., 2., T)
@@ -441,9 +555,9 @@ def future_state_prediction_experiment():
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
 
-        model0.train_hyperparameters(sess, xtrain, ytrain[:, 0], iterations=1000, batched=32)
-        model1.train_hyperparameters(sess, xtrain, ytrain[:, 1], iterations=1000, batched=32)
-        model2.train_hyperparameters(sess, xtrain, ytrain[:, 2], iterations=1000, batched=32)
+        #model0.train_hyperparameters(sess, xtrain, ytrain[:, 0], iterations=1000, batched=32)
+        #model1.train_hyperparameters(sess, xtrain, ytrain[:, 1], iterations=1000, batched=32)
+        #model2.train_hyperparameters(sess, xtrain, ytrain[:, 2], iterations=1000, batched=32)
 
         mu0, sigma0 = model0.update(sess, xtrain, ytrain[:, 0])
         mu1, sigma1 = model1.update(sess, xtrain, ytrain[:, 1])
@@ -486,16 +600,24 @@ def future_state_prediction_experiment_with_every_visit_sampling():
     sys.path.append('..')
     from prototype8.dmlac.real_env_pendulum import get_next_state
 
-    training_points = 200*20*5
+    training_points = 200*2
     noise_sd = .2
     prior_precision = 2.
     likelihood_sd = noise_sd
-    no_basis = (6**4)+1
+    no_basis = 256
 
     xtrain, ytrain = get_training_data3(training_points)
 
-    models = [bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),
-                             observation_space_high=np.array([1., 1., 8., 2.]), no_basis=no_basis) for _ in range(3)]
+    hs = [hyperparameter_search(dim=4) for _ in range(3)]
+    hyperparameters = []
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        for i in range(len(hs)):
+            hs[i].train_hyperparameters(sess, xtrain, ytrain[:, i], iterations=50000, batched=32)
+            hyperparameters.append(sess.run([hs[i].length_scale, hs[i].signal_sd, hs[i].noise_sd]))
+
+
+    models = [bayesian_model(4, np.array([-1., -1., -8., -2.]), np.array([1., 1., 8., 2.]), no_basis, *hyperparameters[i]) for i in range(3)]
 
     states_actions = tf.placeholder(shape=[None, 4], dtype=tf.float64)
     ppd = tf.stack([model.posterior_predictive_distribution(states_actions, None) for model in models], axis=0)
@@ -507,8 +629,6 @@ def future_state_prediction_experiment_with_every_visit_sampling():
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        for i in range(len(models)):
-            models[i].train_hyperparameters(sess, xtrain, ytrain[:, i], iterations=1000, batched=32)
         for i in range(len(models)):
             models[i].update(sess, xtrain, ytrain[:, i])
 
@@ -580,17 +700,24 @@ def regression_experiment():
     x_test = states_actions[400:, ...]
     y_test = next_states[400:, ...]
 
-    no_basis = (6**4)+1
-    models = [bayesian_model(dim=4, observation_space_low=np.array([-1., -1., -8., -2.]),
-                             observation_space_high=np.array([1., 1., 8., 2.]), no_basis=no_basis) for _ in range(3)]
+
+    hs = [hyperparameter_search(dim=4) for _ in range(3)]
+    hyperparameters = []
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        for i in range(len(hs)):
+            hs[i].train_hyperparameters(sess, x_train, y_train[:, i], iterations=50000, batched=32)
+            hyperparameters.append(sess.run([hs[i].length_scale, hs[i].signal_sd, hs[i].noise_sd]))
+
+
+    no_basis = 256
+    models = [bayesian_model(4, np.array([-1., -1., -8., -2.]), np.array([1., 1., 8., 2.]), no_basis, *hyperparameters[i]) for i in range(3)]
 
     states_actions_placeholder = tf.placeholder(shape=[None, 4], dtype=tf.float64)
     ppd = tf.stack([model.posterior_predictive_distribution(states_actions_placeholder, None) for model in models], axis=0)
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        for i in range(len(models)):
-            models[i].train_hyperparameters(sess, x_train, y_train[:, i], iterations=1000, batched=32)
         for i in range(len(models)):
             models[i].update(sess, x_train, y_train[:, i])
 
@@ -618,4 +745,4 @@ if __name__ == '__main__':
     #pendulum_experiment()
     #future_state_prediction_experiment()
     future_state_prediction_experiment_with_every_visit_sampling()
-    #regression_experiment()
+    regression_experiment()
