@@ -60,18 +60,15 @@ class hyperparameter_search:
                                        -.5 * tf.cast(self.n, dtype=tf.float64) * np.log(2. * np.pi)
         self.opt = tf.train.AdamOptimizer().minimize(-self.log_marginal_likelihood, var_list=[self.length_scale, self.signal_sd, self.noise_sd])
 
-    def train_hyperparameters(self, sess, xtrain, ytrain, iterations, batched=0):
+    # TODO: idxs require memory; make it memory-free
+    def train_hyperparameters(self, sess, xtrain, ytrain, idxs):
         xtrain, ytrain = process(xtrain, ytrain, self.dim)
-        for it in range(iterations):
-            if batched > 0:
-                idx = np.random.randint(len(xtrain), size=batched)
-                try:
-                    log_marginal_likelihood, _ = sess.run([self.log_marginal_likelihood, self.opt], feed_dict={self.X:xtrain[idx, ...], self.y:ytrain[idx, ...]})
-                except:
-                    print 'Cholesky decomposition failed.'
-            else:
-                log_marginal_likelihood, _ = sess.run([self.log_marginal_likelihood, self.opt], feed_dict={self.X:xtrain, self.y:ytrain})
-            print 'iteration:', it, 'loss:', -log_marginal_likelihood
+        for idx, it in zip(idxs, range(len(idxs))):
+            try:
+                log_marginal_likelihood, _ = sess.run([self.log_marginal_likelihood, self.opt], feed_dict={self.X:xtrain[idx, ...], self.y:ytrain[idx, ...]})
+                print 'iteration:', it, 'loss:', -log_marginal_likelihood
+            except:
+                print 'Cholesky decomposition failed.'
 
 class bayesian_model:
     def __init__(self, dim, observation_space_low, observation_space_high, no_basis,
@@ -203,7 +200,7 @@ class bayesian_model:
         try:
             self.rffm
         except:
-            self.rffm = km.RandomFourierFeatureMapper(self.dim, self.no_basis, stddev=self.length_scale_np)
+            self.rffm = km.RandomFourierFeatureMapper(self.dim, self.no_basis, stddev=self.length_scale_np, seed=np.random.randint(2**32-1))
 
         basis_phi = tf.multiply(self.signal_sd, tf.cast(self.rffm.map(tf.cast(X, dtype=tf.float32)), dtype=tf.float64))
         sqrt_sigma_inv = tf.matrix_inverse(self.s * tf.eye(self.no_basis, dtype=tf.float64))
@@ -521,7 +518,7 @@ def future_state_prediction_experiment():
     sys.path.append('..')
     from prototype8.dmlac.real_env_pendulum import get_next_state
 
-    training_points = 200*20
+    training_points = 200*2
     noise_sd = .2
     prior_precision = 2.
     likelihood_sd = noise_sd
@@ -595,6 +592,7 @@ def future_state_prediction_experiment():
         plt.grid()
         plt.show()
 
+'''
 def future_state_prediction_experiment_with_every_visit_sampling():
     import sys
     sys.path.append('..')
@@ -739,10 +737,129 @@ def regression_experiment():
         plt.plot(np.arange(len(y_test)), y_test[:, i])
         plt.errorbar(np.arange(len(means)), means[:, i], yerr=sds[:, i])
     plt.show()
+'''
+
+def plotting_experiment():
+    import gym
+    env = gym.make('Pendulum-v0')
+
+    epochs = 3
+    train_size = (epochs - 1) * 200
+    policy = []
+
+    data = []
+    for epoch in range(epochs):
+        state = env.reset()
+        while True:
+            action = np.random.uniform(env.action_space.low, env.action_space.high, 1)
+            policy.append(action)
+            next_state, reward, done, _ = env.step(action)
+            data.append([state, action, next_state])
+            state = np.copy(next_state)
+            if done:
+                break
+
+    states = np.stack([d[0] for d in data], axis=0)
+    actions = np.stack([d[1] for d in data], axis=0)
+    next_states = np.stack([d[2] for d in data], axis=0)
+
+    states_actions = np.concatenate([states, actions], axis=-1)
+
+    x_train = states_actions[:train_size, ...]
+    y_train = next_states[:train_size, ...]
+    x_test = states_actions[train_size:, ...]
+    y_test = next_states[train_size:, ...]
+
+    # Train the hyperparameters
+    hs = [hyperparameter_search(dim=env.observation_space.shape[0]+env.action_space.shape[0])
+          for _ in range(env.observation_space.shape[0])]
+    hyperparameters = []
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        batch_size = 32
+        iterations = 50000
+        idxs = [np.random.randint(len(x_train), size=batch_size) for _ in range(iterations)]
+        for i in range(len(hs)):
+            hs[i].train_hyperparameters(sess, x_train, y_train[:, i], idxs)
+            hyperparameters.append(sess.run([hs[i].length_scale, hs[i].signal_sd, hs[i].noise_sd]))
+
+    # Prepare the models
+    models = [bayesian_model(4, np.array([-1., -1., -8., -2.]), np.array([1., 1., 8., 2.]), 256, *hyperparameters[i])
+              for i in range(env.observation_space.shape[0])]
+    states_actions_placeholder = tf.placeholder(shape=[None, env.observation_space.shape[0]+env.action_space.shape[0]], dtype=tf.float64)
+    ppd = tf.stack([model.posterior_predictive_distribution(states_actions_placeholder, None) for model in models], axis=0)
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        for i in range(len(models)):
+            models[i].update(sess, x_train, y_train[:, i])
+
+        # ----- First plotting experiment. -----
+        feed_dict = {}
+        feed_dict[states_actions_placeholder] = x_test
+        for model in models:
+            feed_dict[model.prior_mu] = model.mu
+            feed_dict[model.prior_sigma] = model.sigma
+
+        mu_sigma = sess.run(ppd, feed_dict=feed_dict)
+
+        means = mu_sigma[:, :, 0].T
+        sds = np.sqrt(mu_sigma[:, :, 1].T)
+
+        plt.figure(1)
+        plt.clf()
+        for i in range(3):
+            plt.subplot(2, 3, i+1)
+            plt.grid()
+            plt.plot(np.arange(len(y_test)), y_test[:, i])
+            plt.errorbar(np.arange(len(means)), means[:, i], yerr=sds[:, i], color='m', ecolor='g')
+
+        # ----- Second plotting experiment. -----
+        no_lines = 50
+        policy = actions[-200:, ...]
+        seed_state = x_test[0, :3]
+
+        feed_dict = {}
+        for model in models:
+            feed_dict[model.prior_mu] = model.mu
+            feed_dict[model.prior_sigma] = model.sigma
+
+        for line in range(no_lines):
+            print 'At line:', line
+            states = []
+            state = np.copy(seed_state)
+            states.append(np.copy(state))
+            for action in policy:
+                state_action = np.concatenate([state, action], axis=0)[np.newaxis, ...]
+
+                feed_dict[states_actions_placeholder] = state_action
+                mu_sigma = sess.run(ppd, feed_dict=feed_dict)
+
+                means = mu_sigma[:, :, 0].T
+                variances = mu_sigma[:, :, 1].T
+
+                means = np.squeeze(means, axis=0)
+                variances = np.squeeze(variances, axis=0)
+
+                state = np.random.multivariate_normal(means, variances*np.eye(len(variances)))
+                states.append(np.copy(state))
+            states = np.stack(states, axis=0)
+
+            for i in range(3):
+                plt.subplot(2, 3, 3+i+1)
+                plt.plot(np.arange(len(states[:, i])), states[:, i], color='r')
+
+        for i in range(3):
+            plt.subplot(2, 3, 3+i+1)
+            plt.plot(np.arange(len(y_test)), y_test[:, i])
+            plt.grid()
+        plt.show()
 
 if __name__ == '__main__':
     #sinusoid_experiment()
     #pendulum_experiment()
     #future_state_prediction_experiment()
-    future_state_prediction_experiment_with_every_visit_sampling()
-    regression_experiment()
+    #future_state_prediction_experiment_with_every_visit_sampling()
+    #regression_experiment()
+
+    plotting_experiment()
