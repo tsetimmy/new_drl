@@ -147,7 +147,8 @@ class bayesian_model:
         try:
             self.rffm
         except:
-            self.rffm = km.RandomFourierFeatureMapper(self.dim, self.no_basis, stddev=self.length_scale_np, seed=np.random.randint(2**32-1))
+            self.rffm_seed = np.random.randint(2**32-1)
+            self.rffm = km.RandomFourierFeatureMapper(self.dim, self.no_basis, stddev=self.length_scale_np, seed=self.rffm_seed)
 
         basis_phi = tf.multiply(self.signal_sd, self.rffm.map(X))
         sqrt_sigma_inv = tf.matrix_inverse(self.s * tf.eye(self.no_basis, dtype=tf.float64))
@@ -166,7 +167,16 @@ class bayesian_model:
         self.mu = np.matmul(np.matmul(self.sigma, np.linalg.inv(self.sigma_prior)), self.mu_prior) + self.noise_sd_np**-2 * np.matmul(self.sigma, self.cum_xy)
 
 def plotting_experiment():
+    import argparse
     import gym
+    import pickle
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dump-data", type=int, default=1)
+    args = parser.parse_args()
+
+    uid = str(uuid.uuid4())
+
     env = gym.make('Pendulum-v0')
 
     epochs = 3
@@ -184,6 +194,9 @@ def plotting_experiment():
             state = np.copy(next_state)
             if done:
                 break
+
+    if args.dump_data >= 1:
+        pickle.dump(data, open('data_'+uid+'.p', 'wb'))
 
     states = np.stack([d[0] for d in data], axis=0)
     actions = np.stack([d[1] for d in data], axis=0)
@@ -209,11 +222,17 @@ def plotting_experiment():
             hs[i].train_hyperparameters(sess, x_train, y_train[:, i], idxs)
             hyperparameters.append(sess.run([hs[i].length_scale, hs[i].signal_sd, hs[i].noise_sd]))
 
+    if args.dump_data >= 1:
+        pickle.dump(hyperparameters, open('hyperparameters_'+uid+'.p', 'wb'))
+
     # Prepare the models
     models = [bayesian_model(4, np.array([-1., -1., -8., -2.]), np.array([1., 1., 8., 2.]), 256, *hyperparameters[i])
               for i in range(env.observation_space.shape[0])]
     states_actions_placeholder = tf.placeholder(shape=[None, env.observation_space.shape[0]+env.action_space.shape[0]], dtype=tf.float64)
     ppd = tf.stack([model.posterior_predictive_distribution(states_actions_placeholder, None) for model in models], axis=0)
+
+    if args.dump_data >= 1:
+        pickle.dump([model.rffm_seed for model in models], open('rffm_seed_'+uid+'.p', 'wb'))
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
@@ -284,7 +303,11 @@ def plotting_experiment():
             plt.subplot(2, 3, 3+i+1)
             plt.plot(np.arange(len(y_test)), y_test[:, i])
             plt.grid()
-        plt.show()
+
+        if args.dump_data >= 1:
+            plt.savefig('plot_'+uid+'.pdf')
+        else:
+            plt.show()
 
 if __name__ == '__main__':
     plotting_experiment()

@@ -1,0 +1,17 @@
+/*
+/*/
+*.p
+*.pyc
+*.sh
+*.pdf
+!.gitignore
+!utils.py
+!/custom_environments/
+!/prototype8/
+!/prototype12/
+!/nature_replicate/
+!/gaussian_processes/
+!/mdp/
+!/direct_policy_search/
+!/bayesian_neural_network_edward/
+!/policy_search_bayesian_neural_networks/
