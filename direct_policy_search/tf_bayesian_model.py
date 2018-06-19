@@ -71,11 +71,15 @@ class hyperparameter_search:
                 print 'Cholesky decomposition failed.'
 
 class bayesian_model:
-    def __init__(self, dim, observation_space_low, observation_space_high, no_basis,
-                 length_scale=.25, signal_sd=1., noise_sd=.2):
+    def __init__(self, dim, observation_space_low, observation_space_high, action_space_low,
+                 action_space_high, no_basis, length_scale=.25, signal_sd=1., noise_sd=.2):
         self.dim = dim
         self.observation_space_high = observation_space_high
         self.observation_space_low = observation_space_low
+
+        self.action_space_low = action_space_low
+        self.action_space_high = action_space_high
+
         self.no_basis = no_basis
 
         self.length_scale_np = length_scale
@@ -84,7 +88,8 @@ class bayesian_model:
 
         # Assertions.
         np.testing.assert_array_equal(-self.observation_space_low, self.observation_space_high)
-        assert len(self.observation_space_high) == self.dim
+        np.testing.assert_array_equal(-self.action_space_low, self.action_space_high)
+        assert self.dim == len(self.observation_space_high) + len(self.action_space_high)
 
         # UUID.
         self.uuid = str(uuid.uuid4())
@@ -100,7 +105,7 @@ class bayesian_model:
         self.sigma_prior = np.eye(self.no_basis) * (self.s**2)
 
         self.mu = np.copy(self.mu_prior)
-        self.sigma_prior = np.copy(self.sigma_prior)
+        self.sigma = np.copy(self.sigma_prior)
 
         # Initialize basis function hyperparameters.
         self.length_scale = tf.get_variable(name='length_scale'+self.uuid, shape=[], dtype=tf.float64,
@@ -115,9 +120,17 @@ class bayesian_model:
         self.y = tf.placeholder(shape=[None, 1], dtype=tf.float64)
         self.X_basis = self.approx_rbf_kern_basis(self.X)
 
-        # Mean and variance of placeholders
+        # Mean and variance priors placeholders
+        self.mu_prior_pl = tf.placeholder(shape=[self.no_basis, 1], dtype=tf.float64)
+        self.sigma_prior_pl = tf.placeholder(shape=[self.no_basis, self.no_basis], dtype=tf.float64)
+
+        # Mean and variance placeholders
         self.mu_placeholder = tf.placeholder(shape=[self.no_basis, 1], dtype=tf.float64)
         self.sigma_placeholder = tf.placeholder(shape=[self.no_basis, self.no_basis], dtype=tf.float64)
+
+        # Cumulative XX and cumulative Xy placeholders.
+        self.cum_xx_pl = tf.placeholder(shape=[self.no_basis, self.no_basis], dtype=tf.float64)
+        self.cum_xy_pl = tf.placeholder(shape=[self.no_basis, 1], dtype=tf.float64)
 
     # Given test points, return the posterior predictive distributions.
     def posterior_predictive_distribution(self, states_actions, _):
@@ -129,19 +142,6 @@ class bayesian_model:
         posterior_predictive_sigma = tf.square(self.noise_sd) + tf.reduce_sum(tf.multiply(tf.matmul(bases, self.sigma_placeholder), bases), axis=-1, keep_dims=True)
 
         return tf.concat([posterior_predictive_mu, posterior_predictive_sigma], axis=-1)
-
-#    # For testing purposes
-#    def posterior_predictive_distribution2(self, states_actions, idx=0):
-#        import sys
-#        sys.path.append('..')
-#        from prototype8.dmlac.real_env_pendulum import real_env_pendulum_state
-#        assert states_actions.shape.as_list() == [None, self.dim]
-#        state_model = real_env_pendulum_state()
-#
-#        posterior_predictive_mu = state_model.build(states_actions[:, 0:3], states_actions[:, 3:4])[:, idx:idx + 1]
-#        posterior_predictive_sigma = tf.reduce_sum((states_actions * 0.), axis=-1, keep_dims=True) + 0.
-#
-#        return tf.concat([posterior_predictive_mu, posterior_predictive_sigma], axis=-1)
 
     def approx_rbf_kern_basis(self, X):
         try:
@@ -165,6 +165,28 @@ class bayesian_model:
 
         self.sigma = self.noise_sd_np**2 * np.linalg.inv(self.noise_sd_np**2 * np.linalg.inv(self.sigma_prior) + self.cum_xx)
         self.mu = np.matmul(np.matmul(self.sigma, np.linalg.inv(self.sigma_prior)), self.mu_prior) + self.noise_sd_np**-2 * np.matmul(self.sigma, self.cum_xy)
+
+    def mu_sigma(self, X, y):
+        assert X.shape.as_list() == [self.no_basis, self.no_basis]
+        assert y.shape.as_list() == [self.no_basis, 1]
+
+        sigma = tf.multiply(tf.square(self.noise_sd), tf.matrix_inverse(tf.multiply(tf.square(self.noise_sd),
+                tf.matrix_inverse(self.sigma_prior_pl)) + self.cum_xx_pl))
+        mu = tf.matmul(tf.matmul(sigma, tf.matrix_inverse(self.sigma_prior_pl)), self.mu_prior_pl) + \
+             tf.multiply(tf.reciprocal(tf.square(self.noise_sd)), tf.matmul(sigma, self.cum_xy_pl))
+        return mu, sigma
+
+    def post_pred2(self, states_actions, mu, sigma):
+        #assert states_actions.shape.as_list() == [None, self.dim]
+        assert mu.shape.as_list() == [self.no_basis, 1]
+        assert sigma.shape.as_list() == [self.no_basis, self.no_basis]
+
+        bases = self.approx_rbf_kern_basis(states_actions)
+
+        post_pred_mu = tf.matmul(bases, mu)
+        post_pred_sigma = tf.square(self.noise_sd) + tf.reduce_sum(tf.multiply(tf.matmul(bases, sigma), bases), axis=-1, keep_dims=True)
+
+        return tf.concat([post_pred_mu, post_pred_sigma], axis=-1)
 
 def plotting_experiment():
     import argparse
@@ -226,7 +248,7 @@ def plotting_experiment():
         pickle.dump(hyperparameters, open('hyperparameters_'+uid+'.p', 'wb'))
 
     # Prepare the models
-    models = [bayesian_model(4, np.array([-1., -1., -8., -2.]), np.array([1., 1., 8., 2.]), 256, *hyperparameters[i])
+    models = [bayesian_model(4, np.array([-1., -1., -8.]), np.array([1., 1., 8.]), np.array([-2.]), np.array([2.]), 256, *hyperparameters[i])
               for i in range(env.observation_space.shape[0])]
     states_actions_placeholder = tf.placeholder(shape=[None, env.observation_space.shape[0]+env.action_space.shape[0]], dtype=tf.float64)
     ppd = tf.stack([model.posterior_predictive_distribution(states_actions_placeholder, None) for model in models], axis=0)
