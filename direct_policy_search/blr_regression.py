@@ -65,6 +65,7 @@ class blr_model:
         self.reward_model = real_env_pendulum_reward()#Use true model.
         costs = []
         for unroll_step in range(self.unroll_steps):
+            print 'unrolling:', unroll_step
             actions = self.build_policy(states)
 
             # Reward
@@ -85,7 +86,7 @@ class blr_model:
             for y in range(self.y_dim):
                 self.update_posterior(bases[y], next_states[..., y:y+1], y)
 
-            state = next_states
+            states = next_states
 
         costs = tf.concat(costs, axis=-1)
         self.loss = tf.reduce_mean(tf.reduce_sum(tf.reduce_mean(costs, axis=1), axis=-1))
@@ -139,11 +140,14 @@ class blr_model:
             states = np.stack([b[0] for b in batch], axis=0)
             feed_dict[self.states] = states
 
+            print 'here!!'
             try:
                 loss, _ = sess.run([self.loss, self.opt], feed_dict=feed_dict)
                 print 'iteration:', it, 'loss:', loss
             except:
                 print 'training step failed.'
+            print 'afterwards!'
+        print 'leaving def train!'
 
     def build_policy(self, states):
         assert states.shape.as_list() == [None, self.state_dim]
