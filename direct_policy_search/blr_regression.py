@@ -51,78 +51,115 @@ class blr_model:
         self.states = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float64)
         self.batch_size = tf.shape(self.states)[0]
         #self.batch_size = 3
-
         self.actions = self.build_policy(self.states)
 
-        self.cum_xx = [tf.tile(tf.expand_dims(model.cum_xx_pl, axis=0), [self.batch_size * self.no_samples, 1, 1]) for model in self.models]
-        self.cum_xy = [tf.tile(tf.expand_dims(model.cum_xy_pl, axis=0), [self.batch_size * self.no_samples, 1, 1]) for model in self.models]
+#        self.cum_xx = [tf.tile(tf.expand_dims(model.cum_xx_pl, axis=0), [self.batch_size * self.no_samples, 1, 1]) for model in self.models]
+#        self.cum_xy = [tf.tile(tf.expand_dims(model.cum_xy_pl, axis=0), [self.batch_size * self.no_samples, 1, 1]) for model in self.models]
+#
+#        states_tiled = tf.tile(tf.expand_dims(self.states, axis=1), [1, self.no_samples, 1])
+#        states_tiled_reshape = tf.reshape(states_tiled, shape=[-1, self.state_dim])
+#
+#        self.unroll(states_tiled_reshape)
 
-        states_tiled = tf.tile(tf.expand_dims(self.states, axis=1), [1, self.no_samples, 1])
-        states_tiled_reshape = tf.reshape(states_tiled, shape=[-1, self.state_dim])
+        self.unroll2(self.states)
 
-        self.unroll(states_tiled_reshape)
-
-    def unroll(self, states):
+    #TODO: for debugging purposes
+    def unroll2(self, seed_states):
+        assert seed_states.shape.as_list() == [None, self.state_dim]
+        self.string = 'unroll2'
+        no_samples = self.no_samples
+        unroll_steps = self.unroll_steps
         self.reward_model = real_env_pendulum_reward()#Use true model.
-        costs = []
-        self.next_states = []
-        for unroll_step in range(self.unroll_steps):
-            print 'unrolling:', unroll_step
-            if self.debugging_plot == True:
-                actions = self.build_policy2(states)
-            else:
-                actions = self.build_policy(states)
 
-            # Reward
+        states = tf.expand_dims(seed_states, axis=1)
+        states = tf.tile(states, [1, no_samples, 1])
+        states = tf.reshape(states, shape=[-1, self.state_dim])
+
+        costs = []
+        for unroll_step in range(unroll_steps):
+            actions = self.build_policy(states)
+
             rewards = (self.discount_factor ** unroll_step) * self.reward_model.build(states, actions)
-            rewards = tf.reshape(rewards, shape=[-1, self.no_samples, 1])
+            rewards = tf.reshape(tf.squeeze(rewards, axis=-1), shape=[-1, no_samples])
             costs.append(-rewards)
 
             states_actions = tf.concat([states, actions], axis=-1)
-            bases = [model.approx_rbf_kern_basis(states_actions) for model in self.models]
-            mus, sigmas = zip(*[self.mu_sigma(self.cum_xx[y], self.cum_xy[y], self.models[y].s, self.models[y].noise_sd) for y in range(self.y_dim)])
 
-            mu_pred, sigma_pred = [tf.concat(e, axis=-1) for e in zip(*[self.prediction(mu, sigma, basis, model.noise_sd)
-                                                                      for mu, sigma, basis, model in zip(mus, sigmas, bases, self.models)])]
-
-            next_states = tfd.MultivariateNormalDiag(loc=mu_pred, scale_diag=tf.sqrt(sigma_pred)).sample()
-
-            if self.debugging_plot == True:
-                self.next_states.append(tf.reshape(next_states, shape=[-1, self.no_samples, self.state_dim]))
-
-            '''
-            for y in range(self.y_dim):
-                self.update_posterior(bases[y], next_states[..., y:y+1], y)
-            '''
-
+            next_states = self.get_next_states(states_actions)
             states = next_states
 
-        if self.debugging_plot == False:
-            costs = tf.concat(costs, axis=-1)
-            self.loss = tf.reduce_mean(tf.reduce_sum(tf.reduce_mean(costs, axis=1), axis=-1))
-            self.opt = tf.train.AdamOptimizer().minimize(self.loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'policy_scope'))
+        costs = tf.stack(costs, axis=-1)
+        self.loss = tf.reduce_mean(tf.reduce_sum(tf.reduce_mean(costs, axis=1), axis=-1))
+        self.opt = tf.train.AdamOptimizer().minimize(self.loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'policy_scope'))
 
-    def update_posterior(self, X, y, i):
-        X_expanded_dims = tf.expand_dims(X, axis=-1)
-        y_expanded_dims = tf.expand_dims(y, axis=-1)
-        self.cum_xx[i] += tf.matmul(X_expanded_dims, tf.transpose(X_expanded_dims, perm=[0, 2, 1]))
-        self.cum_xy[i] += tf.matmul(X_expanded_dims, y_expanded_dims)
+    #TODO: for debugging purposes
+    def get_next_states(self, states_actions):
+        mu, sigma = [tf.concat(e, axis=-1) for e in zip(*[model.posterior_predictive_distribution(states_actions, None) for model in self.models])]
+        next_state = tfd.MultivariateNormalDiag(loc=mu, scale_diag=tf.sqrt(sigma)).sample()
+        return next_state
 
-    def prediction(self, mu, sigma, basis, noise_sd):
-        basis_expanded_dims = tf.expand_dims(basis, axis=-1)
-        mu_pred = tf.matmul(tf.transpose(mu, perm=[0, 2, 1]), basis_expanded_dims)
-        sigma_pred = tf.square(noise_sd) + tf.matmul(tf.matmul(tf.transpose(basis_expanded_dims, perm=[0, 2, 1]), sigma), basis_expanded_dims)
-
-        return tf.squeeze(mu_pred, axis=-1), tf.squeeze(sigma_pred, axis=-1)
-
-    def mu_sigma(self, xx, xy, s, noise_sd):
-
-        prior_sigma_inv = tf.matrix_inverse(tf.tile(tf.expand_dims(s*tf.eye(self.no_basis, dtype=tf.float64), axis=0),
-                                            [self.batch_size * self.no_samples, 1, 1]))
-        sigma = tf.multiply(tf.square(noise_sd), tf.matrix_inverse(tf.multiply(tf.square(noise_sd), prior_sigma_inv) + xx))
-        # Assuming that prior mean is zero vector
-        mu = tf.multiply(tf.reciprocal(tf.square(noise_sd)), tf.matmul(sigma, xy))
-        return mu, sigma
+#    def unroll(self, states):
+#        self.string = 'unroll'
+#        self.reward_model = real_env_pendulum_reward()#Use true model.
+#        costs = []
+#        self.next_states = []
+#        for unroll_step in range(self.unroll_steps):
+#            print 'unrolling:', unroll_step
+#            if self.debugging_plot == True:
+#                actions = self.build_policy2(states)
+#            else:
+#                actions = self.build_policy(states)
+#
+#            # Reward
+#            rewards = (self.discount_factor ** unroll_step) * self.reward_model.build(states, actions)
+#            rewards = tf.reshape(rewards, shape=[-1, self.no_samples, 1])
+#            costs.append(-rewards)
+#
+#            states_actions = tf.concat([states, actions], axis=-1)
+#            bases = [model.approx_rbf_kern_basis(states_actions) for model in self.models]
+#            mus, sigmas = zip(*[self.mu_sigma(self.cum_xx[y], self.cum_xy[y], self.models[y].s, self.models[y].noise_sd) for y in range(self.y_dim)])
+#
+#            mu_pred, sigma_pred = [tf.concat(e, axis=-1) for e in zip(*[self.prediction(mu, sigma, basis, model.noise_sd)
+#                                                                      for mu, sigma, basis, model in zip(mus, sigmas, bases, self.models)])]
+#
+#            next_states = tfd.MultivariateNormalDiag(loc=mu_pred, scale_diag=tf.sqrt(sigma_pred)).sample()
+#
+#            if self.debugging_plot == True:
+#                self.next_states.append(tf.reshape(next_states, shape=[-1, self.no_samples, self.state_dim]))
+#
+#            '''
+#            for y in range(self.y_dim):
+#                self.update_posterior(bases[y], next_states[..., y:y+1], y)
+#            '''
+#
+#            states = next_states
+#
+#        if self.debugging_plot == False:
+#            costs = tf.concat(costs, axis=-1)
+#            self.loss = tf.reduce_mean(tf.reduce_sum(tf.reduce_mean(costs, axis=1), axis=-1))
+#            self.opt = tf.train.AdamOptimizer().minimize(self.loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'policy_scope'))
+#
+#    def update_posterior(self, X, y, i):
+#        X_expanded_dims = tf.expand_dims(X, axis=-1)
+#        y_expanded_dims = tf.expand_dims(y, axis=-1)
+#        self.cum_xx[i] += tf.matmul(X_expanded_dims, tf.transpose(X_expanded_dims, perm=[0, 2, 1]))
+#        self.cum_xy[i] += tf.matmul(X_expanded_dims, y_expanded_dims)
+#
+#    def prediction(self, mu, sigma, basis, noise_sd):
+#        basis_expanded_dims = tf.expand_dims(basis, axis=-1)
+#        mu_pred = tf.matmul(tf.transpose(mu, perm=[0, 2, 1]), basis_expanded_dims)
+#        sigma_pred = tf.square(noise_sd) + tf.matmul(tf.matmul(tf.transpose(basis_expanded_dims, perm=[0, 2, 1]), sigma), basis_expanded_dims)
+#
+#        return tf.squeeze(mu_pred, axis=-1), tf.squeeze(sigma_pred, axis=-1)
+#
+#    def mu_sigma(self, xx, xy, s, noise_sd):
+#
+#        prior_sigma_inv = tf.matrix_inverse(tf.tile(tf.expand_dims(s*tf.eye(self.no_basis, dtype=tf.float64), axis=0),
+#                                            [self.batch_size * self.no_samples, 1, 1]))
+#        sigma = tf.multiply(tf.square(noise_sd), tf.matrix_inverse(tf.multiply(tf.square(noise_sd), prior_sigma_inv) + xx))
+#        # Assuming that prior mean is zero vector
+#        mu = tf.multiply(tf.reciprocal(tf.square(noise_sd)), tf.matmul(sigma, xy))
+#        return mu, sigma
 
     def update(self, sess, X=None, y=None, memory=None):
         if memory is not None:
@@ -141,9 +178,15 @@ class blr_model:
 
     def train(self, sess, memory):
         feed_dict = {}
-        for model in self.models:
-            feed_dict[model.cum_xx_pl] = model.cum_xx
-            feed_dict[model.cum_xy_pl] = model.cum_xy
+        #TODO: for debugging purposes
+        if self.string == 'unroll':
+            for model in self.models:
+                feed_dict[model.cum_xx_pl] = model.cum_xx
+                feed_dict[model.cum_xy_pl] = model.cum_xy
+        elif self.string == 'unroll2':
+            for model in self.models:
+                feed_dict[model.mu_placeholder] = model.mu
+                feed_dict[model.sigma_placeholder] = model.sigma
 
         for it in range(self.train_policy_iterations):
             batch = memory.sample(self.train_policy_batch_size)
@@ -152,7 +195,7 @@ class blr_model:
 
             try:
                 loss, _ = sess.run([self.loss, self.opt], feed_dict=feed_dict)
-                print 'iteration:', it, 'loss:', loss
+                print 'iteration:', it, 'loss:', loss, self.string
             except:
                 print 'training step failed.'
 
@@ -200,6 +243,7 @@ def main():
     parser.add_argument("--train-policy-batch-size", type=int, default=32)
     parser.add_argument("--train-policy-iterations", type=int, default=30)
     parser.add_argument("--replay-start-size-epochs", type=int, default=2)
+    parser.add_argument("--train-hyperparameters-iterations", type=int, default=50000)
     args = parser.parse_args()
     
     print args
@@ -208,12 +252,16 @@ def main():
 
     # Gather data to train hyperparameters
     data = []
+    rewards = []
+    dones = []
     for _ in range(2):
         state = env.reset()
         while True:
             action = np.random.uniform(env.action_space.low, env.action_space.high, 1)
             next_state, reward, done, _ = env.step(action)
             data.append([state, action, next_state])
+            rewards.append(reward)
+            dones.append(done)
             state = np.copy(next_state)
             if done:
                 break
@@ -231,7 +279,7 @@ def main():
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         batch_size = 32
-        iterations = 50000
+        iterations = args.train_hyperparameters_iterations
         idxs = [np.random.randint(len(states_actions), size=batch_size) for _ in range(iterations)]
         for i in range(len(hs)):
             hs[i].train_hyperparameters(sess, states_actions, next_states[:, i], idxs)
@@ -256,12 +304,17 @@ def main():
 
     # Initialize the memory
     memory = Memory(args.replay_mem_size)
+    assert len(data) == len(rewards)
+    assert len(data) == len(dones)
+    for dat, reward, done in zip(data, rewards, dones):
+        memory.add([dat[0], dat[1], reward, dat[2], done])
     memory2 = []
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         # Update the model with data used from training hyperparameters
         blr.update(sess, states_actions, next_states)
+        blr.train(sess, memory)
         state = env.reset()
         total_rewards = 0.0
         epoch = 1
@@ -401,5 +454,5 @@ def plotting_experiment():
         plt.show()
 
 if __name__ == '__main__':
-    #main()
-    plotting_experiment()
+    main()
+    #plotting_experiment()

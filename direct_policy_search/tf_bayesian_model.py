@@ -141,7 +141,8 @@ class bayesian_model:
         posterior_predictive_mu = tf.matmul(bases, self.mu_placeholder)
         posterior_predictive_sigma = tf.square(self.noise_sd) + tf.reduce_sum(tf.multiply(tf.matmul(bases, self.sigma_placeholder), bases), axis=-1, keep_dims=True)
 
-        return tf.concat([posterior_predictive_mu, posterior_predictive_sigma], axis=-1)
+        return posterior_predictive_mu, posterior_predictive_sigma
+        #return tf.concat([posterior_predictive_mu, posterior_predictive_sigma], axis=-1)
 
     def approx_rbf_kern_basis(self, X):
         try:
