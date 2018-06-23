@@ -53,7 +53,7 @@ class hyperparameter_search:
 
         # Get predictive distribution and log marginal likelihood (Algorithm 2.1 in the GP book).
         L = tf.cholesky(squared_exponential_kernel(self.X, self.X, self.signal_sd, self.length_scale) +\
-                        tf.multiply(tf.square(self.noise_sd), tf.eye(self.n, dtype=tf.float64)))
+                        tf.multiply(tf.square(tf.maximum(self.noise_sd, 1e-2)), tf.eye(self.n, dtype=tf.float64)))
         alpha = tf.linalg.solve(tf.transpose(L), tf.linalg.solve(L, self.y))
         self.log_marginal_likelihood = -.5 * tf.matmul(tf.transpose(self.y), alpha)[0, 0] +\
                                        -.5 * tf.reduce_sum(tf.log(tf.diag_part(L))) +\
@@ -84,11 +84,8 @@ class bayesian_model:
 
         self.length_scale_np = length_scale
         self.signal_sd_np = signal_sd
-        self.noise_sd_np = noise_sd
+        self.noise_sd_np = np.maximum(noise_sd, 1e-2)
 
-        if self.noise_sd_np < 0:
-            print 'Warning: noise_sd is negative. Setting to 1e-5.'
-            self.noise_sd_np = 1e-5
         # Assertions.
         assert self.length_scale_np > 0.
         assert self.signal_sd_np > 0.
@@ -258,7 +255,7 @@ def plotting_experiment():
     models = [bayesian_model(4, np.array([-1., -1., -8.]), np.array([1., 1., 8.]), np.array([-2.]), np.array([2.]), 256, *hyperparameters[i])
               for i in range(env.observation_space.shape[0])]
     states_actions_placeholder = tf.placeholder(shape=[None, env.observation_space.shape[0]+env.action_space.shape[0]], dtype=tf.float64)
-    ppd = tf.stack([model.posterior_predictive_distribution(states_actions_placeholder, None) for model in models], axis=0)
+    ppd = tf.stack([tf.concat(e, axis=-1) for e in [model.posterior_predictive_distribution(states_actions_placeholder, None) for model in models]], axis=0)
 
     if args.dump_data >= 1:
         pickle.dump([model.rffm_seed for model in models], open('rffm_seed_'+uid+'.p', 'wb'))
