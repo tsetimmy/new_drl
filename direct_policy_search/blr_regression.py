@@ -195,12 +195,13 @@ class blr_model:
         return tf.squeeze(mu_pred, axis=-1), tf.squeeze(sigma_pred, axis=-1)
 
     def mu_sigma(self, xx, xy, s, noise_sd):
-
+        noise_sd_sq = tf.square(noise_sd)
         prior_sigma_inv = tf.matrix_inverse(tf.tile(tf.expand_dims(s*tf.eye(self.no_basis, dtype=tf.float64), axis=0),
                                             [self.batch_size * self.no_samples, 1, 1]))
-        sigma = tf.multiply(tf.square(noise_sd), tf.matrix_inverse(tf.multiply(tf.square(noise_sd), prior_sigma_inv) + xx))
+        A = tf.matrix_inverse(tf.multiply(noise_sd_sq, prior_sigma_inv) + xx)
+        sigma = tf.multiply(noise_sd_sq, A)
         # Assuming that prior mean is zero vector
-        mu = tf.multiply(tf.reciprocal(tf.square(noise_sd)), tf.matmul(sigma, xy))
+        mu = tf.matmul(A, xy)
         return mu, sigma
 
     def update(self, sess, X=None, y=None, memory=None):
@@ -255,7 +256,7 @@ class blr_model:
             assert len(mus0) == len(sigmas2)
             for mu0, sigma0, mu1, sigma1, mu2, sigma2, ii in zip(mus0, sigmas0, mus1, sigmas1, mus2, sigmas2, range(len(mus0))):
                 try:
-                    np.testing.assert_almost_equal(sigma1, sigma2, decimal=7)
+                    np.testing.assert_almost_equal(sigma1, sigma2, decimal=4)
                 except:
                     print ii, 'here0'
                     for i in range(len(sigma1)):
@@ -263,28 +264,28 @@ class blr_model:
                             print sigma1[i, j], sigma2[i, j]
                     exit()
                 try:
-                    np.testing.assert_almost_equal(mu1, mu2, decimal=7)
+                    np.testing.assert_almost_equal(mu1, mu2, decimal=4)
                 except:
                     print ii, 'here3',
                     for i in range(len(mu1)):
                         print mu1[i], mu2[i]
                     exit()
                 try:
-                    np.testing.assert_almost_equal(mu0, mu1, decimal=2)
+                    np.testing.assert_almost_equal(mu0, mu1, decimal=4)
                 except:
                     print ii, 'here1',
                     for i in range(len(mu0)):
                         print mu0[i], mu1[i]
                     exit()
                 try:
-                    np.testing.assert_almost_equal(mu0, mu2, decimal=2)
+                    np.testing.assert_almost_equal(mu0, mu2, decimal=4)
                 except:
                     print ii, 'here2',
                     for i in range(len(m0)):
                         print m0[i], m2[i]
                     exit()
                 try:
-                    np.testing.assert_almost_equal(sigma0, sigma1, decimal=2)
+                    np.testing.assert_almost_equal(sigma0, sigma1, decimal=4)
                 except:
                     print ii, 'here4',
                     for i in range(len(sigma0)):
@@ -292,7 +293,7 @@ class blr_model:
                             print sigma0[i, j], sigma1[i, j]
                     exit()
                 try:
-                    np.testing.assert_almost_equal(sigma0, sigma2, decimal=2)
+                    np.testing.assert_almost_equal(sigma0, sigma2, decimal=4)
                 except:
                     print ii, 'here5',
                     for i in range(len(sigma0)):
