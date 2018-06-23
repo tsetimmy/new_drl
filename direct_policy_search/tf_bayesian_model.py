@@ -86,7 +86,12 @@ class bayesian_model:
         self.signal_sd_np = signal_sd
         self.noise_sd_np = noise_sd
 
+        if self.noise_sd_np < 0:
+            print 'Warning: noise_sd is negative. Setting to 1e-5.'
+            self.noise_sd_np = 1e-5
         # Assertions.
+        assert self.length_scale_np > 0.
+        assert self.signal_sd_np > 0.
         np.testing.assert_array_equal(-self.observation_space_low, self.observation_space_high)
         np.testing.assert_array_equal(-self.action_space_low, self.action_space_high)
         assert self.dim == len(self.observation_space_high) + len(self.action_space_high)
@@ -187,7 +192,8 @@ class bayesian_model:
         post_pred_mu = tf.matmul(bases, mu)
         post_pred_sigma = tf.square(self.noise_sd) + tf.reduce_sum(tf.multiply(tf.matmul(bases, sigma), bases), axis=-1, keep_dims=True)
 
-        return tf.concat([post_pred_mu, post_pred_sigma], axis=-1)
+        return post_pred_mu, post_pred_sigma
+        #return tf.concat([post_pred_mu, post_pred_sigma], axis=-1)
 
 def plotting_experiment():
     import argparse

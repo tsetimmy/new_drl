@@ -53,20 +53,16 @@ class blr_model:
         #self.batch_size = 3
         self.actions = self.build_policy(self.states)
 
-#        self.cum_xx = [tf.tile(tf.expand_dims(model.cum_xx_pl, axis=0), [self.batch_size * self.no_samples, 1, 1]) for model in self.models]
-#        self.cum_xy = [tf.tile(tf.expand_dims(model.cum_xy_pl, axis=0), [self.batch_size * self.no_samples, 1, 1]) for model in self.models]
-#
-#        states_tiled = tf.tile(tf.expand_dims(self.states, axis=1), [1, self.no_samples, 1])
-#        states_tiled_reshape = tf.reshape(states_tiled, shape=[-1, self.state_dim])
-#
-#        self.unroll(states_tiled_reshape)
-
-        self.unroll2(self.states)
+        self.cum_xx = [tf.tile(tf.expand_dims(model.cum_xx_pl, axis=0),
+                       [self.batch_size * self.no_samples, 1, 1]) for model in self.models]
+        self.cum_xy = [tf.tile(tf.expand_dims(model.cum_xy_pl, axis=0),
+                       [self.batch_size * self.no_samples, 1, 1]) for model in self.models]
+        self.unroll(self.states)
+        #self.unroll2(self.states)
 
     #TODO: for debugging purposes
     def unroll2(self, seed_states):
         assert seed_states.shape.as_list() == [None, self.state_dim]
-        self.string = 'unroll2'
         no_samples = self.no_samples
         unroll_steps = self.unroll_steps
         self.reward_model = real_env_pendulum_reward()#Use true model.
@@ -76,6 +72,7 @@ class blr_model:
         states = tf.reshape(states, shape=[-1, self.state_dim])
 
         costs = []
+        self.next_states = []
         for unroll_step in range(unroll_steps):
             actions = self.build_policy(states)
 
@@ -85,7 +82,8 @@ class blr_model:
 
             states_actions = tf.concat([states, actions], axis=-1)
 
-            next_states = self.get_next_states(states_actions)
+            next_states = self.get_next_states2(states_actions)
+            self.next_states.append(next_states)
             states = next_states
 
         costs = tf.stack(costs, axis=-1)
@@ -94,72 +92,116 @@ class blr_model:
 
     #TODO: for debugging purposes
     def get_next_states(self, states_actions):
+        self.string = 'unroll2_gns'
         mu, sigma = [tf.concat(e, axis=-1) for e in zip(*[model.posterior_predictive_distribution(states_actions, None) for model in self.models])]
+        self.mus1.append(mu)
+        self.sigmas1.append(sigma)
+        print mu.shape
+        print sigma.shape
         next_state = tfd.MultivariateNormalDiag(loc=mu, scale_diag=tf.sqrt(sigma)).sample()
         return next_state
 
-#    def unroll(self, states):
-#        self.string = 'unroll'
-#        self.reward_model = real_env_pendulum_reward()#Use true model.
-#        costs = []
-#        self.next_states = []
-#        for unroll_step in range(self.unroll_steps):
-#            print 'unrolling:', unroll_step
-#            if self.debugging_plot == True:
-#                actions = self.build_policy2(states)
-#            else:
-#                actions = self.build_policy(states)
-#
-#            # Reward
-#            rewards = (self.discount_factor ** unroll_step) * self.reward_model.build(states, actions)
-#            rewards = tf.reshape(rewards, shape=[-1, self.no_samples, 1])
-#            costs.append(-rewards)
-#
-#            states_actions = tf.concat([states, actions], axis=-1)
-#            bases = [model.approx_rbf_kern_basis(states_actions) for model in self.models]
-#            mus, sigmas = zip(*[self.mu_sigma(self.cum_xx[y], self.cum_xy[y], self.models[y].s, self.models[y].noise_sd) for y in range(self.y_dim)])
-#
-#            mu_pred, sigma_pred = [tf.concat(e, axis=-1) for e in zip(*[self.prediction(mu, sigma, basis, model.noise_sd)
-#                                                                      for mu, sigma, basis, model in zip(mus, sigmas, bases, self.models)])]
-#
-#            next_states = tfd.MultivariateNormalDiag(loc=mu_pred, scale_diag=tf.sqrt(sigma_pred)).sample()
-#
-#            if self.debugging_plot == True:
-#                self.next_states.append(tf.reshape(next_states, shape=[-1, self.no_samples, self.state_dim]))
-#
-#            '''
-#            for y in range(self.y_dim):
-#                self.update_posterior(bases[y], next_states[..., y:y+1], y)
-#            '''
-#
-#            states = next_states
-#
-#        if self.debugging_plot == False:
-#            costs = tf.concat(costs, axis=-1)
-#            self.loss = tf.reduce_mean(tf.reduce_sum(tf.reduce_mean(costs, axis=1), axis=-1))
-#            self.opt = tf.train.AdamOptimizer().minimize(self.loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'policy_scope'))
-#
+    #TODO: for debugging purposes
+    def get_next_states2(self, states_actions):
+        self.string = 'unroll2_gns2'
+        mus = []
+        sigmas = []
+        for model in self.models:
+            mu, sigma = model.mu_sigma(model.cum_xx_pl, model.cum_xy_pl)
+            post_pred_mu, post_pred_sigma = model.post_pred2(states_actions, mu, sigma)
+
+            mus.append(post_pred_mu)
+            sigmas.append(post_pred_sigma)
+        mus = tf.concat(mus, axis=-1)
+        sigmas = tf.concat(sigmas, axis=-1)
+        self.mus2.append(mus)
+        self.sigmas2.append(sigmas)
+        print mus.shape
+        print sigmas.shape
+        next_state = tfd.MultivariateNormalDiag(loc=mus, scale_diag=tf.sqrt(sigmas)).sample()
+        return next_state
+
+    def unroll(self, seed_states):
+        assert seed_states.shape.as_list() == [None, self.state_dim]
+        no_samples = self.no_samples
+        unroll_steps = self.unroll_steps
+        self.reward_model = real_env_pendulum_reward()#Use true model.
+
+        states = tf.expand_dims(seed_states, axis=1)
+        states = tf.tile(states, [1, no_samples, 1])
+        states = tf.reshape(states, shape=[-1, self.state_dim])
+
+        self.mus0 = []
+        self.sigmas0 = []
+        self.mus1 = []
+        self.sigmas1 = []
+        self.mus2 = []
+        self.sigmas2 = []
+
+        costs = []
+        self.next_states = []
+        for unroll_step in range(unroll_steps):
+            print 'unrolling:', unroll_step
+            if self.debugging_plot == True:
+                actions = self.build_policy2(states)
+            else:
+                actions = self.build_policy(states)
+
+            # Reward
+            rewards = (self.discount_factor ** unroll_step) * self.reward_model.build(states, actions)
+            rewards = tf.reshape(tf.squeeze(rewards, axis=-1), shape=[-1, no_samples])
+            costs.append(-rewards)
+
+            states_actions = tf.concat([states, actions], axis=-1)
+            mus, sigmas = zip(*[self.mu_sigma(self.cum_xx[y], self.cum_xy[y], self.models[y].s, self.models[y].noise_sd) for y in range(self.y_dim)])
+
+            bases = [model.approx_rbf_kern_basis(states_actions) for model in self.models]
+            mu_pred, sigma_pred = [tf.concat(e, axis=-1) for e in zip(*[self.prediction(mu, sigma, basis, model.noise_sd)
+                                                                      for mu, sigma, basis, model in zip(mus, sigmas, bases, self.models)])]
+
+            self.mus0.append(mu_pred)
+            self.sigmas0.append(sigma_pred)
+            self.get_next_states(states_actions)
+            self.get_next_states2(states_actions)
+
+            next_states = tfd.MultivariateNormalDiag(loc=mu_pred, scale_diag=tf.sqrt(sigma_pred)).sample()
+
+            self.next_states.append(tf.reshape(next_states, shape=[-1, no_samples, self.state_dim]))
+
+            '''
+            for y in range(self.y_dim):
+                self.update_posterior(bases[y], next_states[..., y:y+1], y)
+            '''
+
+            states = next_states
+
+        if self.debugging_plot == False:
+            costs = tf.stack(costs, axis=-1)
+            self.loss = tf.reduce_mean(tf.reduce_sum(tf.reduce_mean(costs, axis=1), axis=-1))
+            self.opt = tf.train.AdamOptimizer().minimize(self.loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'policy_scope'))
+        self.string = 'unroll'
+
 #    def update_posterior(self, X, y, i):
 #        X_expanded_dims = tf.expand_dims(X, axis=-1)
 #        y_expanded_dims = tf.expand_dims(y, axis=-1)
 #        self.cum_xx[i] += tf.matmul(X_expanded_dims, tf.transpose(X_expanded_dims, perm=[0, 2, 1]))
 #        self.cum_xy[i] += tf.matmul(X_expanded_dims, y_expanded_dims)
-#
-#    def prediction(self, mu, sigma, basis, noise_sd):
-#        basis_expanded_dims = tf.expand_dims(basis, axis=-1)
-#        mu_pred = tf.matmul(tf.transpose(mu, perm=[0, 2, 1]), basis_expanded_dims)
-#        sigma_pred = tf.square(noise_sd) + tf.matmul(tf.matmul(tf.transpose(basis_expanded_dims, perm=[0, 2, 1]), sigma), basis_expanded_dims)
-#
-#        return tf.squeeze(mu_pred, axis=-1), tf.squeeze(sigma_pred, axis=-1)
-#
-#    def mu_sigma(self, xx, xy, s, noise_sd):
-#
-#        prior_sigma_inv = tf.matrix_inverse(tf.tile(tf.expand_dims(s*tf.eye(self.no_basis, dtype=tf.float64), axis=0),
-#                                            [self.batch_size * self.no_samples, 1, 1]))
-#        sigma = tf.multiply(tf.square(noise_sd), tf.matrix_inverse(tf.multiply(tf.square(noise_sd), prior_sigma_inv) + xx))
-#        # Assuming that prior mean is zero vector
-#        mu = tf.multiply(tf.reciprocal(tf.square(noise_sd)), tf.matmul(sigma, xy))
-#        return mu, sigma
+
+    def prediction(self, mu, sigma, basis, noise_sd):
+        basis_expanded_dims = tf.expand_dims(basis, axis=-1)
+        mu_pred = tf.matmul(tf.transpose(mu, perm=[0, 2, 1]), basis_expanded_dims)
+        sigma_pred = tf.square(noise_sd) + tf.matmul(tf.matmul(tf.transpose(basis_expanded_dims, perm=[0, 2, 1]), sigma), basis_expanded_dims)
+
+        return tf.squeeze(mu_pred, axis=-1), tf.squeeze(sigma_pred, axis=-1)
+
+    def mu_sigma(self, xx, xy, s, noise_sd):
+
+        prior_sigma_inv = tf.matrix_inverse(tf.tile(tf.expand_dims(s*tf.eye(self.no_basis, dtype=tf.float64), axis=0),
+                                            [self.batch_size * self.no_samples, 1, 1]))
+        sigma = tf.multiply(tf.square(noise_sd), tf.matrix_inverse(tf.multiply(tf.square(noise_sd), prior_sigma_inv) + xx))
+        # Assuming that prior mean is zero vector
+        mu = tf.multiply(tf.reciprocal(tf.square(noise_sd)), tf.matmul(sigma, xy))
+        return mu, sigma
 
     def update(self, sess, X=None, y=None, memory=None):
         if memory is not None:
@@ -183,21 +225,102 @@ class blr_model:
             for model in self.models:
                 feed_dict[model.cum_xx_pl] = model.cum_xx
                 feed_dict[model.cum_xy_pl] = model.cum_xy
-        elif self.string == 'unroll2':
+                feed_dict[model.mu_placeholder] = model.mu#for testing
+                feed_dict[model.sigma_placeholder] = model.sigma#for testing
+                feed_dict[model.sigma_prior_pl] = model.sigma_prior#for testing
+                feed_dict[model.mu_prior_pl] = model.mu_prior#for testing
+        elif self.string == 'unroll2_gns':
             for model in self.models:
                 feed_dict[model.mu_placeholder] = model.mu
                 feed_dict[model.sigma_placeholder] = model.sigma
+        elif self.string == 'unroll2_gns2':
+            for model in self.models:
+                feed_dict[model.cum_xx_pl] = model.cum_xx
+                feed_dict[model.cum_xy_pl] = model.cum_xy
+                feed_dict[model.sigma_prior_pl] = model.sigma_prior
+                feed_dict[model.mu_prior_pl] = model.mu_prior
 
         for it in range(self.train_policy_iterations):
             batch = memory.sample(self.train_policy_batch_size)
             states = np.stack([b[0] for b in batch], axis=0)
             feed_dict[self.states] = states
 
+            mus0, sigmas0, mus1, sigmas1, mus2, sigmas2, next_states, loss, _ = sess.run([self.mus0, self.sigmas0, self.mus1, self.sigmas1, self.mus2, self.sigmas2, self.next_states, self.loss, self.opt], feed_dict=feed_dict)
+            if loss > 1000.:
+                print next_states
+            assert len(mus0) == len(sigmas0)
+            assert len(mus0) == len(mus1)
+            assert len(mus0) == len(sigmas1)
+            assert len(mus0) == len(mus2)
+            assert len(mus0) == len(sigmas2)
+            for mu0, sigma0, mu1, sigma1, mu2, sigma2, ii in zip(mus0, sigmas0, mus1, sigmas1, mus2, sigmas2, range(len(mus0))):
+                try:
+                    np.testing.assert_almost_equal(sigma1, sigma2, decimal=7)
+                except:
+                    print ii, 'here0'
+                    for i in range(len(sigma1)):
+                        for j in range(len(sigma1[i])):
+                            print sigma1[i, j], sigma2[i, j]
+                    exit()
+                try:
+                    np.testing.assert_almost_equal(mu1, mu2, decimal=7)
+                except:
+                    print ii, 'here3',
+                    for i in range(len(mu1)):
+                        print mu1[i], mu2[i]
+                    exit()
+                try:
+                    np.testing.assert_almost_equal(mu0, mu1, decimal=2)
+                except:
+                    print ii, 'here1',
+                    for i in range(len(mu0)):
+                        print mu0[i], mu1[i]
+                    exit()
+                try:
+                    np.testing.assert_almost_equal(mu0, mu2, decimal=2)
+                except:
+                    print ii, 'here2',
+                    for i in range(len(m0)):
+                        print m0[i], m2[i]
+                    exit()
+                try:
+                    np.testing.assert_almost_equal(sigma0, sigma1, decimal=2)
+                except:
+                    print ii, 'here4',
+                    for i in range(len(sigma0)):
+                        for j in range(len(sigma0[i])):
+                            print sigma0[i, j], sigma1[i, j]
+                    exit()
+                try:
+                    np.testing.assert_almost_equal(sigma0, sigma2, decimal=2)
+                except:
+                    print ii, 'here5',
+                    for i in range(len(sigma0)):
+                        for j in range(len(sigma0[i])):
+                            print sigma0[i, j], sigma2[i, j]
+                    exit()
+            print 'iteration:', it, 'loss:', loss, self.string, len(mus0)
+            '''
             try:
-                loss, _ = sess.run([self.loss, self.opt], feed_dict=feed_dict)
+                mus0, sigmas0, mus1, sigmas1, mus2, sigmas2, next_states, loss, _ = sess.run([self.mus0, self.sigmas0, self.mus1, self.sigmas1, self.mus2, self.sigmas2, self.next_states, self.loss, self.opt], feed_dict=feed_dict)
+                assert len(mus0) == len(sigmas0)
+                assert len(mus0) == len(mus1)
+                assert len(mus0) == len(sigmas1)
+                assert len(mus0) == len(mus2)
+                assert len(mus0) == len(sigmas2)
+                for mu0, sigma0, mu1, sigma1, mu2, sigma2 in zip(mus0, sigmas0, mus1, sigmas1, mus2, sigmas2):
+                    np.testing.assert_almost_equal(mu0, mu1)
+                    np.testing.assert_almost_equal(mu0, mu2)
+                    np.testing.assert_almost_equal(mu1, mu2)
+                    np.testing.assert_almost_equal(sigma0, sigma1)
+                    np.testing.assert_almost_equal(sigma0, sigma2)
+                    np.testing.assert_almost_equal(sigma1, sigma2)
+                if loss > 1000.:
+                    print next_states
                 print 'iteration:', it, 'loss:', loss, self.string
             except:
                 print 'training step failed.'
+            '''
 
     def build_policy(self, states):
         assert states.shape.as_list() == [None, self.state_dim]
