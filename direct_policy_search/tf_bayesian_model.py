@@ -166,17 +166,21 @@ class bayesian_model:
         self.cum_xx += np.matmul(X_basis.T, X_basis)
         self.cum_xy += np.matmul(X_basis.T, y)
 
-        self.sigma = self.noise_sd_np**2 * np.linalg.inv(self.noise_sd_np**2 * np.linalg.inv(self.sigma_prior) + self.cum_xx)
-        self.mu = np.matmul(np.matmul(self.sigma, np.linalg.inv(self.sigma_prior)), self.mu_prior) + self.noise_sd_np**-2 * np.matmul(self.sigma, self.cum_xy)
+        A = np.linalg.inv(self.noise_sd_np**2 * np.linalg.inv(self.sigma_prior) + self.cum_xx)
+        self.sigma = self.noise_sd_np**2 * A
+        B = np.matmul(np.matmul(self.sigma, np.linalg.inv(self.sigma_prior)), self.mu_prior)
+        np.testing.assert_equal(B, np.zeros([self.no_basis, 1]))
+        self.mu = B + np.matmul(A, self.cum_xy)
 
     def mu_sigma(self, X, y):
         assert X.shape.as_list() == [self.no_basis, self.no_basis]
         assert y.shape.as_list() == [self.no_basis, 1]
 
-        sigma = tf.multiply(tf.square(self.noise_sd), tf.matrix_inverse(tf.multiply(tf.square(self.noise_sd),
-                tf.matrix_inverse(self.sigma_prior_pl)) + self.cum_xx_pl))
-        mu = tf.matmul(tf.matmul(sigma, tf.matrix_inverse(self.sigma_prior_pl)), self.mu_prior_pl) + \
-             tf.multiply(tf.reciprocal(tf.square(self.noise_sd)), tf.matmul(sigma, self.cum_xy_pl))
+        noise_sd_sq = tf.square(self.noise_sd)
+        A = tf.matrix_inverse(tf.multiply(noise_sd_sq, tf.matrix_inverse(self.sigma_prior_pl)) + self.cum_xx_pl)
+        sigma = tf.multiply(noise_sd_sq, A)
+        B = tf.matmul(tf.matmul(sigma, tf.matrix_inverse(self.sigma_prior_pl)), self.mu_prior_pl)#Should zero if prior mean is zero.
+        mu =  B + tf.matmul(A, self.cum_xy_pl)
         return mu, sigma
 
     def post_pred2(self, states_actions, mu, sigma):
