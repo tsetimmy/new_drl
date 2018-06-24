@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 
 import uuid
 
+import sys
+
 def process(X, y, dim):
     X = np.atleast_1d(X)
     y = np.atleast_1d(y)
@@ -53,7 +55,7 @@ class hyperparameter_search:
 
         # Get predictive distribution and log marginal likelihood (Algorithm 2.1 in the GP book).
         L = tf.cholesky(squared_exponential_kernel(self.X, self.X, self.signal_sd, self.length_scale) +\
-                        tf.multiply(tf.square(tf.maximum(self.noise_sd, 1e-3)), tf.eye(self.n, dtype=tf.float64)))
+                        tf.multiply(tf.square(self.noise_sd), tf.eye(self.n, dtype=tf.float64)))
         alpha = tf.linalg.solve(tf.transpose(L), tf.linalg.solve(L, self.y))
         self.log_marginal_likelihood = -.5 * tf.matmul(tf.transpose(self.y), alpha)[0, 0] +\
                                        -.5 * tf.reduce_sum(tf.log(tf.diag_part(L))) +\
@@ -84,7 +86,7 @@ class bayesian_model:
 
         self.length_scale_np = length_scale
         self.signal_sd_np = signal_sd
-        self.noise_sd_np = np.maximum(noise_sd, 1e-3)
+        self.noise_sd_np = noise_sd
 
         # Assertions.
         assert self.length_scale_np > 0.
@@ -165,6 +167,8 @@ class bayesian_model:
 
         self.cum_xx += np.matmul(X_basis.T, X_basis)
         self.cum_xy += np.matmul(X_basis.T, y)
+
+        assert np.linalg.cond(np.eye(self.no_basis) + self.cum_xx) < 1. / sys.float_info.epsilon
 
         A = np.linalg.inv(self.noise_sd_np**2 * np.linalg.inv(self.sigma_prior) + self.cum_xx)
         self.sigma = self.noise_sd_np**2 * A
@@ -328,7 +332,7 @@ def plotting_experiment():
                 plt.subplot(2, 3, 3+i+1)
                 plt.plot(np.arange(len(states[:, i])), states[:, i], color='r')
 
-        y_test = np.concatenate([y_test, seed_state[np.newaxis, ...]], axis=0)
+        y_test = np.concatenate([seed_state[np.newaxis, ...], y_test], axis=0)
         for i in range(3):
             plt.subplot(2, 3, 3+i+1)
             plt.plot(np.arange(len(y_test)), y_test[:, i])
