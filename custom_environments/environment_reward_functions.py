@@ -1,16 +1,15 @@
 import numpy as np
 import gym
-
 import tensorflow as tf
 
 class mountain_cart_continuous_reward_function:
     def __init__(self):
         pass
 
-    def reward_np(self, state, action, done):
+    def step_np(self, state, action, done):
         return float(done) * 100. - action[0]**2 / 10.
 
-    def reward_tf(self, state, action, done):
+    def step_tf(self, state, action, done):
         assert action.shape.as_list() == [None, 1]
         assert done.shape.as_list() == [None]
 
