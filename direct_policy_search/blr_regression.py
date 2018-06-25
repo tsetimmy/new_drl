@@ -1,3 +1,7 @@
+#Potential TODO:
+#1) A regressor for the reward function.
+#2) Propagate the posterior.
+#3) Optimize for the prior hyperparamter (tau).
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
@@ -96,8 +100,8 @@ class blr_model:
         mu, sigma = [tf.concat(e, axis=-1) for e in zip(*[model.posterior_predictive_distribution(states_actions, None) for model in self.models])]
         self.mus1.append(mu)
         self.sigmas1.append(sigma)
-        print mu.shape
-        print sigma.shape
+        #print mu.shape
+        #print sigma.shape
         next_state = tfd.MultivariateNormalDiag(loc=mu, scale_diag=tf.sqrt(sigma)).sample()
         return next_state
 
@@ -116,8 +120,8 @@ class blr_model:
         sigmas = tf.concat(sigmas, axis=-1)
         self.mus2.append(mus)
         self.sigmas2.append(sigmas)
-        print mus.shape
-        print sigmas.shape
+        #print mus.shape
+        #print sigmas.shape
         next_state = tfd.MultivariateNormalDiag(loc=mus, scale_diag=tf.sqrt(sigmas)).sample()
         return next_state
 
@@ -140,6 +144,8 @@ class blr_model:
 
         costs = []
         self.next_states = []
+        #ns = []
+        #bs = []
         for unroll_step in range(unroll_steps):
             print 'unrolling:', unroll_step
             if self.debugging_plot == True:
@@ -156,6 +162,7 @@ class blr_model:
             mus, sigmas = zip(*[self.mu_sigma(self.cum_xx[y], self.cum_xy[y], self.models[y].s, self.models[y].noise_sd) for y in range(self.y_dim)])
 
             bases = [model.approx_rbf_kern_basis(states_actions) for model in self.models]
+            #bs.append(bases)
             mu_pred, sigma_pred = [tf.concat(e, axis=-1) for e in zip(*[self.prediction(mu, sigma, basis, model.noise_sd)
                                                                       for mu, sigma, basis, model in zip(mus, sigmas, bases, self.models)])]
 
@@ -165,27 +172,30 @@ class blr_model:
             self.get_next_states2(states_actions)
 
             next_states = tfd.MultivariateNormalDiag(loc=mu_pred, scale_diag=tf.sqrt(sigma_pred)).sample()
+            #ns.append(tf.split(next_states, self.y_dim, axis=-1))
 
             self.next_states.append(tf.reshape(next_states, shape=[-1, no_samples, self.state_dim]))
 
-            '''
             for y in range(self.y_dim):
                 self.update_posterior(bases[y], next_states[..., y:y+1], y)
-            '''
 
             states = next_states
 
         if self.debugging_plot == False:
+            print 'here1'
             costs = tf.stack(costs, axis=-1)
+            print 'here2'
             self.loss = tf.reduce_mean(tf.reduce_sum(tf.reduce_mean(costs, axis=1), axis=-1))
+            print 'here3'
             self.opt = tf.train.AdamOptimizer().minimize(self.loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'policy_scope'))
+            print 'here4'
         self.string = 'unroll'
 
-#    def update_posterior(self, X, y, i):
-#        X_expanded_dims = tf.expand_dims(X, axis=-1)
-#        y_expanded_dims = tf.expand_dims(y, axis=-1)
-#        self.cum_xx[i] += tf.matmul(X_expanded_dims, tf.transpose(X_expanded_dims, perm=[0, 2, 1]))
-#        self.cum_xy[i] += tf.matmul(X_expanded_dims, y_expanded_dims)
+    def update_posterior(self, X, y, i):
+        X_expanded_dims = tf.expand_dims(X, axis=-1)
+        y_expanded_dims = tf.expand_dims(y, axis=-1)
+        self.cum_xx[i] += tf.matmul(X_expanded_dims, tf.transpose(X_expanded_dims, perm=[0, 2, 1]))
+        self.cum_xy[i] += tf.matmul(X_expanded_dims, y_expanded_dims)
 
     def prediction(self, mu, sigma, basis, noise_sd):
         basis_expanded_dims = tf.expand_dims(basis, axis=-1)
@@ -202,6 +212,35 @@ class blr_model:
         sigma = tf.multiply(noise_sd_sq, A)
         # Assuming that prior mean is zero vector
         mu = tf.matmul(A, xy)
+        return mu, sigma
+
+    def mu_sigma2(self, xx, xy, s, noise_sd, bs, ns, idx):
+        if bs and ns:
+            assert len(zip(*bs)) == self.y_dim
+            assert len(zip(*ns)) == self.y_dim
+            X = zip(*bs)[idx]
+            y = zip(*ns)[idx]
+
+            X = tf.expand_dims(tf.stack(X, axis=0), axis=-1)
+            XX = tf.matmul(X, tf.transpose(X, perm=[0, 1, 3, 2]))
+
+            y = tf.expand_dims(tf.stack(y, axis=0), axis=-1)
+            Xy = tf.matmul(X, y)
+
+            XX_ = tf.reduce_sum(XX, axis=0)
+            Xy_ = tf.reduce_sum(Xy, axis=0)
+
+        else:
+            XX_ = 0.
+            Xy_ = 0.
+
+        noise_sd_sq = tf.square(noise_sd)
+        prior_sigma_inv = tf.matrix_inverse(tf.tile(tf.expand_dims(s*tf.eye(self.no_basis, dtype=tf.float64), axis=0),
+                                            [self.batch_size * self.no_samples, 1, 1]))
+        A = tf.matrix_inverse(tf.multiply(noise_sd_sq, prior_sigma_inv) + xx + XX_)
+        sigma = tf.multiply(noise_sd_sq, A)
+        # Assuming that prior mean is zero vector
+        mu = tf.matmul(A, xy + Xy_)
         return mu, sigma
 
     def update(self, sess, X=None, y=None, memory=None):
@@ -246,7 +285,9 @@ class blr_model:
             states = np.stack([b[0] for b in batch], axis=0)
             feed_dict[self.states] = states
 
+            print 'beginning opt!'
             mus0, sigmas0, mus1, sigmas1, mus2, sigmas2, next_states, loss, _ = sess.run([self.mus0, self.sigmas0, self.mus1, self.sigmas1, self.mus2, self.sigmas2, self.next_states, self.loss, self.opt], feed_dict=feed_dict)
+            print 'end opt!'
             if loss > 1000.:
                 print next_states
             assert len(mus0) == len(sigmas0)
@@ -254,6 +295,7 @@ class blr_model:
             assert len(mus0) == len(sigmas1)
             assert len(mus0) == len(mus2)
             assert len(mus0) == len(sigmas2)
+            '''
             for mu0, sigma0, mu1, sigma1, mu2, sigma2, ii in zip(mus0, sigmas0, mus1, sigmas1, mus2, sigmas2, range(len(mus0))):
                 try:
                     np.testing.assert_almost_equal(sigma1, sigma2, decimal=4)
@@ -300,6 +342,7 @@ class blr_model:
                         for j in range(len(sigma0[i])):
                             print sigma0[i, j], sigma2[i, j]
                     exit()
+            '''
             print 'iteration:', it, 'loss:', loss, self.string, len(mus0)
             '''
             try:
@@ -426,6 +469,7 @@ def main():
                     hyperparameters=hyperparameters,
                     debugging_plot=False)
 
+    print 'exiting!'
     # Initialize the memory
     memory = Memory(args.replay_mem_size)
     assert len(data) == len(rewards)
