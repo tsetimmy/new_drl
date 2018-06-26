@@ -4,7 +4,7 @@ import tensorflow as tf
 
 import uuid
 
-class mountain_cart_continuous_reward_function:
+class mountain_car_continuous_reward_function:
     def __init__(self):
         self.max_speed_tf = tf.get_variable(name=str(uuid.uuid4()), shape=[], dtype=tf.float64, initializer=tf.constant_initializer(.07))
         self.max_position_tf = tf.get_variable(name=str(uuid.uuid4()), shape=[], dtype=tf.float64, initializer=tf.constant_initializer(.6))
@@ -35,12 +35,12 @@ class mountain_cart_continuous_reward_function:
 
         done = (tf.sign(tf.sign(position - self.goal_position_tf) + .5) + 1.) * .5
 
-        return done * 100. - tf.square(action[:, 0]) / 10.
+        return done * 100. - tf.square(action[:, 0:1]) / 10.
 
 def main():
     env = gym.make('MountainCarContinuous-v0')
 
-    mccrf = mountain_cart_continuous_reward_function()
+    mccrf = mountain_car_continuous_reward_function()
     states_pl = tf.placeholder(shape=[None, 2], dtype=tf.float64)
     actions_pl = tf.placeholder(shape=[None, 1], dtype=tf.float64)
     rewards_tf = mccrf.step_tf(states_pl, actions_pl)
