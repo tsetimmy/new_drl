@@ -6,11 +6,11 @@ import uuid
 
 class mountain_car_continuous_reward_function:
     def __init__(self):
-        self.max_speed_tf = tf.get_variable(name=str(uuid.uuid4()), shape=[], dtype=tf.float64, initializer=tf.constant_initializer(.07))
-        self.max_position_tf = tf.get_variable(name=str(uuid.uuid4()), shape=[], dtype=tf.float64, initializer=tf.constant_initializer(.6))
-        self.min_position_tf = tf.get_variable(name=str(uuid.uuid4()), shape=[], dtype=tf.float64, initializer=tf.constant_initializer(-1.2))
-        self.power_tf = tf.get_variable(name=str(uuid.uuid4()), shape=[], dtype=tf.float64, initializer=tf.constant_initializer(.0015))
-        self.goal_position_tf = tf.get_variable(name=str(uuid.uuid4()), shape=[], dtype=tf.float64, initializer=tf.constant_initializer(.45))
+        self.max_speed_tf = tf.constant(value=.07, shape=[], dtype=tf.float64)
+        self.max_position_tf = tf.constant(value=.6, shape=[], dtype=tf.float64)
+        self.min_position_tf = tf.constant(value=-1.2, shape=[], dtype=tf.float64)
+        self.power_tf = tf.constant(value=.0015, shape=[], dtype=tf.float64)
+        self.goal_position_tf = tf.constant(value=.45, shape=[], dtype=tf.float64)
 
     def step_np(self, state, action, done):
         return float(done) * 100. - action[0]**2 / 10.
