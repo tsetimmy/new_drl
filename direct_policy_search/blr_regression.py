@@ -8,12 +8,14 @@ import tensorflow.contrib.slim as slim
 import tensorflow.contrib.distributions as tfd
 
 import gym
+import pickle
 
 from tf_bayesian_model import bayesian_model, hyperparameter_search
 
 import sys
 sys.path.append('..')
-from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
+#from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
+from custom_environments.trainer_environment import ANN
 
 from utils import Memory
 
@@ -69,7 +71,12 @@ class blr_model:
         assert seed_states.shape.as_list() == [None, self.state_dim]
         no_samples = self.no_samples
         unroll_steps = self.unroll_steps
-        self.reward_model = real_env_pendulum_reward()#Use true model.
+        #self.reward_model = real_env_pendulum_reward()#Use true model.
+        self.reward_model = ANN(self.state_dim+self.action_dim, 1)
+        self.placeholders_reward = [tf.placeholder(shape=v.shape, dtype=tf.float64)
+                                    for v in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.reward_model.scope)]
+        self.assign_ops = [v.assign(pl) for v, pl in zip(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.reward_model.scope),
+                           self.placeholders_reward)]
 
         states = tf.expand_dims(seed_states, axis=1)
         states = tf.tile(states, [1, no_samples, 1])
@@ -129,7 +136,12 @@ class blr_model:
         assert seed_states.shape.as_list() == [None, self.state_dim]
         no_samples = self.no_samples
         unroll_steps = self.unroll_steps
-        self.reward_model = real_env_pendulum_reward()#Use true model.
+        #self.reward_model = real_env_pendulum_reward()#Use true model.
+        self.reward_model = ANN(self.state_dim+self.action_dim, 1)
+        self.placeholders_reward = [tf.placeholder(shape=v.shape, dtype=tf.float64)
+                                    for v in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.reward_model.scope)]
+        self.assign_ops = [v.assign(pl) for v, pl in zip(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.reward_model.scope),
+                           self.placeholders_reward)]
 
         states = tf.expand_dims(seed_states, axis=1)
         states = tf.tile(states, [1, no_samples, 1])
@@ -285,16 +297,16 @@ class blr_model:
             states = np.stack([b[0] for b in batch], axis=0)
             feed_dict[self.states] = states
 
-            print 'beginning opt!'
             mus0, sigmas0, mus1, sigmas1, mus2, sigmas2, next_states, loss, _ = sess.run([self.mus0, self.sigmas0, self.mus1, self.sigmas1, self.mus2, self.sigmas2, self.next_states, self.loss, self.opt], feed_dict=feed_dict)
-            print 'end opt!'
             if loss > 1000.:
                 print next_states
+            '''
             assert len(mus0) == len(sigmas0)
             assert len(mus0) == len(mus1)
             assert len(mus0) == len(sigmas1)
             assert len(mus0) == len(mus2)
             assert len(mus0) == len(sigmas2)
+            '''
             '''
             for mu0, sigma0, mu1, sigma1, mu2, sigma2, ii in zip(mus0, sigmas0, mus1, sigmas1, mus2, sigmas2, range(len(mus0))):
                 try:
@@ -402,6 +414,7 @@ class blr_model:
 def main():
     import argparse
     parser = argparse.ArgumentParser()
+    parser.add_argument("--env", type=str, default='Pendulum-v0')
     parser.add_argument("--unroll-steps", type=int, default=25)
     parser.add_argument("--no-samples", type=int, default=20)
     parser.add_argument("--no-basis", type=int, default=256)
@@ -415,7 +428,7 @@ def main():
     
     print args
 
-    env = gym.make('Pendulum-v0')
+    env = gym.make(args.env)
 
     # Gather data to train hyperparameters
     data = []
@@ -469,7 +482,6 @@ def main():
                     hyperparameters=hyperparameters,
                     debugging_plot=False)
 
-    print 'exiting!'
     # Initialize the memory
     memory = Memory(args.replay_mem_size)
     assert len(data) == len(rewards)
@@ -480,6 +492,8 @@ def main():
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
+        weights = pickle.load(open('../custom_environments/weights/pendulum_reward.p', 'rb'))
+        sess.run(blr.assign_ops, feed_dict=dict(zip(blr.placeholders_reward, weights)))
         # Update the model with data used from training hyperparameters
         blr.update(sess, states_actions, next_states)
         blr.train(sess, memory)

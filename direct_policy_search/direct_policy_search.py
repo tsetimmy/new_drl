@@ -4,10 +4,16 @@ import tensorflow.contrib.slim as slim
 import gym
 
 import argparse
+import pickle
 
 import sys
 sys.path.append('..')
-from prototype8.dmlac.real_env_pendulum import real_env_pendulum_state, real_env_pendulum_reward
+from prototype8.dmlac.real_env_pendulum import real_env_pendulum_state
+#from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
+#from custom_environments.environment_state_functions import mountain_car_continuous_state_function
+#from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
+
+from custom_environments.trainer_environment import ANN
 
 from utils import Memory
 
@@ -30,11 +36,20 @@ class direct_policy_search:
         #Flags
         self.policy_reuse_vars = None
 
-        #Build computational graph (i.e., unroll policy)
-        self.states = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float32)
-        self.policy = self.build_policy(self.states)
+        self.reward_model = ANN(self.state_dim+self.action_dim, 1)
+        self.placeholders_reward = [tf.placeholder(shape=v.shape, dtype=tf.float64)
+                                    for v in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)]
+        self.assign_ops = [v.assign(pl) for v, pl in zip(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES),
+                           self.placeholders_reward)]
+        #self.reward_model = real_env_pendulum_reward()
+        #self.reward_model = mountain_car_continuous_reward_function()
+
         self.state_model = real_env_pendulum_state()
-        self.reward_model = real_env_pendulum_reward()
+        #self.state_model = mountain_car_continuous_state_function()
+
+        #Build computational graph (i.e., unroll policy)
+        #self.states = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float32)
+        self.states = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float64)
 
         self.action = self.build_policy(self.states)
         state = self.states
@@ -42,13 +57,15 @@ class direct_policy_search:
         rewards = []
         for i in range(self.unroll_length):
             reward = pow(self.discount_factor, i) * self.reward_model.build(state, action)
+            #reward = pow(self.discount_factor, i) * self.reward_model.step_tf(state, action)
             rewards.append(reward)
             state = self.state_model.build(state, action)
+            #state = self.state_model.step_tf(state, action)
             action = self.build_policy(state)
 
         rewards = tf.reduce_sum(tf.stack(rewards, axis=-1), axis=-1)
         self.loss = -tf.reduce_mean(tf.reduce_sum(rewards, axis=-1))
-        self.opt = tf.train.AdamOptimizer().minimize(self.loss)
+        self.opt = tf.train.AdamOptimizer().minimize(self.loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope))
 
         '''
         reward1, self.asin1 = self.reward_model.build(state, action)
@@ -85,7 +102,8 @@ class direct_policy_search:
         output = slim.fully_connected(fc1, self.action_dim, activation_fn=tf.nn.tanh, scope=self.scope+'/output', reuse=self.policy_reuse_vars)
 
         #Apply action bounds
-        action_bound = tf.constant(self.action_bound_high, dtype=tf.float32)
+        #action_bound = tf.constant(self.action_bound_high, dtype=tf.float32)
+        action_bound = tf.constant(self.action_bound_high, dtype=tf.float64)
         policy = tf.multiply(output, action_bound)
 
         #Change flag
@@ -96,6 +114,7 @@ class direct_policy_search:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", type=str, default='Pendulum-v0')
+    parser.add_argument("--unroll-steps", type=int, default=20)
     parser.add_argument("--time-steps", type=int, default=30000)
     parser.add_argument("--replay-mem-size", type=int, default=1000000)
     parser.add_argument("--batch-size", type=int, default=64)
@@ -103,7 +122,6 @@ def main():
     args = parser.parse_args()
 
     env = gym.make(args.environment)
-    unroll = 20
 
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
@@ -111,13 +129,15 @@ def main():
     action_bound_low = env.action_space.low
 
     agent = direct_policy_search(state_dim, action_dim, action_bound_high,
-                                 action_bound_low, unroll, .9, 5, 'direct_policy_search')
+                                 action_bound_low, args.unroll_steps, .9, 1, 'direct_policy_search')
 
     # Replay memory
     memory = Memory(args.replay_mem_size)
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
+        weights = pickle.load(open('../custom_environments/weights/pendulum_reward.p', 'rb'))
+        sess.run(agent.assign_ops, feed_dict=dict(zip(agent.placeholders_reward, weights)))
         state = env.reset()
         total_rewards = 0.0
         epoch = 1
@@ -142,7 +162,7 @@ def main():
             state = np.copy(next_state)
 
             if done == True:
-                print 'time steps', time_steps, 'epoch', epoch, 'total rewards', total_rewards, 'unroll', unroll
+                print 'time steps', time_steps, 'epoch', epoch, 'total rewards', total_rewards, 'unroll', args.unroll_steps
                 epoch += 1
                 total_rewards = 0.
                 state = env.reset()

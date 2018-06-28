@@ -67,6 +67,20 @@ class real_env_pendulum_reward:
         rewards = -(tf.square(th) + .1*tf.square(states[:, -1]) + .001*tf.square(actions[:, 0]))
         return tf.expand_dims(rewards, axis=-1)#, tf.minimum(tf.abs(states[:, 1]), 1.-1e-6)
 
+    def build_np(self, states, actions):
+        cossgn = (np.sign(states[:, 0])+1.)/2.
+        sinsgn = (np.sign(states[:, 1])+1.)/2.
+
+        th = np.arcsin(np.minimum(np.abs(states[:, 1]), 1.-1e-6))
+
+        th += sinsgn * np.abs(cossgn - 1.) * (np.pi - 2. * th) +\
+              np.abs(sinsgn - 1.) * cossgn * (-2. * th) +\
+              np.abs(sinsgn - 1.) * np.abs(cossgn - 1.) * -np.pi
+
+        rewards = -(np.square(th) + .1*np.square(states[:, -1]) + .001*np.square(actions[:, 0]))
+        return np.expand_dims(rewards, axis=-1)
+
+
 def main():
     u = np.linspace(-2., 2., 10)
     thdot = np.linspace(-8., 8., 20)
