@@ -2,6 +2,7 @@ import numpy as np
 import gym
 import tensorflow as tf
 
+import math
 import uuid
 
 class mountain_car_continuous_reward_function:
@@ -12,8 +13,33 @@ class mountain_car_continuous_reward_function:
         self.power_tf = tf.constant(value=.0015, shape=[], dtype=tf.float64)
         self.goal_position_tf = tf.constant(value=.45, shape=[], dtype=tf.float64)
 
-    def step_np(self, state, action, done):
-        return float(done) * 100. - action[0]**2 / 10.
+        self.max_speed_np = .07
+        self.max_position_np = .6
+        self.min_position_np = -1.2
+        self.power_np = .0015
+        self.goal_position_np = .45
+
+    def step_np(self, state, action):
+        position = state[:, 0]
+        velocity = state[:, 1]
+        force = np.minimum(np.maximum(action[:, 0], -1.0), 1.0)
+
+        velocity += force*self.power_np -0.0025 * np.cos(3.*position)
+        velocity = np.maximum(np.minimum(velocity, self.max_speed_np), -self.max_speed_np)
+        position += velocity
+        position = np.maximum(np.minimum(position, self.max_position_np), self.min_position_np)
+
+        for i in range(len(position)):
+            if position[i] == self.min_position_np and velocity[i] < 0.:
+                velocity[i] = 0.
+
+        done = np.zeros_like(position)
+        for i in range(len(done)):
+            if position[i] >= self.goal_position_np:
+                done[i] = 1.
+
+        reward = 100. * done - (action[:, 0]**2) / 10.
+        return reward
 
     def step_tf(self, state, action):
         assert state.shape.as_list() == [None, 2]
