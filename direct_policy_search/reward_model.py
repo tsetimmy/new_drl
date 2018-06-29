@@ -1,4 +1,5 @@
 import numpy as np
+import tensorflow as tf
 import gym
 
 import argparse
@@ -30,9 +31,26 @@ def main():
             if done:
                 break
 
-    states, _, rewards, _, _ = zip(*data)
+    states, actions, rewards, _, _ = zip(*data)
     states = np.stack(states, axis=0)
-    rewards = np.array(rewards)[..., np.newaxis]
+    actions = np.stack(actions, axis=0)
+    rewards = np.array(rewards)
+
+    states_actions = np.concatenate([states, actions], axis=-1)
+
+    # Train the hyperparameters.
+    hs = hyperparameter_search(dim=env.observation_space.shape[0]+env.action_space.shape[0])
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        batch_size = 32
+        iterations = 1000*50
+        idxs = [np.random.randint(len(states_actions), size=batch_size) for _ in range(iterations)]
+        hs.train_hyperparameters(sess, states_actions, rewards, idxs)
+        hyperparameters = sess.run([hs[i].length_scale, hs[i].signal_sd, hs[i].noise_sd])
+
+    # Initialize the regressor.
+
+    model = bayesian_model(env.observation_space.shape[0]+env.action_space.shape[0], 
 
 if __name__ == '__main__':
     main()

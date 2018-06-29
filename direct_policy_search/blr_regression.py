@@ -384,8 +384,11 @@ class blr_model:
         #Fully connected layer 1
         fc1 = slim.fully_connected(states, 256, activation_fn=tf.nn.relu, scope=self.policy_scope+'/fc1', reuse=self.policy_reuse_vars)
 
+        #Fully connected layer 2
+        fc2 = slim.fully_connected(fc1, 256, activation_fn=tf.nn.relu, scope=self.policy_scope+'/fc2', reuse=self.policy_reuse_vars)
+
         #Output layer
-        output = slim.fully_connected(fc1, self.action_dim, activation_fn=tf.nn.tanh, scope=self.policy_scope+'/output', reuse=self.policy_reuse_vars)
+        output = slim.fully_connected(fc2, self.action_dim, activation_fn=tf.nn.tanh, scope=self.policy_scope+'/output', reuse=self.policy_reuse_vars)
 
         #Apply action bounds
         np.testing.assert_array_equal(-self.action_bound_low, self.action_bound_high)
@@ -425,11 +428,14 @@ def main():
     parser.add_argument("--train-policy-iterations", type=int, default=30)
     parser.add_argument("--replay-start-size-epochs", type=int, default=2)
     parser.add_argument("--train-hyperparameters-iterations", type=int, default=50000)
+    parser.add_argument("--goal-position", type=float, default=.45)
     args = parser.parse_args()
     
     print args
 
+    #env = gym.make(args.env, goal_position=args.goal_position)
     env = gym.make(args.env)
+    env.seed(seed=args.goal_position)
 
     # Gather data to train hyperparameters
     data = []
@@ -447,11 +453,11 @@ def main():
             if done:
                 break
 
-    states = np.stack([d[0] for d in data], axis=0)
-    actions = np.stack([d[1] for d in data], axis=0)
-    next_states = np.stack([d[2] for d in data], axis=0)
+    states, actions, next_states = [np.stack(d, axis=0) for d in zip(*data)]
 
-    states_actions = np.concatenate([states, actions], axis=-1)
+    permutation = np.random.permutation(len(data))
+    states_actions = np.concatenate([states, actions], axis=-1)[permutation]
+    next_states = next_states[permutation]
 
     # Train the hyperparameters
     hs = [hyperparameter_search(dim=env.observation_space.shape[0]+env.action_space.shape[0])
@@ -461,9 +467,9 @@ def main():
         sess.run(tf.global_variables_initializer())
         batch_size = 32
         iterations = args.train_hyperparameters_iterations
-        idxs = [np.random.randint(len(states_actions), size=batch_size) for _ in range(iterations)]
+        #idxs = [np.random.randint(len(states_actions), size=batch_size) for _ in range(iterations)]
         for i in range(len(hs)):
-            hs[i].train_hyperparameters(sess, states_actions, next_states[:, i], idxs)
+            hs[i].train_hyperparameters(sess, states_actions, next_states[:, i], iterations, batch_size)
             hyperparameters.append(sess.run([hs[i].length_scale, hs[i].signal_sd, hs[i].noise_sd]))
 
     blr = blr_model(x_dim=env.observation_space.shape[0]+env.action_space.shape[0],
@@ -493,7 +499,7 @@ def main():
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        weights = pickle.load(open('../custom_environments/weights/mountain_car_continuous_reward-0.3.p', 'rb'))
+        weights = pickle.load(open('../custom_environments/weights/mountain_car_continuous_reward'+str(args.goal_position)+'.p', 'rb'))
         sess.run(blr.assign_ops, feed_dict=dict(zip(blr.placeholders_reward, weights)))
         # Update the model with data used from training hyperparameters
         blr.update(sess, states_actions, next_states)

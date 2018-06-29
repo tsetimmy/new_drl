@@ -63,14 +63,30 @@ class hyperparameter_search:
         self.opt = tf.train.AdamOptimizer().minimize(-self.log_marginal_likelihood, var_list=[self.length_scale, self.signal_sd, self.noise_sd])
 
     # TODO: idxs require memory; make it memory-free
-    def train_hyperparameters(self, sess, xtrain, ytrain, idxs):
+    def train_hyperparameters(self, sess, xtrain, ytrain, iterations, batch_size):
         xtrain, ytrain = process(xtrain, ytrain, self.dim)
+        passes = int(np.ceil(float(iterations) * batch_size / len(xtrain)))
+        it = 0
+        loss = 0
+        for p in range(passes):
+            for i in range(0, len(xtrain), batch_size):
+                try:
+                    log_marginal_likelihood, _ = sess.run([self.log_marginal_likelihood, self.opt], feed_dict={self.X:xtrain[i:i+batch_size, ...], self.y:ytrain[i:i+batch_size, ...]})
+                    it += 1
+                    loss = -log_marginal_likelihood
+                    #print 'iteration:', it, 'loss:', -log_marginal_likelihood
+                except:
+                    print 'Cholesky decomposition failed.'
+            print 'Passes:', p, 'of', passes, 'iterations:', it, 'loss:', loss
+
+        '''
         for idx, it in zip(idxs, range(len(idxs))):
             try:
                 log_marginal_likelihood, _ = sess.run([self.log_marginal_likelihood, self.opt], feed_dict={self.X:xtrain[idx, ...], self.y:ytrain[idx, ...]})
                 print 'iteration:', it, 'loss:', -log_marginal_likelihood
             except:
                 print 'Cholesky decomposition failed.'
+        '''
 
 class bayesian_model:
     def __init__(self, dim, observation_space_low, observation_space_high, action_space_low,
@@ -84,13 +100,13 @@ class bayesian_model:
 
         self.no_basis = no_basis
 
-        self.length_scale_np = length_scale
-        self.signal_sd_np = signal_sd
+        self.length_scale_np = np.abs(length_scale)
+        self.signal_sd_np = np.abs(signal_sd)
         self.noise_sd_np = noise_sd
 
         # Assertions.
-        assert self.length_scale_np > 0.
-        assert self.signal_sd_np > 0.
+        #assert self.length_scale_np > 0.
+        #assert self.signal_sd_np > 0.
         #np.testing.assert_array_equal(-self.observation_space_low, self.observation_space_high)
         np.testing.assert_array_equal(-self.action_space_low, self.action_space_high)
         assert self.dim == len(self.observation_space_high) + len(self.action_space_high)
@@ -99,7 +115,7 @@ class bayesian_model:
         self.uuid = str(uuid.uuid4())
 
         # Prior noise
-        self.s = 1.
+        self.s = 7.
 
         # Values to keep track
         self.cum_xx = np.zeros([self.no_basis, self.no_basis])
@@ -156,10 +172,13 @@ class bayesian_model:
             self.rffm = km.RandomFourierFeatureMapper(self.dim, self.no_basis, stddev=self.length_scale_np, seed=self.rffm_seed)
 
         basis_phi = tf.multiply(self.signal_sd, self.rffm.map(X))
+        return basis_phi
+        '''
         sqrt_sigma_inv = tf.matrix_inverse(self.s * tf.eye(self.no_basis, dtype=tf.float64))
         basis_psi = tf.transpose(tf.matmul(sqrt_sigma_inv, tf.transpose(basis_phi)))
 
         return basis_psi
+        '''
 
     def update(self, sess, X, y):
         X, y = process(X, y, self.dim)
@@ -243,6 +262,11 @@ def plotting_experiment():
     x_test = states_actions[train_size:, ...]
     y_test = next_states[train_size:, ...]
 
+
+    permutation = np.random.permutation(train_size)
+    x_train = x_train[permutation]
+    y_train = y_train[permutation]
+
     # Train the hyperparameters
     hs = [hyperparameter_search(dim=env.observation_space.shape[0]+env.action_space.shape[0])
           for _ in range(env.observation_space.shape[0])]
@@ -253,7 +277,7 @@ def plotting_experiment():
         iterations = 50000
         idxs = [np.random.randint(len(x_train), size=batch_size) for _ in range(iterations)]
         for i in range(len(hs)):
-            hs[i].train_hyperparameters(sess, x_train, y_train[:, i], idxs)
+            hs[i].train_hyperparameters(sess, x_train, y_train[:, i], iterations, batch_size)
             hyperparameters.append(sess.run([hs[i].length_scale, hs[i].signal_sd, hs[i].noise_sd]))
 
     if args.dump_data >= 1:
