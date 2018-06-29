@@ -91,7 +91,7 @@ class bayesian_model:
         # Assertions.
         assert self.length_scale_np > 0.
         assert self.signal_sd_np > 0.
-        np.testing.assert_array_equal(-self.observation_space_low, self.observation_space_high)
+        #np.testing.assert_array_equal(-self.observation_space_low, self.observation_space_high)
         np.testing.assert_array_equal(-self.action_space_low, self.action_space_high)
         assert self.dim == len(self.observation_space_high) + len(self.action_space_high)
 

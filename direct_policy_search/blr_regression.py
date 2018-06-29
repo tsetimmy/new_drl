@@ -15,7 +15,7 @@ from tf_bayesian_model import bayesian_model, hyperparameter_search
 import sys
 sys.path.append('..')
 #from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
-from custom_environments.trainer_environment import ANN
+from custom_environments.generateANN_env import ANN
 
 from utils import Memory
 
@@ -388,6 +388,7 @@ class blr_model:
         output = slim.fully_connected(fc1, self.action_dim, activation_fn=tf.nn.tanh, scope=self.policy_scope+'/output', reuse=self.policy_reuse_vars)
 
         #Apply action bounds
+        np.testing.assert_array_equal(-self.action_bound_low, self.action_bound_high)
         action_bound = tf.constant(self.action_bound_high, dtype=tf.float64)
         policy = tf.multiply(output, action_bound)
 
@@ -492,7 +493,7 @@ def main():
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        weights = pickle.load(open('../custom_environments/weights/pendulum_reward.p', 'rb'))
+        weights = pickle.load(open('../custom_environments/weights/mountain_car_continuous_reward-0.3.p', 'rb'))
         sess.run(blr.assign_ops, feed_dict=dict(zip(blr.placeholders_reward, weights)))
         # Update the model with data used from training hyperparameters
         blr.update(sess, states_actions, next_states)
@@ -542,7 +543,8 @@ def plotting_experiment():
     
     print args
 
-    env = gym.make('Pendulum-v0')
+    #env = gym.make('Pendulum-v0')
+    env = gym.make('MountainCarContinuous-v0')
 
     epochs = 3
     train_size = (epochs - 1) * 200

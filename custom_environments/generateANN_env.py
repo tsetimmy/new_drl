@@ -50,10 +50,11 @@ class ANN:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env", type=str, default='Pendulum-v0')
+    parser.add_argument("--env", type=str, default='MountainCarContinuous-v0')
     parser.add_argument("--data-size", type=int, default=10000)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--iterations", type=int, default=5000)
+    parser.add_argument("--goal-position", type=float, default=-.4)
     args = parser.parse_args()
 
     print args
@@ -61,10 +62,12 @@ def main():
     env = gym.make(args.env)
     ann = ANN(env.observation_space.shape[0]+env.action_space.shape[0], 1, train_weights=True)
 
-    reward_function = real_env_pendulum_reward()
+    #reward_function = real_env_pendulum_reward()
+    reward_function = mountain_car_continuous_reward_function(goal_position=args.goal_position)
     states = np.random.uniform(env.observation_space.low, env.observation_space.high, size=[args.data_size, env.observation_space.shape[0]])
     actions = np.random.uniform(env.action_space.low, env.action_space.high, size=[args.data_size, env.action_space.shape[0]])
-    rewards = reward_function.build_np(states, actions)
+    #rewards = reward_function.build_np(states, actions)
+    rewards = reward_function.step_np(states, actions)[..., np.newaxis]
 
     #saver = tf.train.Saver()
 
@@ -80,7 +83,8 @@ def main():
 
         #print sess.run(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))
         #saver.save(sess, './weights/pendulum_reward.ckpt')
-        pickle.dump(sess.run(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)), open('./weights/pendulum_reward.p', 'wb'))
+        pickle.dump(sess.run(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)), open('./weights/mountain_car_continuous_reward'+str(reward_function.goal_position_np)+'.p', 'wb'))
+    print str(reward_function.goal_position_np)
 
 if __name__ == '__main__':
     main()

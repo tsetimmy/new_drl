@@ -6,7 +6,7 @@ import math
 import uuid
 
 class mountain_car_continuous_reward_function:
-    def __init__(self):
+    def __init__(self, goal_position=.45):
         self.max_speed_tf = tf.constant(value=.07, shape=[], dtype=tf.float64)
         self.max_position_tf = tf.constant(value=.6, shape=[], dtype=tf.float64)
         self.min_position_tf = tf.constant(value=-1.2, shape=[], dtype=tf.float64)
@@ -17,7 +17,7 @@ class mountain_car_continuous_reward_function:
         self.max_position_np = .6
         self.min_position_np = -1.2
         self.power_np = .0015
-        self.goal_position_np = .45
+        self.goal_position_np = goal_position
 
     def step_np(self, state, action):
         position = state[:, 0]

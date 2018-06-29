@@ -10,10 +10,10 @@ import sys
 sys.path.append('..')
 from prototype8.dmlac.real_env_pendulum import real_env_pendulum_state
 #from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
-#from custom_environments.environment_state_functions import mountain_car_continuous_state_function
+from custom_environments.environment_state_functions import mountain_car_continuous_state_function
 #from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
 
-from custom_environments.trainer_environment import ANN
+from custom_environments.generateANN_env import ANN
 
 from utils import Memory
 
@@ -44,8 +44,8 @@ class direct_policy_search:
         #self.reward_model = real_env_pendulum_reward()
         #self.reward_model = mountain_car_continuous_reward_function()
 
-        self.state_model = real_env_pendulum_state()
-        #self.state_model = mountain_car_continuous_state_function()
+        #self.state_model = real_env_pendulum_state()
+        self.state_model = mountain_car_continuous_state_function()
 
         #Build computational graph (i.e., unroll policy)
         #self.states = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float32)
@@ -59,8 +59,8 @@ class direct_policy_search:
             reward = pow(self.discount_factor, i) * self.reward_model.build(state, action)
             #reward = pow(self.discount_factor, i) * self.reward_model.step_tf(state, action)
             rewards.append(reward)
-            state = self.state_model.build(state, action)
-            #state = self.state_model.step_tf(state, action)
+            #state = self.state_model.build(state, action)
+            state = self.state_model.step_tf(state, action)
             action = self.build_policy(state)
 
         rewards = tf.reduce_sum(tf.stack(rewards, axis=-1), axis=-1)
@@ -113,12 +113,12 @@ class direct_policy_search:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--environment", type=str, default='Pendulum-v0')
+    parser.add_argument("--environment", type=str, default='MountainCarContinuous-v0')
     parser.add_argument("--unroll-steps", type=int, default=20)
     parser.add_argument("--time-steps", type=int, default=30000)
     parser.add_argument("--replay-mem-size", type=int, default=1000000)
     parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--learning-rate", type=float, default=.9)
+    parser.add_argument("--discount-factor", type=float, default=.95)
     args = parser.parse_args()
 
     env = gym.make(args.environment)
@@ -129,14 +129,15 @@ def main():
     action_bound_low = env.action_space.low
 
     agent = direct_policy_search(state_dim, action_dim, action_bound_high,
-                                 action_bound_low, args.unroll_steps, .9, 1, 'direct_policy_search')
+                                 action_bound_low, args.unroll_steps, args.discount_factor, 1, 'direct_policy_search')
 
     # Replay memory
     memory = Memory(args.replay_mem_size)
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        weights = pickle.load(open('../custom_environments/weights/pendulum_reward.p', 'rb'))
+        #weights = pickle.load(open('../custom_environments/weights/pendulum_reward.p', 'rb'))
+        weights = pickle.load(open('../custom_environments/weights/mountain_car_continuous_reward-0.3.p', 'rb'))
         sess.run(agent.assign_ops, feed_dict=dict(zip(agent.placeholders_reward, weights)))
         state = env.reset()
         total_rewards = 0.0
