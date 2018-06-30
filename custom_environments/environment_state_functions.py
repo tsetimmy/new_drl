@@ -17,6 +17,8 @@ class mountain_car_continuous_state_function:
         self.power_tf = tf.constant(value=self.power_np, shape=[], dtype=tf.float64)
 
     def step_np(self, state, action):
+        state = np.copy(state)
+        action = np.copy(action)
         assert len(state) == len(action)
         assert len(state.shape) == 2
         assert len(action.shape) == 2
