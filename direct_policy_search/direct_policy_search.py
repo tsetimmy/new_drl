@@ -38,14 +38,17 @@ class direct_policy_search:
 
         self.reward_model = ANN(self.state_dim+self.action_dim, 1)
         self.placeholders_reward = [tf.placeholder(shape=v.shape, dtype=tf.float64)
-                                    for v in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)]
-        self.assign_ops = [v.assign(pl) for v, pl in zip(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES),
-                           self.placeholders_reward)]
+                                    for v in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.reward_model.scope)]
+        self.assign_ops0 = [v.assign(pl) for v, pl in zip(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.reward_model.scope),
+                            self.placeholders_reward)]
         #self.reward_model = real_env_pendulum_reward()
         #self.reward_model = mountain_car_continuous_reward_function()
 
         #self.state_model = real_env_pendulum_state()
-        self.state_model = mountain_car_continuous_state_function()
+        #self.state_model = mountain_car_continuous_state_function()
+        self.state_model = ANN(self.state_dim+self.action_dim, self.state_dim)
+        self.placeholders_state = [tf.placeholder(shape=v.shape, dtype=tf.float64) for v in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.state_model.scope)]
+        self.assign_ops1 = [v.assign(pl) for v, pl in zip(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.state_model.scope), self.placeholders_state)]
 
         #Build computational graph (i.e., unroll policy)
         #self.states = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float32)
@@ -59,27 +62,13 @@ class direct_policy_search:
             reward = pow(self.discount_factor, i) * self.reward_model.build(state, action)
             #reward = pow(self.discount_factor, i) * self.reward_model.step_tf(state, action)
             rewards.append(reward)
-            #state = self.state_model.build(state, action)
-            state = self.state_model.step_tf(state, action)
+            state = self.state_model.build(state, action)
+            #state = self.state_model.step_tf(state, action)
             action = self.build_policy(state)
 
         rewards = tf.reduce_sum(tf.stack(rewards, axis=-1), axis=-1)
         self.loss = -tf.reduce_mean(tf.reduce_sum(rewards, axis=-1))
         self.opt = tf.train.AdamOptimizer().minimize(self.loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope))
-
-        '''
-        reward1, self.asin1 = self.reward_model.build(state, action)
-        self.state1 = self.state_model.build(state, action)
-        action1 = self.build_policy(self.state1)
-
-        reward2, self.asin2 = self.reward_model.build(self.state1, action1)
-        reward2 = reward2 * pow(self.discount_factor, 1)
-        self.state2 = self.state_model.build(self.state1, action1)
-        action2 = self.build_policy(self.state2)
-
-        self.loss = -tf.reduce_mean(tf.reduce_sum(reward1+reward2, axis=-1))
-        self.opt = tf.train.AdamOptimizer().minimize(self.loss)
-        '''
 
     def act(self, sess, states):
         states = np.atleast_2d(states)
@@ -98,8 +87,10 @@ class direct_policy_search:
         #Fully connected layer 1
         fc1 = slim.fully_connected(states, 256, activation_fn=tf.nn.relu, scope=self.scope+'/fc1', reuse=self.policy_reuse_vars)
 
+        fc2 = slim.fully_connected(fc1, 256, activation_fn=tf.nn.relu, scope=self.scope+'/fc2', reuse=self.policy_reuse_vars)
+
         #Output layer
-        output = slim.fully_connected(fc1, self.action_dim, activation_fn=tf.nn.tanh, scope=self.scope+'/output', reuse=self.policy_reuse_vars)
+        output = slim.fully_connected(fc2, self.action_dim, activation_fn=tf.nn.tanh, scope=self.scope+'/output', reuse=self.policy_reuse_vars)
 
         #Apply action bounds
         #action_bound = tf.constant(self.action_bound_high, dtype=tf.float32)
@@ -119,9 +110,11 @@ def main():
     parser.add_argument("--replay-mem-size", type=int, default=1000000)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--discount-factor", type=float, default=.95)
+    parser.add_argument("--goal-position", type=float, default=.45)
     args = parser.parse_args()
 
     env = gym.make(args.environment)
+    env.seed(seed=args.goal_position)
 
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
@@ -137,8 +130,10 @@ def main():
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         #weights = pickle.load(open('../custom_environments/weights/pendulum_reward.p', 'rb'))
-        weights = pickle.load(open('../custom_environments/weights/mountain_car_continuous_reward-0.3.p', 'rb'))
-        sess.run(agent.assign_ops, feed_dict=dict(zip(agent.placeholders_reward, weights)))
+        weights = pickle.load(open('../custom_environments/weights/mountain_car_continuous_reward'+str(args.goal_position)+'.p', 'rb'))
+        sess.run(agent.assign_ops0, feed_dict=dict(zip(agent.placeholders_reward, weights)))
+        weights = pickle.load(open('../custom_environments/weights/mountain_car_continuous_next_state.p', 'rb'))
+        sess.run(agent.assign_ops1, feed_dict=dict(zip(agent.placeholders_state, weights)))
         state = env.reset()
         total_rewards = 0.0
         epoch = 1
