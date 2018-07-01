@@ -11,7 +11,7 @@ sys.path.append('..')
 from prototype8.dmlac.real_env_pendulum import real_env_pendulum_state
 #from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
 from custom_environments.environment_state_functions import mountain_car_continuous_state_function
-#from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
+from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
 
 from custom_environments.generateANN_env import ANN
 
@@ -36,13 +36,15 @@ class direct_policy_search:
         #Flags
         self.policy_reuse_vars = None
 
+        '''
         self.reward_model = ANN(self.state_dim+self.action_dim, 1)
         self.placeholders_reward = [tf.placeholder(shape=v.shape, dtype=tf.float64)
                                     for v in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.reward_model.scope)]
         self.assign_ops0 = [v.assign(pl) for v, pl in zip(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.reward_model.scope),
                             self.placeholders_reward)]
+        '''
         #self.reward_model = real_env_pendulum_reward()
-        #self.reward_model = mountain_car_continuous_reward_function()
+        self.reward_model = mountain_car_continuous_reward_function()
 
         #self.state_model = real_env_pendulum_state()
         #self.state_model = mountain_car_continuous_state_function()
@@ -59,16 +61,21 @@ class direct_policy_search:
         action = self.build_policy(state)
         rewards = []
         for i in range(self.unroll_length):
-            reward = pow(self.discount_factor, i) * self.reward_model.build(state, action)
+            print i
+            #reward = pow(self.discount_factor, i) * self.reward_model.build(state, action)
             #reward = pow(self.discount_factor, i) * self.reward_model.step_tf(state, action)
+            reward = pow(self.discount_factor, i) * self.reward_model.sigmoid_approx(state, action)
             rewards.append(reward)
             state = self.state_model.build(state, action)
             #state = self.state_model.step_tf(state, action)
             action = self.build_policy(state)
 
         rewards = tf.reduce_sum(tf.stack(rewards, axis=-1), axis=-1)
+        print 'here0'
         self.loss = -tf.reduce_mean(tf.reduce_sum(rewards, axis=-1))
+        print 'here1'
         self.opt = tf.train.AdamOptimizer().minimize(self.loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope))
+        print 'here2'
 
     def act(self, sess, states):
         states = np.atleast_2d(states)
@@ -109,7 +116,7 @@ def main():
     parser.add_argument("--time-steps", type=int, default=30000)
     parser.add_argument("--replay-mem-size", type=int, default=1000000)
     parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--discount-factor", type=float, default=.95)
+    parser.add_argument("--discount-factor", type=float, default=1.)
     parser.add_argument("--goal-position", type=float, default=.45)
     args = parser.parse_args()
 
@@ -130,15 +137,15 @@ def main():
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         #weights = pickle.load(open('../custom_environments/weights/pendulum_reward.p', 'rb'))
-        weights = pickle.load(open('../custom_environments/weights/mountain_car_continuous_reward'+str(args.goal_position)+'.p', 'rb'))
-        sess.run(agent.assign_ops0, feed_dict=dict(zip(agent.placeholders_reward, weights)))
+        #weights = pickle.load(open('../custom_environments/weights/mountain_car_continuous_reward'+str(args.goal_position)+'.p', 'rb'))
+        #sess.run(agent.assign_ops0, feed_dict=dict(zip(agent.placeholders_reward, weights)))
         weights = pickle.load(open('../custom_environments/weights/mountain_car_continuous_next_state.p', 'rb'))
         sess.run(agent.assign_ops1, feed_dict=dict(zip(agent.placeholders_state, weights)))
         state = env.reset()
         total_rewards = 0.0
         epoch = 1
         for time_steps in range(args.time_steps):
-            #env.render()
+            env.render()
             action = agent.act(sess, state)
             next_state, reward, done, _ = env.step(action)
             total_rewards += float(reward)

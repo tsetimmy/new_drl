@@ -63,6 +63,21 @@ class mountain_car_continuous_reward_function:
 
         return done * 100. - tf.square(action[:, 0:1]) / 10.
 
+    #Approximate the step function with a steep sigmoid.
+    def sigmoid_approx(self, state, action):
+        assert state.shape.as_list() == [None, 2]
+        assert action.shape.as_list() == [None, 1]
+
+        position = state[:, 0:1]
+        velocity = state[:, 1:2]
+
+        force = tf.expand_dims(tf.clip_by_value(action[:, 0], -1., 1.), axis=-1)
+        new_position = tf.clip_by_value(position + tf.clip_by_value(velocity + force * self.power_tf - .0025 * tf.cos(3. * position), -self.max_speed_tf, self.max_speed_tf), self.min_position_tf, self.max_position_tf)
+
+        a = 19.
+        rewards = 100. / (1. + tf.exp(-a * (new_position - self.goal_position_tf + np.log(99.) / a))) - tf.square(action[:, 0:1]) / 10.
+        return rewards
+
 def main():
     env = gym.make('MountainCarContinuous-v0')
 
@@ -70,6 +85,7 @@ def main():
     states_pl = tf.placeholder(shape=[None, 2], dtype=tf.float64)
     actions_pl = tf.placeholder(shape=[None, 1], dtype=tf.float64)
     rewards_tf = mccrf.step_tf(states_pl, actions_pl)
+    approx_tf = mccrf.sigmoid_approx(states_pl, actions_pl)
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
@@ -83,11 +99,13 @@ def main():
                 total_rewards += float(reward)
 
                 #reward2 = mccrf.step_np(state, action, done)
-                reward3 = sess.run(rewards_tf, feed_dict={states_pl:state[np.newaxis, ...], actions_pl:action[np.newaxis, ...]})
+                reward3, reward4 = sess.run([rewards_tf, approx_tf], feed_dict={states_pl:state[np.newaxis, ...], actions_pl:action[np.newaxis, ...]})
                 reward3 = np.squeeze(reward3, axis=0)
+                reward4 = np.squeeze(reward4, axis=0)
 
                 #np.testing.assert_almost_equal(np.array(reward), np.array(reward2))
                 np.testing.assert_almost_equal(np.array(reward), np.array(reward3))
+                np.testing.assert_almost_equal(np.array(reward3), np.array(reward4))
 
                 state = np.copy(next_state)
                 if done:
@@ -125,5 +143,5 @@ def main2():
     np.testing.assert_almost_equal(rewards, rewards2)
 
 if __name__ == '__main__':
-    #main()
-    main2()
+    main()
+    #main2()
