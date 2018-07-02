@@ -9,8 +9,71 @@ sys.path.append('..')
 
 import uuid
 
-from custom_environments.environment_state_functions import mountain_car_continuous_state_function
-from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
+#from custom_environments.environment_state_functions import mountain_car_continuous_state_function
+#from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
+
+class gaussain_policy_network_discrete_action:
+    def __init__(self, state_dim, action_dim, discount_factor):
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        self.discount_factor = discount_factor
+
+        self.scope = str(uuid.uuid4())
+        self.reuse = None
+
+        self.experience = []#Buffer to hold episode tuples.
+
+        self.states = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float64)
+
+        self.actions = self.build(self.states)
+
+        self.actions_pl = tf.placeholder(shape=[None], dtype=tf.int32)
+        self.actions_one_hot = tf.one_hot(self.actions_pl, self.action_dim, dtype=tf.float64)
+
+        self.log_pi = tf.log(tf.maximum(self.actions, 1e-7))
+        self.responsible_output = tf.reduce_sum(tf.multiply(self.log_pi, self.actions_one_hot), axis=-1, keep_dims=True)
+        self.G = tf.placeholder(shape=[None, 1], dtype=tf.float64)
+
+        self.J = tf.multiply(-self.G, self.responsible_output)
+
+        self.loss = tf.reduce_sum(self.J)
+
+        self.opt = tf.train.AdamOptimizer().minimize(self.loss)
+
+    def build(self, states):
+        assert states.shape.as_list() == [None, self.state_dim]
+
+        fc1 = slim.fully_connected(states, 128, activation_fn=tf.nn.relu, scope=self.scope+'/fc1', reuse=self.reuse)
+        fc2 = slim.fully_connected(fc1, 128, activation_fn=tf.nn.relu, scope=self.scope+'/fc2', reuse=self.reuse)
+        output = slim.fully_connected(fc2, self.action_dim, activation_fn=tf.nn.softmax, scope=self.scope+'/output', reuse=self.reuse)
+
+        self.reuse = True
+        return output
+
+    def act(self, sess, states):
+        action_probs = sess.run(self.actions, feed_dict={self.states:np.atleast_2d(states)})[0]
+        action = np.random.multinomial(1, action_probs)
+        return np.argmax(action)
+
+    def train(self, sess):
+        states, actions, next_states, rewards, dones = zip(*self.experience)
+        states = np.stack(states, axis=0)
+        actions = np.array(actions)
+        next_states = np.stack(next_states, axis=0)
+        rewards = np.array(rewards)
+
+        G = np.copy(rewards)
+        for i in reversed(range(len(G) - 1)):
+            G[i] += self.discount_factor * G[i + 1]
+
+        assert len(states) == len(actions)
+        assert len(states) == len(G)
+        for _ in range(42):
+            idx = np.random.randint(len(states), size=24)
+            _, loss = sess.run([self.opt, self.loss], feed_dict={self.states:states[idx], self.actions_pl:actions[idx], self.G:G[..., np.newaxis][idx]})
+            #print 'loss:', loss
+
+        self.experience = []
 
 class gaussain_policy_network:
     def __init__(self, state_dim, action_dim, action_space_low, action_space_high, discount_factor):
@@ -26,7 +89,6 @@ class gaussain_policy_network:
         self.experience = []#Buffer to hold episode tuples.
 
         self.states = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float64)
-
  
         self.mu, self.sigma = self.build(self.states)
 
@@ -104,7 +166,7 @@ class gaussain_policy_network:
 
         self.experience = []
 
-def main2():
+def main():
     env = gym.make('Pendulum-v0')
     #env = gym.make('MountainCarContinuous-v0')
     #env = gym.make('LunarLanderContinuous-v2')
@@ -119,7 +181,7 @@ def main2():
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        for epoch in range(300):
+        for epoch in range(1000):
             total_rewards = 0.
             state = env.reset()
 
@@ -135,7 +197,32 @@ def main2():
                     print 'epoch:', epoch, 'total_rewards:', total_rewards
                     agent.train(sess)
                     break
+def main2():
+    env = gym.make('CartPole-v0')
+    #env = gym.make('MountainCar-v0')
+
+    agent = gaussain_policy_network_discrete_action(env.observation_space.shape[0], env.action_space.n, .99)
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        for epoch in range(2*1000):
+            total_rewards = 0.
+            state = env.reset()
+
+            while True:
+                #env.render()
+                action = agent.act(sess, state)
+                next_state, reward, done, _ = env.step(action)
+                total_rewards += float(reward)
+                agent.experience.append([state, action, next_state, reward, done])
+                state = np.copy(next_state)
+
+                if done == True:
+                    print 'epoch:', epoch, 'total_rewards:', total_rewards
+                    agent.train(sess)
+                    break
+
 if __name__ == '__main__':
-    #main()
-    main2()
+    main()
+    #main2()
 
