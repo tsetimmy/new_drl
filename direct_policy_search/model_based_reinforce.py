@@ -30,13 +30,10 @@ class model_based_reinforce:
         self.G = tf.placeholder(shape=[None, 1], dtype=tf.float64)
         self.pi = ((2*np.pi)**-.5)*tf.div(tf.exp(-.5 * tf.div(tf.square(self.actions_pl - self.mu), tf.square(self.sigma_tiled))), self.sigma_tiled)
         self.log_pi = tf.log(tf.maximum(self.pi, 1e-7))
-        print self.log_pi.shape
-        print self.log_pi
-        exit()
+        self.J = tf.multiply(-self.G, tf.reduce_sum(self.log_pi, axis=-1, keepdims=True))
 
-
-
-
+        self.loss = tf.reduce_mean(tf.reduce_sum(self.J, axis=-1))
+        self.opt = tf.train.AdamOptimizer().minimize(self.loss)
 
     def train(self, sess, batch, no_samples, unroll_steps):
         states, actions, rewards, _, _ = zip(*batch)
@@ -48,8 +45,8 @@ class model_based_reinforce:
         return np.array([0.])
 
 def main():
-    #env = gym.make('Pendulum-v0')
-    env = gym.make('LunarLanderContinuous-v2')
+    env = gym.make('Pendulum-v0')
+    #env = gym.make('LunarLanderContinuous-v2')
     no_samples = 20
     unroll_steps = 200
     batch_size = 10
