@@ -12,7 +12,7 @@ import uuid
 
 iterations = 0
 
-class nelder_mead_experiment:
+class gradient_free_experiment:
     def __init__(self):
 
         #self.X = np.linspace(-2., 2., self.batch_size)
@@ -106,20 +106,20 @@ class nelder_mead_experiment:
         return action[0]
 
 def main():
-    nme = nelder_mead_experiment()
-    nme.fit()
+    gfe = gradient_free_experiment()
+    gfe.fit()
 
 def main2():
     import gym
     import pickle
     env = gym.make('MountainCarContinuous-v0')
 
-    nme = nelder_mead_experiment()
+    gfe = gradient_free_experiment()
 
     weights = pickle.load(open('weights_eaa034c0-4bb1-425a-82c0-0470a41944b2.p', 'rb'))
-    nme.h1 = np.copy(weights[:3*32].reshape([3, 32]))
-    nme.h2 = np.copy(weights[3*32:3*32+32*32].reshape([32, 32]))
-    nme.o = np.copy(weights[3*32+32*32:3*32+32*32+32].reshape([32, 1]))
+    gfe.h1 = np.copy(weights[:3*32].reshape([3, 32]))
+    gfe.h2 = np.copy(weights[3*32:3*32+32*32].reshape([32, 32]))
+    gfe.o = np.copy(weights[3*32+32*32:3*32+32*32+32].reshape([32, 1]))
 
     for epoch in range(1000):
         state = env.reset()
@@ -127,7 +127,7 @@ def main2():
         total_rewards = 0.
         while True:
             #env.render()
-            action = nme.act(state)
+            action = gfe.act(state)
             next_state, reward, done, _ = env.step(action)
             total_rewards += float(reward)
 
