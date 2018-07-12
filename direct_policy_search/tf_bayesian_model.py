@@ -28,7 +28,7 @@ def squared_exponential_kernel(a, b, signal_sd, length_scale):
     sqdist = tf.reduce_sum(tf.square(a), axis=-1, keep_dims=True) +\
              -2. * tf.matmul(a, tf.transpose(b)) +\
              tf.transpose(tf.reduce_sum(tf.square(b), axis=-1, keep_dims=True))
-    kernel = tf.square(signal_sd) * tf.exp(-.5 * (1. / tf.square(length_scale)) * sqdist)
+    kernel = tf.square(tf.exp(signal_sd)) * tf.exp(-.5 * (1. / tf.square(tf.exp(length_scale))) * sqdist)
     return kernel
 
 class hyperparameter_search:
@@ -47,15 +47,15 @@ class hyperparameter_search:
 
         # Variables.
         self.length_scale = tf.get_variable(name='length_scale'+self.uuid, shape=[], dtype=tf.float64,
-                                            initializer=tf.constant_initializer(.25))#.25
+                                            initializer=tf.constant_initializer(np.log(.25)))#.25
         self.signal_sd = tf.get_variable(name='signal_sd'+self.uuid, shape=[], dtype=tf.float64,
-                                               initializer=tf.constant_initializer(1.))#1.
+                                               initializer=tf.constant_initializer(np.log(1.)))#1.
         self.noise_sd = tf.get_variable(name='noise_sd'+self.uuid, shape=[], dtype=tf.float64,
-                                              initializer=tf.constant_initializer(.2))#.2
+                                              initializer=tf.constant_initializer(np.log(.2)))#.2
 
         # Get predictive distribution and log marginal likelihood (Algorithm 2.1 in the GP book).
         L = tf.cholesky(squared_exponential_kernel(self.X, self.X, self.signal_sd, self.length_scale) +\
-                        tf.multiply(tf.square(self.noise_sd), tf.eye(self.n, dtype=tf.float64)))
+                        tf.multiply(tf.square(tf.exp(self.noise_sd)), tf.eye(self.n, dtype=tf.float64)))
         alpha = tf.linalg.solve(tf.transpose(L), tf.linalg.solve(L, self.y))
         self.log_marginal_likelihood = -.5 * tf.matmul(tf.transpose(self.y), alpha)[0, 0] +\
                                        -.5 * tf.reduce_sum(tf.log(tf.diag_part(L))) +\
@@ -100,9 +100,9 @@ class bayesian_model:
 
         self.no_basis = no_basis
 
-        self.length_scale_np = np.abs(length_scale)
-        self.signal_sd_np = np.abs(signal_sd)
-        self.noise_sd_np = noise_sd
+        self.length_scale_np = np.exp(length_scale)
+        self.signal_sd_np = np.exp(signal_sd)
+        self.noise_sd_np = np.exp(noise_sd)
 
         # Assertions.
         #assert self.length_scale_np > 0.
@@ -115,7 +115,7 @@ class bayesian_model:
         self.uuid = str(uuid.uuid4())
 
         # Prior noise
-        self.s = 7.
+        self.s = 5.
 
         # Values to keep track
         self.cum_xx = np.zeros([self.no_basis, self.no_basis])
@@ -233,7 +233,7 @@ def plotting_experiment():
     env = gym.make('Pendulum-v0')
 
     epochs = 3
-    train_size = (epochs - 1) * 200
+    train_size = (epochs - 1) * env._max_episode_steps
     policy = []
 
     data = []
@@ -274,7 +274,7 @@ def plotting_experiment():
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         batch_size = 32
-        iterations = 50000
+        iterations = 5000
         idxs = [np.random.randint(len(x_train), size=batch_size) for _ in range(iterations)]
         for i in range(len(hs)):
             hs[i].train_hyperparameters(sess, x_train, y_train[:, i], iterations, batch_size)
@@ -284,7 +284,7 @@ def plotting_experiment():
         pickle.dump(hyperparameters, open('hyperparameters_'+uid+'.p', 'wb'))
 
     # Prepare the models
-    models = [bayesian_model(4, np.array([-1., -1., -8.]), np.array([1., 1., 8.]), np.array([-2.]), np.array([2.]), 256, *hyperparameters[i])
+    models = [bayesian_model(env.observation_space.shape[0]+env.action_space.shape[0], env.observation_space.low, env.observation_space.high, env.action_space.low, env.action_space.high, 64, *hyperparameters[i])
               for i in range(env.observation_space.shape[0])]
     states_actions_placeholder = tf.placeholder(shape=[None, env.observation_space.shape[0]+env.action_space.shape[0]], dtype=tf.float64)
     ppd = tf.stack([tf.concat(e, axis=-1) for e in [model.posterior_predictive_distribution(states_actions_placeholder, None) for model in models]], axis=0)
@@ -315,8 +315,8 @@ def plotting_experiment():
 
         plt.figure(1)
         plt.clf()
-        for i in range(3):
-            plt.subplot(2, 3, i+1)
+        for i in range(env.observation_space.shape[0]):
+            plt.subplot(2, env.observation_space.shape[0], i+1)
             plt.grid()
             plt.plot(np.arange(len(y_test)), y_test[:, i])
             plt.errorbar(np.arange(len(means)), means[:, i], yerr=sds[:, i], color='m', ecolor='g')
@@ -324,7 +324,7 @@ def plotting_experiment():
         # ----- Second plotting experiment. -----
         no_lines = 50
         policy = actions[-200:, ...]
-        seed_state = x_test[0, :3]
+        seed_state = x_test[0, :env.observation_space.shape[0]]
 
         feed_dict = {}
         for model in models:
@@ -352,13 +352,13 @@ def plotting_experiment():
                 states.append(np.copy(state))
             states = np.stack(states, axis=0)
 
-            for i in range(3):
-                plt.subplot(2, 3, 3+i+1)
+            for i in range(env.observation_space.shape[0]):
+                plt.subplot(2, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
                 plt.plot(np.arange(len(states[:, i])), states[:, i], color='r')
 
         y_test = np.concatenate([seed_state[np.newaxis, ...], y_test], axis=0)
-        for i in range(3):
-            plt.subplot(2, 3, 3+i+1)
+        for i in range(env.observation_space.shape[0]):
+            plt.subplot(2, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
             plt.plot(np.arange(len(y_test)), y_test[:, i])
             plt.grid()
 
