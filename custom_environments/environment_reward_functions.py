@@ -74,7 +74,7 @@ class mountain_car_continuous_reward_function:
         force = tf.expand_dims(tf.clip_by_value(action[:, 0], -1., 1.), axis=-1)
         new_position = tf.clip_by_value(position + tf.clip_by_value(velocity + force * self.power_tf - .0025 * tf.cos(3. * position), -self.max_speed_tf, self.max_speed_tf), self.min_position_tf, self.max_position_tf)
 
-        a = 19.
+        a = 23.
         rewards = 100. / (1. + tf.exp(-a * (new_position - self.goal_position_tf + np.log(99.) / a))) - tf.square(action[:, 0:1]) / 10.
         return rewards
 

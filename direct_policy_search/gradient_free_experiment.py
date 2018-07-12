@@ -22,7 +22,7 @@ class gradient_free_experiment:
         self.state_dim = 3
         self.action_dim = 1
 
-        self.load = True
+        self.load = False
 
         if self.load == True:
             weights = pickle.load(open('weights_effbf081-2f52-457d-b261-6bbb262b4deb.p', 'rb'))
@@ -61,7 +61,7 @@ class gradient_free_experiment:
         return out
 
     def add_bias(self, state):
-        ones = np.ones([self.batch_size, 1])
+        ones = np.ones([len(state), 1])
         return np.concatenate([state, ones], axis=-1)
 
     def loss(self, thetas):
@@ -138,5 +138,5 @@ def main2():
                 break
 
 if __name__ == '__main__':
-    #main()
-    main2()
+    main()
+    #main2()
