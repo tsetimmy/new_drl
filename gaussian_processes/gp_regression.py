@@ -46,9 +46,9 @@ class gp_model:
 
         self.outputs = [[model.mu, model.var] for model in self.models]
 
-        self.states = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float64)
-        self.actions = self.build_policy(self.states)
-        self.unroll(self.states)
+        #self.states = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float64)
+        #self.actions = self.build_policy(self.states)
+        #self.unroll(self.states)
 
     def train(self, sess, memory):
         feed_dict = {}
@@ -224,10 +224,17 @@ class gp_model:
         return policy
 
 def plotting_experiment():
-    env = gym.make('Pendulum-v0')
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--environment", type=str, default='Pendulum-v0')
+    args = parser.parse_args()
 
-    gpm = gp_model(x_dim=4,
-                   y_dim=3,
+    print args
+
+    env = gym.make(args.environment)
+
+    gpm = gp_model(x_dim=env.observation_space.shape[0]+env.action_space.shape[0],
+                   y_dim=env.observation_space.shape[0],
                    state_dim=env.observation_space.shape[0],
                    action_dim=env.action_space.shape[0],
                    observation_space_low=env.observation_space.low,
@@ -241,7 +248,7 @@ def plotting_experiment():
                    train_policy_iterations=2)#Not used
 
     epochs = 3
-    train_size = (epochs - 1) * 200
+    train_size = (epochs - 1) * env._max_episode_steps
     policy = []
 
     data = []
@@ -277,8 +284,8 @@ def plotting_experiment():
         # ----- First plotting experiment. -----
         plt.figure(1)
         plt.clf()
-        for i in range(3):
-            plt.subplot(2, 3, i+1)
+        for i in range(env.observation_space.shape[0]):
+            plt.subplot(2, env.observation_space.shape[0], i+1)
             plt.grid()
             plt.plot(np.arange(len(y_test)), y_test[:, i])
             plt.errorbar(np.arange(len(means)), means[:, i], yerr=sds[:, i], color='m', ecolor='g')
@@ -287,29 +294,31 @@ def plotting_experiment():
         #plt.figure(2)
         #plt.clf()
         no_lines = 50
-        policy = actions[-200:, ...]
-        seed_state = x_test[0, :3]
+        policy = actions[-env._max_episode_steps:, ...]
+        seed_state = x_test[0, :env.observation_space.shape[0]]
 
-        for line in range(no_lines):
-            print 'At line:', line
-            states = []
-            state = np.copy(seed_state)
-            states.append(np.copy(state))
-            for action in policy:
-                state_action = np.concatenate([state, action], axis=0)[np.newaxis, ...]
-                means, sds = gpm.predict(sess, state_action)
-                means = np.squeeze(means, axis=0)
-                sds = np.squeeze(sds, axis=0)
-                state = np.random.multivariate_normal(means, (sds**2)*np.eye(len(sds)))
-                states.append(np.copy(state))
-            states = np.stack(states, axis=0)
+        traj = []
+        state = np.tile(seed_state[np.newaxis, ...], [no_lines, 1])
+        traj.append(state)
+        for action in policy:
+            action_tiled = np.tile(action[np.newaxis, ...], [no_lines, 1])
+            state_action = np.concatenate([state, action_tiled], axis=-1)
+            means, sds = gpm.predict(sess, state_action)
 
-            for i in range(3):
-                plt.subplot(2, 3, 3+i+1)
-                plt.plot(np.arange(len(states[:, i])), states[:, i], color='r')
+            state = np.stack([np.random.multivariate_normal(mean, (sd**2)*np.eye(len(sd)))
+                              for mean, sd in zip(means, sds)], axis=0)
+            traj.append(state)
+        traj = np.stack(traj, axis=-1)
 
-        for i in range(3):
-            plt.subplot(2, 3, 3+i+1)
+        for i in range(env.observation_space.shape[0]):
+            plt.subplot(2, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
+            for j in range(no_lines):
+                y = traj[j, i, :]
+                plt.plot(np.arange(len(y)), y, color='r')
+
+        y_test = np.concatenate([seed_state[np.newaxis, ...], y_test], axis=0)
+        for i in range(env.observation_space.shape[0]):
+            plt.subplot(2, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
             plt.plot(np.arange(len(y_test)), y_test[:, i])
             plt.grid()
         plt.show()
@@ -318,6 +327,7 @@ def policy_gradient_experiment():
     import argparse
     from utils import Memory
     parser = argparse.ArgumentParser()
+    parser.add_argument("--environment", type=str, default='Pendulum-v0')
     parser.add_argument("--unroll-steps", type=int, default=25)
     parser.add_argument("--no-samples", type=int, default=20)
     parser.add_argument("--discount-factor", type=float, default=.9)
@@ -329,7 +339,7 @@ def policy_gradient_experiment():
     
     print args
 
-    env = gym.make('Pendulum-v0')
+    env = gym.make(args.environment)
 
     # Initialize the agent
     gpm = gp_model(x_dim=env.observation_space.shape[0]+env.action_space.shape[0],
