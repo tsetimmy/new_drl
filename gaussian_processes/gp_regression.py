@@ -227,6 +227,7 @@ def plotting_experiment():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", type=str, default='Pendulum-v0')
+    parser.add_argument("--train-hp-iterations", type=int, default=50000)
     args = parser.parse_args()
 
     print args
@@ -247,6 +248,7 @@ def plotting_experiment():
                    train_policy_batch_size=2,#Not used
                    train_policy_iterations=2)#Not used
 
+    '''
     epochs = 3
     train_size = (epochs - 1) * env._max_episode_steps
     policy = []
@@ -273,12 +275,61 @@ def plotting_experiment():
     y_train = next_states[:train_size, ...]
     x_test = states_actions[train_size:, ...]
     y_test = next_states[train_size:, ...]
+    '''
+
+    #-----#
+    epochs = 2
+    data = []
+    for epoch in range(epochs):
+        state = env.reset()
+        while True:
+            action = np.random.uniform(env.action_space.low, env.action_space.high, 1)
+            next_state, reward, done, _ = env.step(action)
+            data.append([state, action, next_state])
+            state = np.copy(next_state)
+            if done:
+                break
+
+    states, actions, next_states = [np.stack(e, axis=0) for e in zip(*data)]
+    states_actions = np.concatenate([states, actions], axis=-1)
+    x_train = np.copy(states_actions)
+    y_train = np.copy(next_states)
+
+    import sys
+    sys.path.append('..')
+    from custom_environments.environment_state_functions import mountain_car_continuous_state_function
+    from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
+
+    state_function = mountain_car_continuous_state_function()
+    reward_function = mountain_car_continuous_reward_function()
+
+    seed_state = np.concatenate([np.random.uniform(low=-.6, high=-.4, size=1), np.zeros(1)])[np.newaxis, ...]
+    while True:
+        states = []
+        state = np.copy(seed_state)
+        states.append(state)
+        policy = np.random.uniform(env.action_space.low, env.action_space.high, env._max_episode_steps)
+        found = False
+
+        for a in policy:
+            action = np.atleast_2d(a)
+            reward = reward_function.step_np(state, action)
+            state = state_function.step_np(state, action)
+            states.append(state)
+            if reward[0] > 50.: found = True
+
+        if found: break
+
+    states = np.concatenate(states, axis=0)
+    x_test = np.concatenate([states[:-1, ...], policy[..., np.newaxis]], axis=-1)
+    y_test = np.copy(states[1:, ...])
+    #-----#
 
     gpm.set_training_data(x_train, y_train)
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        gpm.train_hyperparameters(sess)
+        gpm.train_hyperparameters(sess, iterations=args.train_hp_iterations)
         means, sds = gpm.predict(sess, x_test)
 
         # ----- First plotting experiment. -----
@@ -300,7 +351,8 @@ def plotting_experiment():
         traj = []
         state = np.tile(seed_state[np.newaxis, ...], [no_lines, 1])
         traj.append(state)
-        for action in policy:
+        for action, it in zip(policy, range(len(policy))):
+            print it
             action_tiled = np.tile(action[np.newaxis, ...], [no_lines, 1])
             state_action = np.concatenate([state, action_tiled], axis=-1)
             means, sds = gpm.predict(sess, state_action)

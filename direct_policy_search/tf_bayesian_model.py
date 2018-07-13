@@ -274,7 +274,7 @@ def plotting_experiment():
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         batch_size = 32
-        iterations = 5000
+        iterations = 7000
         idxs = [np.random.randint(len(x_train), size=batch_size) for _ in range(iterations)]
         for i in range(len(hs)):
             hs[i].train_hyperparameters(sess, x_train, y_train[:, i], iterations, batch_size)
@@ -294,8 +294,8 @@ def plotting_experiment():
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        #chunks = len(x_train)
-        chunks = 10
+        chunks = len(x_train)
+        #chunks = 10
         for c in range(0, len(x_train), chunks):
             print 'chunk:', c
             for i in range(len(models)):
