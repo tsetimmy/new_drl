@@ -2,10 +2,15 @@ import numpy as np
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 
+import argparse
+import gym
+
 import sys
 sys.path.append('..')
 from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
 from custom_environments.environment_state_functions import mountain_car_continuous_state_function
+
+from prototype8.dmlac.real_env_pendulum import real_env_pendulum_state, real_env_pendulum_reward
 
 import pickle
 import uuid
@@ -13,22 +18,23 @@ import uuid
 iterations = 0
 
 class gradient_free_experiment:
-    def __init__(self):
+    def __init__(self, env, state_dim, action_dim):
 
         #self.X = np.linspace(-2., 2., self.batch_size)
         #self.y = np.sin(self.X) + 5e-5 * np.random.randn(self.batch_size)
 
         #self.Xin = np.concatenate([self.X[..., np.newaxis], np.ones([self.batch_size, 1])], axis=-1)
-        self.state_dim = 3
-        self.action_dim = 1
+        self.env = env
+        self.state_dim = state_dim
+        self.action_dim = action_dim
 
         self.load = False
 
         if self.load == True:
             weights = pickle.load(open('weights_effbf081-2f52-457d-b261-6bbb262b4deb.p', 'rb'))
-            self.h1 = np.copy(weights[:3*32].reshape([3, 32]))
-            self.h2 = np.copy(weights[3*32:3*32+32*32].reshape([32, 32]))
-            self.o = np.copy(weights[3*32+32*32:3*32+32*32+32].reshape([32, 1]))
+            self.h1 = np.copy(weights[:self.state_dim*32].reshape([self.state_dim, 32]))
+            self.h2 = np.copy(weights[self.state_dim*32:self.state_dim*32+32*32].reshape([32, 32]))
+            self.o = np.copy(weights[self.state_dim*32+32*32:self.state_dim*32+32*32+32].reshape([32, self.action_dim]))
         else:
             self.h1 = np.random.normal(size=[self.state_dim, 32])
             self.h2 = np.random.normal(size=[32, 32])
@@ -40,8 +46,12 @@ class gradient_free_experiment:
         self.batch_size = 3
         self.unroll_steps = 100*2
         self.discount_factor = .98
-        self.reward_function = mountain_car_continuous_reward_function(goal_position=.45)
-        self.state_function = mountain_car_continuous_state_function()
+        if self.env == 'MountainCarContinuous-v0':
+            self.reward_function = mountain_car_continuous_reward_function(goal_position=.45)
+            self.state_function = mountain_car_continuous_state_function()
+        elif self.env == 'Pendulum-v0':
+            self.reward_function = real_env_pendulum_reward()
+            self.state_function = real_env_pendulum_state()
         self.it = 0
 
     def unpack(self, thetas):
@@ -65,8 +75,13 @@ class gradient_free_experiment:
         return np.concatenate([state, ones], axis=-1)
 
     def loss(self, thetas):
-        state = np.stack([np.random.uniform(low=-0.6, high=-0.4, size=self.batch_size),
-                          np.zeros(self.batch_size)], axis=-1)
+        if self.env == 'MountainCarContinuous-v0':
+            state = np.stack([np.random.uniform(low=-0.6, high=-0.4, size=self.batch_size),
+                              np.zeros(self.batch_size)], axis=-1)
+        elif self.env == 'Pendulum-v0':
+            high = np.array([np.pi, 1])
+            state = np.random.uniform(low=-high, high=high, size=[self.batch_size, len(high)])
+            state = np.stack([np.cos(state[:, 0]), np.sin(state[:, 0]), state[:, 1]], axis=-1)
 
         rewards = []
         for unroll_steps in range(self.unroll_steps):
@@ -79,6 +94,7 @@ class gradient_free_experiment:
         rewards = np.stack(rewards, axis=-1)
         rewards = np.sum(rewards, axis=-1)
         loss = np.mean(-rewards)
+        print loss
         return loss
 
     def callback(self, thetas):
@@ -106,20 +122,28 @@ class gradient_free_experiment:
         return action[0]
 
 def main():
-    gfe = gradient_free_experiment()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--environment", type=str, default='MountainCarContinuous-v0')
+    args = parser.parse_args()
+    print args
+
+    env = gym.make(args.environment)
+    gfe = gradient_free_experiment(args.environment, env.observation_space.shape[0] + 1, env.action_space.shape[0])
     gfe.fit()
 
 def main2():
-    import gym
-    import pickle
-    env = gym.make('MountainCarContinuous-v0')
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--environment", type=str, default='MountainCarContinuous-v0')
+    args = parser.parse_args()
+    print args
 
-    gfe = gradient_free_experiment()
+    env = gym.make(args.environment)
+    gfe = gradient_free_experiment(args.environment, env.observation_space.shape[0] + 1, env.action_space.shape[0])
 
-    weights = pickle.load(open('weights_eaa034c0-4bb1-425a-82c0-0470a41944b2.p', 'rb'))
-    gfe.h1 = np.copy(weights[:3*32].reshape([3, 32]))
-    gfe.h2 = np.copy(weights[3*32:3*32+32*32].reshape([32, 32]))
-    gfe.o = np.copy(weights[3*32+32*32:3*32+32*32+32].reshape([32, 1]))
+    weights = pickle.load(open('weights_12fca2a8-6cc2-49d3-9564-1112c71e90b4.p', 'rb'))
+    gfe.h1 = np.copy(weights[:gfe.state_dim*32].reshape([gfe.state_dim, 32]))
+    gfe.h2 = np.copy(weights[gfe.state_dim*32:gfe.state_dim*32+32*32].reshape([32, 32]))
+    gfe.o = np.copy(weights[gfe.state_dim*32+32*32:gfe.state_dim*32+32*32+32].reshape([32, gfe.action_dim]))
 
     for epoch in range(1000):
         state = env.reset()

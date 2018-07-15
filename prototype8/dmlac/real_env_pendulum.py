@@ -42,6 +42,20 @@ class real_env_pendulum_state:
 
         return tf.stack([newcosth, newsinth, newthdot], axis=-1)
 
+    def build_np(self, states, actions):
+        assert len(states.shape) == 2 and states.shape[-1] == self.input_shape[-1]
+        assert len(actions.shape) == 2 and actions.shape[-1] == self.action_shape[-1]
+
+        newthdot = states[:, -1] + (15. * states[:, 1] + 3. * actions[:, 0]) / 20.
+        newcosth = np.clip(states[:, 0] * np.cos(newthdot / 20.) - states[:, 1] * np.sin(newthdot / 20.), -1.+1e-6, 1.-1e-6)
+        newsinth = np.clip(states[:, 1] * np.cos(newthdot / 20.) + states[:, 0] * np.sin(newthdot / 20.), -1.+1e-6, 1.-1e-6)
+        newthdot = np.clip(newthdot, -8., 8.)
+
+        return np.stack([newcosth, newsinth, newthdot], axis=-1)
+
+    def step_np(self, states, actions):
+        return self.build_np(states, actions)
+
 class real_env_pendulum_reward:
     def __init__(self, input_shape=[None, 3], action_shape=[None, 1]):
         self.input_shape = input_shape
@@ -80,6 +94,8 @@ class real_env_pendulum_reward:
         rewards = -(np.square(th) + .1*np.square(states[:, -1]) + .001*np.square(actions[:, 0]))
         return np.expand_dims(rewards, axis=-1)
 
+    def step_np(self, states, actions):
+        return self.build_np(states, actions)
 
 def main():
     u = np.linspace(-2., 2., 10)
