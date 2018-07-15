@@ -76,7 +76,7 @@ class gp_model:
         options = {'maxiter': 1, 'disp': True}
         _res = minimize(self._loss, self.thetas, method='powell', args=(X), options=options)
         assert self.thetas.shape == _res.x.shape
-        self.thetas = np.copy(_res.x.shape)
+        self.thetas = np.copy(_res.x)
 
     def _loss(self, thetas, X):
         assert len(X.shape) == 2
