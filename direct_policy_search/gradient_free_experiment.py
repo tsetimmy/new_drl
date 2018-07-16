@@ -18,27 +18,24 @@ import uuid
 iterations = 0
 
 class gradient_free_experiment:
-    def __init__(self, env, state_dim, action_dim):
+    def __init__(self, env, state_dim, action_dim, action_space_high, action_space_low):
 
         #self.X = np.linspace(-2., 2., self.batch_size)
         #self.y = np.sin(self.X) + 5e-5 * np.random.randn(self.batch_size)
 
         #self.Xin = np.concatenate([self.X[..., np.newaxis], np.ones([self.batch_size, 1])], axis=-1)
+        assert len(action_space_low.shape) == 1
+        np.testing.assert_equal(-action_space_low, action_space_high)
+
+        self.action_space_high = action_space_high
         self.env = env
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.hidden_dim = 32
 
-        self.load = False
-
-        if self.load == True:
-            weights = pickle.load(open('weights_effbf081-2f52-457d-b261-6bbb262b4deb.p', 'rb'))
-            self.h1 = np.copy(weights[:self.state_dim*32].reshape([self.state_dim, 32]))
-            self.h2 = np.copy(weights[self.state_dim*32:self.state_dim*32+32*32].reshape([32, 32]))
-            self.o = np.copy(weights[self.state_dim*32+32*32:self.state_dim*32+32*32+32].reshape([32, self.action_dim]))
-        else:
-            self.h1 = np.random.normal(size=[self.state_dim, 32])
-            self.h2 = np.random.normal(size=[32, 32])
-            self.o = np.random.normal(size=[32, self.action_dim])
+        self.h1 = np.random.normal(size=[self.state_dim, self.hidden_dim])
+        self.h2 = np.concatenate([np.random.normal(size=[self.hidden_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
+        self.o = np.concatenate([np.random.normal(size=[self.hidden_dim, self.action_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.action_dim])], axis=0)
 
         self.thetas = np.concatenate([self.h1.flatten(), self.h2.flatten(), self.o.flatten()])
 
@@ -55,9 +52,12 @@ class gradient_free_experiment:
         self.it = 0
 
     def unpack(self, thetas):
-        h1 = thetas[:self.state_dim*32].reshape([self.state_dim, 32])
-        h2 = thetas[self.state_dim*32:self.state_dim*32+32*32].reshape([32, 32])
-        h3 = thetas[self.state_dim*32+32*32:self.state_dim*32+32*32+32].reshape([32, self.action_dim])
+        offset = 0
+        h1 = thetas[:self.state_dim*self.hidden_dim].reshape([self.state_dim, self.hidden_dim])
+        offset += self.state_dim*self.hidden_dim
+        h2 = thetas[offset:offset+(self.hidden_dim+1)*self.hidden_dim].reshape([self.hidden_dim+1, self.hidden_dim])
+        offset += (self.hidden_dim+1)*self.hidden_dim
+        h3 = thetas[offset:offset+(self.hidden_dim+1)*self.action_dim].reshape([self.hidden_dim+1, self.action_dim])
 
         return [h1, h2, h3]
 
@@ -65,9 +65,10 @@ class gradient_free_experiment:
         return np.maximum(x, 0.)
 
     def forward(self, X, h1, h2, o):
-        layer1 = self.relu(np.matmul(X, h1))
-        layer2 = self.relu(np.matmul(layer1, h2))
-        out = np.tanh(np.matmul(layer2, o))
+        layer1 = self.relu(np.matmul(self.add_bias(X), h1))
+        layer2 = self.relu(np.matmul(self.add_bias(layer1), h2))
+        out = np.tanh(np.matmul(self.add_bias(layer2), o))
+        out = out * self.action_space_high#action bounds.
         return out
 
     def add_bias(self, state):
@@ -79,13 +80,18 @@ class gradient_free_experiment:
             state = np.stack([np.random.uniform(low=-0.6, high=-0.4, size=self.batch_size),
                               np.zeros(self.batch_size)], axis=-1)
         elif self.env == 'Pendulum-v0':
-            high = np.array([np.pi, 1])
-            state = np.random.uniform(low=-high, high=high, size=[self.batch_size, len(high)])
-            state = np.stack([np.cos(state[:, 0]), np.sin(state[:, 0]), state[:, 1]], axis=-1)
+            try:
+                state = np.copy(self.state)
+            except:
+                high = np.array([np.pi, 1])
+                state = np.random.uniform(low=-high, high=high, size=[self.batch_size, len(high)])
+                state = np.stack([np.cos(state[:, 0]), np.sin(state[:, 0]), state[:, 1]], axis=-1)
+
+                self.state = np.copy(state)
 
         rewards = []
         for unroll_steps in range(self.unroll_steps):
-            action = self.forward(self.add_bias(state), *self.unpack(thetas))
+            action = self.forward(state, *self.unpack(thetas))
             reward = self.reward_function.step_np(state, action)
             rewards.append((self.discount_factor**unroll_steps)*reward)
             state = self.state_function.step_np(state, action)
@@ -128,7 +134,7 @@ def main():
     print args
 
     env = gym.make(args.environment)
-    gfe = gradient_free_experiment(args.environment, env.observation_space.shape[0] + 1, env.action_space.shape[0])
+    gfe = gradient_free_experiment(args.environment, env.observation_space.shape[0] + 1, env.action_space.shape[0], env.action_space.low, env.action_space.high)
     gfe.fit()
 
 def main2():
@@ -138,12 +144,24 @@ def main2():
     print args
 
     env = gym.make(args.environment)
-    gfe = gradient_free_experiment(args.environment, env.observation_space.shape[0] + 1, env.action_space.shape[0])
+    gfe = gradient_free_experiment(args.environment, env.observation_space.shape[0] + 1, env.action_space.shape[0], env.action_space.low, env.action_space.high)
 
     weights = pickle.load(open('weights_12fca2a8-6cc2-49d3-9564-1112c71e90b4.p', 'rb'))
+
+    offset = 0
+    gfe.h1 = np.copy(weights[:gfe.state_dim*gfe.hidden_dim].reshape([gfe.state_dim, gfe.hidden_dim]))
+
+    offset += gfe.state_dim*gfe.hidden_dim
+    gfe.h2 = np.copy(weights[offset:offset+(gfe.hidden_dim+1)*gfe.hidden_dim].reshape([gfe.hidden_dim+1, gfe.hidden_dim]))
+
+    offset += (gfe.hidden_dim+1)*gfe.hidden_dim
+    gfe.o = np.copy(weights[offset:offset+(gfe.hidden_dim+1)*gfe.action_dim].reshape([gfe.hidden_dim+1, gfe.action_dim]))
+
+    '''
     gfe.h1 = np.copy(weights[:gfe.state_dim*32].reshape([gfe.state_dim, 32]))
     gfe.h2 = np.copy(weights[gfe.state_dim*32:gfe.state_dim*32+32*32].reshape([32, 32]))
     gfe.o = np.copy(weights[gfe.state_dim*32+32*32:gfe.state_dim*32+32*32+32].reshape([32, gfe.action_dim]))
+    '''
 
     for epoch in range(1000):
         state = env.reset()
