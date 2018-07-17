@@ -40,9 +40,9 @@ class gradient_free_experiment:
         self.thetas = np.concatenate([self.h1.flatten(), self.h2.flatten(), self.o.flatten()])
 
         self.uuid = str(uuid.uuid4())
-        self.batch_size = 3
+        self.batch_size = 20
         self.unroll_steps = 100*2
-        self.discount_factor = .98
+        self.discount_factor = .999
         if self.env == 'MountainCarContinuous-v0':
             self.reward_function = mountain_car_continuous_reward_function(goal_position=.45)
             self.state_function = mountain_car_continuous_state_function()
@@ -77,8 +77,12 @@ class gradient_free_experiment:
 
     def loss(self, thetas):
         if self.env == 'MountainCarContinuous-v0':
-            state = np.stack([np.random.uniform(low=-0.6, high=-0.4, size=self.batch_size),
-                              np.zeros(self.batch_size)], axis=-1)
+            try:
+                self.state = np.copy(state)
+            except:
+                state = np.stack([np.random.uniform(low=-0.6, high=-0.4, size=self.batch_size),
+                                  np.zeros(self.batch_size)], axis=-1)
+                self.state = np.copy(state)
         elif self.env == 'Pendulum-v0':
             try:
                 state = np.copy(self.state)
@@ -123,8 +127,7 @@ class gradient_free_experiment:
         '''
 
     def act(self, state):
-        state = np.concatenate([np.atleast_2d(state), np.ones([1, 1])], axis=-1)
-        action = self.forward(state, self.h1, self.h2, self.o)
+        action = self.forward(state[np.newaxis, ...], self.h1, self.h2, self.o)
         return action[0]
 
 def main():
@@ -146,7 +149,7 @@ def main2():
     env = gym.make(args.environment)
     gfe = gradient_free_experiment(args.environment, env.observation_space.shape[0] + 1, env.action_space.shape[0], env.action_space.low, env.action_space.high)
 
-    weights = pickle.load(open('weights_12fca2a8-6cc2-49d3-9564-1112c71e90b4.p', 'rb'))
+    weights = pickle.load(open('weights_e176b1c6-7f36-4eaf-b5c4-ef87cea93704.p', 'rb'))
 
     offset = 0
     gfe.h1 = np.copy(weights[:gfe.state_dim*gfe.hidden_dim].reshape([gfe.state_dim, gfe.hidden_dim]))
@@ -168,7 +171,7 @@ def main2():
         #print state
         total_rewards = 0.
         while True:
-            #env.render()
+            env.render()
             action = gfe.act(state)
             next_state, reward, done, _ = env.step(action)
             total_rewards += float(reward)
@@ -180,5 +183,5 @@ def main2():
                 break
 
 if __name__ == '__main__':
-    main()
-    #main2()
+    #main()
+    main2()

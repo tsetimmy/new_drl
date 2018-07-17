@@ -81,6 +81,7 @@ class gp_model:
     def _loss(self, thetas, X):
         assert len(X.shape) == 2
         assert X.shape[-1] == self.state_dim
+        #np.random.seed(0)
         X = np.copy(X)
 
         X = np.expand_dims(X, axis=1)
@@ -250,7 +251,9 @@ def main():
 
     # Try fitting the model.
     init_states = np.stack([env.reset() for _ in range(args.train_policy_batch_size)], axis=0)
+    #rng_state = np.random.get_state()
     gpm._fit(init_states)
+    #np.random.set_state(rng_state)
 
     # Test the model on the environment.
     for _ in range(10):
