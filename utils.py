@@ -356,3 +356,24 @@ def str2list(string):
         l[i] = int(l[i])
 
     return l
+
+class RandomFourierFeatureMapper:
+    def __init__(self, input_dim, output_dim, stddev=1.0, seed=1):
+        self._input_dim = input_dim
+        self._output_dim = output_dim
+        self._stddev = stddev
+        self._seed = seed
+
+    def map(self, input_tensor):
+        assert len(input_tensor.shape) == 2
+        assert input_tensor.shape[-1] == self._input_dim
+
+        np.random.seed(self._seed)
+        omega_matrix_shape = [self._input_dim, self._output_dim]
+        bias_shape = [self._output_dim]
+
+        omega_matrix = np.random.normal(scale=1.0 / self._stddev, size=omega_matrix_shape)
+        bias = np.random.uniform(low=0.0, high = 2. * np.pi, size=bias_shape)
+
+        x_omega_plus_bias = np.matmul(input_tensor, omega_matrix) + bias
+        return np.sqrt(2.0 / self._output_dim) * np.cos(x_omega_plus_bias)

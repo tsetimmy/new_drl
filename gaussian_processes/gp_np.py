@@ -22,7 +22,7 @@ class gaussian_process:
 
     def predict(self, x_test):
         K = self.squared_exponential_kernel(self.x_train, self.x_train)
-        L = np.linalg.cholesky(K + (self.noise_sd**2)*np.eye(len(K)))
+        L = np.linalg.cholesky(K + np.square(self.noise_sd)*np.eye(len(K)))
         v = np.linalg.solve(L, self.squared_exponential_kernel(self.x_train, x_test))
 
         mu = np.matmul(v.T, np.linalg.solve(L, self.y_train))

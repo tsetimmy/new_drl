@@ -2,7 +2,8 @@ import numpy as np
 from scipy.optimize import minimize
 import tensorflow as tf
 from gp_np import gaussian_process
-from gp_regression import gp_model as gp_model_tf
+#from gp_regression import gp_model as gp_model_tf
+from hyperparameter_optimizer import *
 
 import sys
 sys.path.append('..')
@@ -189,6 +190,7 @@ def main():
     states, actions, next_states = gather_data(env, args.gather_data_epochs)
     states_actions = np.concatenate([states, actions], axis=-1)
 
+    '''
     # Train hyperparameters.
     gpm_tf = gp_model_tf (x_dim=env.observation_space.shape[0]+env.action_space.shape[0],
                           y_dim=env.observation_space.shape[0],
@@ -209,6 +211,15 @@ def main():
         gpm_tf.train_hyperparameters(sess, iterations=args.train_hp_iterations)
         hyperparameters = [sess.run([model.length_scale, model.signal_sd, model.noise_sd]) for model in gpm_tf.models]
     del gpm_tf
+    '''
+
+    hyperparameters = []
+    for i in range(env.observation_space.shape[0]):
+        theta0 = np.array([.316, 1., 1.])
+        options = {'maxiter': 2000, 'disp': True}
+        _res = minimize(log_marginal_likelihood, theta0, method='nelder-mead', args=(states_actions, next_states[:, i:i+1]), options=options)
+        hyperparameters.append(_res.x)
+    print hyperparameters
 
     # Initialize the model.
     gpm = gp_model(x_dim=env.observation_space.shape[0]+env.action_space.shape[0],
@@ -226,8 +237,19 @@ def main():
 
     # Quick plotting experiment (for sanity check).
     import matplotlib.pyplot as plt
-    no_lines = 50
+
     states, actions, next_states = gather_data(env, 1)
+    mu, sigma = gpm.predict(states, actions)
+
+    #---#
+    for i in range(env.observation_space.shape[0]):
+        plt.subplot(2, env.observation_space.shape[0], i+1)
+        plt.grid()
+        plt.plot(np.arange(len(next_states)), next_states[:, i])
+        plt.errorbar(np.arange(len(mu)), mu[:, i], yerr=np.sqrt(sigma[:, i]), color='m', ecolor='g')
+
+    #---#
+    no_lines = 50
 
     seed_state = np.copy(states[0:1, ...])
     seed_state = np.tile(seed_state, [no_lines, 1])
@@ -242,12 +264,13 @@ def main():
     states = np.stack(states, axis=-1)
 
     for i in range(env.observation_space.shape[0]):
-        plt.subplot(1, env.observation_space.shape[0], i+1)
+        plt.subplot(2, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
         for j in range(no_lines):
             plt.plot(np.arange(len(states[j, i, :])), states[j, i, :], color='r')
         plt.plot(np.arange(len(next_states[:, i])), next_states[:, i])
         plt.grid()
     plt.show()
+    exit()
 
     # Try fitting the model.
     init_states = np.stack([env.reset() for _ in range(args.train_policy_batch_size)], axis=0)
