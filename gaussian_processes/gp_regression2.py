@@ -238,7 +238,44 @@ def main():
     # Quick plotting experiment (for sanity check).
     import matplotlib.pyplot as plt
 
-    states, actions, next_states = gather_data(env, 1)
+    if args.environment == 'Pendulum-v0':
+        states, actions, next_states = gather_data(env, 1)
+    elif args.environment == 'MountainCarContinuous-v0':
+        import sys
+        sys.path.append('..')
+        from custom_environments.environment_state_functions import mountain_car_continuous_state_function
+        from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
+
+        state_function = mountain_car_continuous_state_function()
+        reward_function = mountain_car_continuous_reward_function()
+
+        seed_state = np.concatenate([np.random.uniform(low=-.6, high=-.4, size=1), np.zeros(1)])[np.newaxis, ...]
+        i = 0
+        while True:
+            print 'Finding... iteration:', i
+            i += 1
+            states = []
+            next_states = []
+            state = np.copy(seed_state)
+            policy = np.random.uniform(env.action_space.low, env.action_space.high, env._max_episode_steps)
+            found = False
+
+            for a in policy:
+                states.append(np.copy(state))
+                action = np.atleast_2d(a)
+                reward = reward_function.step_np(state, action)
+                next_state = state_function.step_np(state, action)
+                next_states.append(np.copy(next_state))
+                state = np.copy(next_state)
+
+                if reward[0] > 50.: found = True
+
+            if found: break
+
+        states = np.concatenate(states, axis=0)
+        actions = np.copy(policy[..., np.newaxis])
+        next_states = np.concatenate(next_states, axis=0)
+
     mu, sigma = gpm.predict(states, actions)
 
     #---#
