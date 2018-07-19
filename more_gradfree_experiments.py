@@ -40,29 +40,39 @@ class RandomFourierFeatureMapper:
         np.random.set_state(rng_state)#Set rng state.
         return z
 
-def log_marginal_likelihood(thetas, rffm, X, y):
-    assert len(thetas) == 5
-    length_scale, signal_sd, noise_sd, prior_sd, output_dim = thetas
+def log_marginal_likelihood(thetas, rffm, X, y, output_dim, noise_sd_clip_threshold=None, predict=False, bases_flag=False):
+    assert len(thetas) == 4
+    length_scale, signal_sd, noise_sd, prior_sd = thetas
 
     try:
         bases = rffm.map(X, signal_sd=signal_sd, stddev=length_scale, output_dim=int(np.round(output_dim)))
+
+        if bases_flag:
+            return None, None, bases
+
+        if noise_sd_clip_threshold is None:
+            noise_sd_clipped = noise_sd
+        else:
+            noise_sd_clipped = np.maximum(noise_sd, noise_sd_clip_threshold)
 
         N = len(bases.T)
         XX = np.matmul(bases.T, bases)
         Xy = np.matmul(bases.T, y)
 
         V0 = prior_sd**2*np.eye(N)
-        tmp = np.linalg.inv(noise_sd**2*np.linalg.inv(V0) + XX)
-        Vn = noise_sd**2*tmp
+        tmp = np.linalg.inv(noise_sd_clipped**2*np.linalg.inv(V0) + XX)
+        Vn = noise_sd_clipped**2*tmp
         wn = np.matmul(tmp, Xy)
+
+        if predict:
+            return wn, Vn, bases
 
         s1, logdet1 = np.linalg.slogdet(V0)
         s2, logdet2 = np.linalg.slogdet(Vn)
         assert s1 == 1 and s2 == 1
 
-        lml = .5*(-N*np.log(noise_sd**2) - logdet1 + logdet2 - np.matmul(y.T, y)[0, 0]/noise_sd**2 + np.matmul(np.matmul(Xy.T, tmp.T), Xy)[0, 0]/noise_sd**2)
+        lml = .5*(-N*np.log(noise_sd_clipped**2) - logdet1 + logdet2 - np.matmul(y.T, y)[0, 0]/noise_sd_clipped**2 + np.matmul(np.matmul(Xy.T, tmp.T), Xy)[0, 0]/noise_sd_clipped**2)
         loss = -lml
-        print loss
         return loss
     except:
         return np.inf
@@ -76,17 +86,78 @@ def main():
 
     env = gym.make(args.environment)
 
-    states, actions, next_states = gather_data(env, 2)
+    states, actions, next_states = gather_data(env, 4)
     states_actions = np.concatenate([states, actions], axis=-1)
 
     output_dim = 64
+    noise_sd_clip_threshold = 5e-4
     rffm = RandomFourierFeatureMapper(states_actions.shape[-1], int(output_dim))
 
+    hyperparameters = []
     for i in range(env.observation_space.shape[0]):
-        thetas0 = np.array([.316, 1., 1., 1., output_dim])
+        thetas0 = np.array([1., 1., 1., 1.])
         options = {'maxiter': 2000, 'disp': True}
-        _res = minimize(log_marginal_likelihood, thetas0, method='nelder-mead', args=(rffm, states_actions, next_states[:, i:i+1]), options=options)
-        print _res.x
+        _res = minimize(log_marginal_likelihood, thetas0, method='nelder-mead', args=(rffm, states_actions, next_states[:, i:i+1], output_dim, noise_sd_clip_threshold), options=options)
+        length_scale, signal_sd, noise_sd, prior_sd = _res.x
+        hyperparameters.append([length_scale, signal_sd, np.maximum(noise_sd, noise_sd_clip_threshold), prior_sd])
+    print hyperparameters
+
+    # Quick plotting experiment (for sanity check).
+    import matplotlib.pyplot as plt
+    states2, actions2, next_states2 = gather_data(env, 1)
+    states_actions2 = np.concatenate([states2, actions2], axis=-1)
+
+    for i in range(env.observation_space.shape[0]):
+        plt.subplot(2, env.observation_space.shape[0], i+1)
+        length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
+        mu, sigma, _ = log_marginal_likelihood(hyperparameters[i], rffm, states_actions, next_states[:, i:i+1], output_dim, predict=True)
+        _, _, bases = log_marginal_likelihood(hyperparameters[i], rffm, states_actions2, next_states2[:, i:i+1], output_dim, predict=True)
+
+
+        predict_mu = np.matmul(bases, mu)
+        predict_sigma = noise_sd**2 + np.sum(np.multiply(np.matmul(bases, sigma), bases), axis=-1, keepdims=True)
+
+        plt.plot(np.arange(len(next_states2[:, i:i+1])), next_states2[:, i:i+1])
+        plt.errorbar(np.arange(len(predict_mu)), predict_mu, yerr=np.sqrt(predict_sigma), color='m', ecolor='g')
+        plt.grid()
+
+    traj = []
+    no_lines = 50
+    state = np.tile(np.copy(states2[0:1, ...]), [no_lines, 1])
+    for a in actions2:
+        action = np.tile(a[np.newaxis, ...], [no_lines, 1])
+        state_action = np.concatenate([state, action], axis=-1)
+
+        mu_vec = []
+        sigma_vec = []
+        for i in range(env.observation_space.shape[0]):
+            length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
+            mu, sigma, _ = log_marginal_likelihood(hyperparameters[i], rffm, states_actions, next_states[:, i:i+1], output_dim, predict=True)
+            _, _, bases = log_marginal_likelihood(hyperparameters[i], rffm, state_action, None, output_dim, predict=True, bases_flag=True)
+            predict_mu = np.matmul(bases, mu)
+            predict_sigma = noise_sd**2 + np.sum(np.multiply(np.matmul(bases, sigma), bases), axis=-1, keepdims=True)
+            mu_vec.append(predict_mu)
+            sigma_vec.append(predict_sigma)
+
+        mu_vec = np.concatenate(mu_vec, axis=-1)
+        sigma_vec = np.concatenate(sigma_vec, axis=-1)
+
+        state = np.stack([np.random.multivariate_normal(mu, np.diag(sigma)) for mu, sigma in zip(mu_vec, sigma_vec)], axis=0)
+        traj.append(np.copy(state))
+
+    traj = np.stack(traj, axis=-1)
+
+    for i in range(env.observation_space.shape[0]):
+        plt.subplot(2, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
+        for j in range(no_lines):
+            y = traj[j, i, :]
+            plt.plot(np.arange(len(y)), y, color='r')
+
+        plt.plot(np.arange(len(next_states2[..., i])), next_states2[..., i])
+        plt.grid()
+
+    plt.show()
+
 
 
 
