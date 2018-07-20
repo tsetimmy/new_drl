@@ -235,6 +235,9 @@ def main():
                    x_train=np.copy(states_actions),
                    y_train=np.copy(next_states))
 
+    x_train = np.copy(states_actions)
+    y_train = np.copy(next_states)
+
     # Quick plotting experiment (for sanity check).
     import matplotlib.pyplot as plt
 
@@ -276,36 +279,59 @@ def main():
         actions = np.copy(policy[..., np.newaxis])
         next_states = np.concatenate(next_states, axis=0)
 
-    mu, sigma = gpm.predict(states, actions)
+    states0 = np.copy(states)
+    actions0 = np.copy(actions)
+    next_states0 = np.copy(next_states)
 
-    #---#
-    for i in range(env.observation_space.shape[0]):
-        plt.subplot(2, env.observation_space.shape[0], i+1)
-        plt.grid()
-        plt.plot(np.arange(len(next_states)), next_states[:, i])
-        plt.errorbar(np.arange(len(mu)), mu[:, i], yerr=np.sqrt(sigma[:, i]), color='m', ecolor='g')
+    count = 0
+    increments = 10
+    for i in range(0, len(x_train), increments):
+        states = np.copy(states0)
+        actions = np.copy(actions0)
+        next_states = np.copy(next_states0)
+        size = np.minimum(i + increments, len(x_train))
+        idx = np.random.randint(len(x_train), size=size)
+        gpm.set_training_data(np.copy(x_train[idx]), np.copy(y_train[idx]))
 
-    #---#
-    no_lines = 50
+        count += 1
+        plt.figure(count)
+        plt.clf()
 
-    seed_state = np.copy(states[0:1, ...])
-    seed_state = np.tile(seed_state, [no_lines, 1])
+        try:
+            mu, sigma = gpm.predict(states, actions)
 
-    states = []
-    state = np.copy(seed_state)
-    for action, i in zip(actions, range(len(actions))):
-        print i
-        mu, sigma = gpm.predict(state, np.tile(action[np.newaxis, ...], [no_lines, 1]))
-        state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(mu, sigma)], axis=0)
-        states.append(state)
-    states = np.stack(states, axis=-1)
+            #---#
+            for i in range(env.observation_space.shape[0]):
+                plt.subplot(2, env.observation_space.shape[0], i+1)
+                plt.grid()
+                plt.plot(np.arange(len(next_states)), next_states[:, i])
+                plt.errorbar(np.arange(len(mu)), mu[:, i], yerr=np.sqrt(sigma[:, i]), color='m', ecolor='g')
 
-    for i in range(env.observation_space.shape[0]):
-        plt.subplot(2, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
-        for j in range(no_lines):
-            plt.plot(np.arange(len(states[j, i, :])), states[j, i, :], color='r')
-        plt.plot(np.arange(len(next_states[:, i])), next_states[:, i])
-        plt.grid()
+            #---#
+            no_lines = 50
+
+            seed_state = np.copy(states[0:1, ...])
+            seed_state = np.tile(seed_state, [no_lines, 1])
+
+            states = []
+            state = np.copy(seed_state)
+            for action, i in zip(actions, range(len(actions))):
+                print i
+                mu, sigma = gpm.predict(state, np.tile(action[np.newaxis, ...], [no_lines, 1]))
+                state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(mu, sigma)], axis=0)
+                states.append(state)
+            states = np.stack(states, axis=-1)
+
+            for i in range(env.observation_space.shape[0]):
+                plt.subplot(2, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
+                for j in range(no_lines):
+                    plt.plot(np.arange(len(states[j, i, :])), states[j, i, :], color='r')
+                plt.plot(np.arange(len(next_states[:, i])), next_states[:, i])
+                plt.grid()
+            plt.title(str(size))
+            plt.show(block=False)
+        except Exception as e:
+            print(e)
     plt.show()
     exit()
 
