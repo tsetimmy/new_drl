@@ -47,3 +47,10 @@ def log_marginal_likelihood(thetas, X, y):
     loss = -lml
     #print loss
     return loss
+
+def batch_sek(a, b, signal_sd, length_scale):
+    sqdist = np.sum(np.square(a), axis=-1, keepdims=True) +\
+             -2. * np.matmul(a, np.transpose(b, [0, 2, 1])) +\
+             np.transpose(np.sum(np.square(b), axis=-1, keepdims=True), [0, 2, 1])
+    kernel = np.square(signal_sd) * np.exp(-.5*sqdist/np.square(length_scale))
+    return kernel

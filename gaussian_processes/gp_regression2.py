@@ -3,7 +3,7 @@ from scipy.optimize import minimize
 import tensorflow as tf
 from gp_np import gaussian_process
 #from gp_regression import gp_model as gp_model_tf
-from hyperparameter_optimizer import *
+from hyperparameter_optimizer import log_marginal_likelihood, batch_sek
 
 import sys
 sys.path.append('..')
@@ -30,11 +30,11 @@ class gp_model:
         self.unroll_steps = unroll_steps
         self.no_samples = no_samples
         self.discount_factor = discount_factor
-        self.hyperparameters = hyperparameters
-        self.x_train = x_train
-        self.y_train = y_train
+        self.hyperparameters = hyperparameters#Redundant; remove later.
+        self.x_train = x_train#Redundant; remove later.
+        self.y_train = y_train#Redundant; remove later.
 
-        self.models = [gaussian_process(self.x_dim, *self.hyperparameters[i], x_train=self.x_train, y_train=self.y_train[..., i:i+1]) for i in range(self.y_dim)]
+        self.models = [gaussian_process(self.x_dim, *self.hyperparameters[i], x_train=self.x_train, y_train=self.y_train[..., i:i+1]) for i in range(self.y_dim)]#Redundant; remove later.
 
         #Use real reward function
         #Note: mountain car for the time being
@@ -73,22 +73,79 @@ class gp_model:
             weights.append(w)
         return weights
 
-    def _fit(self, X):
+    def _fit(self, X, Xt, yt, hyperparameters):
         options = {'maxiter': 1, 'disp': True}
-        _res = minimize(self._loss, self.thetas, method='powell', args=(X), options=options)
+        _res = minimize(self._loss, self.thetas, method='powell', args=(X, Xt, yt, hyperparameters), options=options)
         assert self.thetas.shape == _res.x.shape
         self.thetas = np.copy(_res.x)
 
-    def _loss(self, thetas, X):
+    def _loss(self, thetas, X, Xt, yt, hyperparameters):
         assert len(X.shape) == 2
         assert X.shape[-1] == self.state_dim
+        assert len(Xt) == len(yt)
+        assert len(Xt.shape) == 2
+        assert len(yt.shape) == 2
+        assert Xt.shape[-1] == self.state_dim + self.action_dim
+        assert yt.shape[-1] == self.state_dim
+        assert len(hyperparameters) == self.state_dim
+
+
+        n = len(Xt)
+        print X.shape
+        print Xt.shape
+        print yt.shape
+        print hyperparameters.shape
+        print '------------------------'
         #np.random.seed(0)
         X = np.copy(X)
+        Xt = np.copy(Xt)
+        yt = np.copy(yt)
+        hyperparameters = np.copy(hyperparameters)
 
         X = np.expand_dims(X, axis=1)
         X = np.tile(X, [1, self.no_samples, 1])
         X = np.reshape(X, [-1, self.state_dim])
 
+        Xt = np.tile(Xt[np.newaxis, ...], [len(X), 1, 1])
+        yt = np.tile(yt[np.newaxis, ...], [len(X), 1, 1])
+
+        rewards = []
+        state = np.copy(X)
+        for unroll_step in range(self.unroll_steps):
+            action = self._forward(thetas, state)#TODO: _forward has to take hyperstate as input.
+            #TODO: get rewards here.
+
+            state_action = np.concatenate([state, action], axis=-1)
+
+            mu_vec = []
+            sigma_vec = []
+            for i in range(self.state_dim):
+                length_scale, signal_sd, noise_sd = hyperparameters[i]
+                Xtest = np.expand_dims(state_action, axis=1)
+                #Xtest = np.tile(Xtest, [1, 2, 1])
+                K = batch_sek(Xt, Xt, signal_sd, length_scale)
+                L = np.linalg.cholesky(K + np.tile(noise_sd**2*np.eye(n)[np.newaxis, ...], [len(K), 1, 1]))
+                v = np.linalg.solve(L, batch_sek(Xt, Xtest, signal_sd, length_scale))
+                mu = np.matmul(np.transpose(v, [0, 2, 1]), np.linalg.solve(L, yt[..., i:i+1]))
+                sigma = batch_sek(Xtest, Xtest, signal_sd, length_scale) - np.matmul(np.transpose(v, [0, 2, 1]), v)
+
+                mu = np.squeeze(mu, axis=-1)
+                sigma = np.stack([np.diag(s) for s in sigma], axis=0)
+
+                mu_vec.append(mu)
+                sigma_vec.append(sigma)
+            mu_vec = np.concatenate(mu_vec, axis=-1)
+            sigma_vec = np.concatenate(sigma_vec, axis=-1)
+
+            state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(mu_vec, sigma_vec)], axis=0)
+            #TODO: update state information here.
+            print unroll_step, self.unroll_steps
+
+        exit()
+
+
+
+        '''
         rewards = []
         state = np.copy(X)
         for unroll_step in range(self.unroll_steps):
@@ -108,6 +165,7 @@ class gp_model:
         loss = -np.mean(rewards)
         print loss
         return loss
+        '''
 
     def _forward(self, thetas, X):
         assert len(X.shape) == 2
@@ -175,11 +233,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", type=str, default='Pendulum-v0')
     parser.add_argument("--unroll-steps", type=int, default=100)
-    parser.add_argument("--no-samples", type=int, default=30)
+    parser.add_argument("--no-samples", type=int, default=1)
     parser.add_argument("--discount-factor", type=float, default=.95)
     parser.add_argument("--gather-data-epochs", type=int, default=1, help='Epochs for initial data gather.')
-    parser.add_argument("--train-hp-iterations", type=int, default=50000)
-    parser.add_argument("--train-policy-batch-size", type=int, default=1)
+    parser.add_argument("--train-hp-iterations", type=int, default=2000)
+    parser.add_argument("--train-policy-batch-size", type=int, default=30)
     args = parser.parse_args()
 
     print args
@@ -215,11 +273,11 @@ def main():
 
     hyperparameters = []
     for i in range(env.observation_space.shape[0]):
-        theta0 = np.array([.316, 1., 1.])
-        options = {'maxiter': 2000, 'disp': True}
+        theta0 = np.array([1., 1., 1.])
+        options = {'maxiter': args.train_hp_iterations, 'disp': True}
         _res = minimize(log_marginal_likelihood, theta0, method='nelder-mead', args=(states_actions, next_states[:, i:i+1]), options=options)
         hyperparameters.append(_res.x)
-    print hyperparameters
+    hyperparameters = np.stack(hyperparameters, axis=0)
 
     # Initialize the model.
     gpm = gp_model(x_dim=env.observation_space.shape[0]+env.action_space.shape[0],
@@ -231,114 +289,114 @@ def main():
                    unroll_steps=args.unroll_steps,
                    no_samples=args.no_samples,
                    discount_factor=args.discount_factor,
-                   hyperparameters=hyperparameters,
-                   x_train=np.copy(states_actions),
-                   y_train=np.copy(next_states))
+                   hyperparameters=hyperparameters,#Redundant; remove later.
+                   x_train=np.copy(states_actions),#Redundant; remove later.
+                   y_train=np.copy(next_states))#Redundant; remove later.
 
-    x_train = np.copy(states_actions)
-    y_train = np.copy(next_states)
+    x_train = np.copy(states_actions)#Redundant; remove later.
+    y_train = np.copy(next_states)#Redundant; remove later.
 
-    # Quick plotting experiment (for sanity check).
-    import matplotlib.pyplot as plt
-
-    if args.environment == 'Pendulum-v0':
-        states, actions, next_states = gather_data(env, 1)
-    elif args.environment == 'MountainCarContinuous-v0':
-        import sys
-        sys.path.append('..')
-        from custom_environments.environment_state_functions import mountain_car_continuous_state_function
-        from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
-
-        state_function = mountain_car_continuous_state_function()
-        reward_function = mountain_car_continuous_reward_function()
-
-        seed_state = np.concatenate([np.random.uniform(low=-.6, high=-.4, size=1), np.zeros(1)])[np.newaxis, ...]
-        i = 0
-        while True:
-            print 'Finding... iteration:', i
-            i += 1
-            states = []
-            next_states = []
-            state = np.copy(seed_state)
-            policy = np.random.uniform(env.action_space.low, env.action_space.high, env._max_episode_steps)
-            found = False
-
-            for a in policy:
-                states.append(np.copy(state))
-                action = np.atleast_2d(a)
-                reward = reward_function.step_np(state, action)
-                next_state = state_function.step_np(state, action)
-                next_states.append(np.copy(next_state))
-                state = np.copy(next_state)
-
-                if reward[0] > 50.: found = True
-
-            if found: break
-
-        states = np.concatenate(states, axis=0)
-        actions = np.copy(policy[..., np.newaxis])
-        next_states = np.concatenate(next_states, axis=0)
-
-    states0 = np.copy(states)
-    actions0 = np.copy(actions)
-    next_states0 = np.copy(next_states)
-
-    count = 0
-    increments = 10
-    for i in range(0, len(x_train), increments):
-        states = np.copy(states0)
-        actions = np.copy(actions0)
-        next_states = np.copy(next_states0)
-        size = np.minimum(i + increments, len(x_train))
-        idx = np.random.randint(len(x_train), size=size)
-        gpm.set_training_data(np.copy(x_train[idx]), np.copy(y_train[idx]))
-
-        count += 1
-        plt.figure(count)
-        plt.clf()
-
-        try:
-            mu, sigma = gpm.predict(states, actions)
-
-            #---#
-            for i in range(env.observation_space.shape[0]):
-                plt.subplot(2, env.observation_space.shape[0], i+1)
-                plt.grid()
-                plt.plot(np.arange(len(next_states)), next_states[:, i])
-                plt.errorbar(np.arange(len(mu)), mu[:, i], yerr=np.sqrt(sigma[:, i]), color='m', ecolor='g')
-
-            #---#
-            no_lines = 50
-
-            seed_state = np.copy(states[0:1, ...])
-            seed_state = np.tile(seed_state, [no_lines, 1])
-
-            states = []
-            state = np.copy(seed_state)
-            for action, i in zip(actions, range(len(actions))):
-                print i
-                mu, sigma = gpm.predict(state, np.tile(action[np.newaxis, ...], [no_lines, 1]))
-                state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(mu, sigma)], axis=0)
-                states.append(state)
-            states = np.stack(states, axis=-1)
-
-            for i in range(env.observation_space.shape[0]):
-                plt.subplot(2, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
-                for j in range(no_lines):
-                    plt.plot(np.arange(len(states[j, i, :])), states[j, i, :], color='r')
-                plt.plot(np.arange(len(next_states[:, i])), next_states[:, i])
-                plt.grid()
-            plt.title(str(size))
-            plt.show(block=False)
-        except Exception as e:
-            print(e)
-    plt.show()
-    exit()
+#    # Quick plotting experiment (for sanity check).
+#    import matplotlib.pyplot as plt
+#
+#    if args.environment == 'Pendulum-v0':
+#        states, actions, next_states = gather_data(env, 1)
+#    elif args.environment == 'MountainCarContinuous-v0':
+#        import sys
+#        sys.path.append('..')
+#        from custom_environments.environment_state_functions import mountain_car_continuous_state_function
+#        from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
+#
+#        state_function = mountain_car_continuous_state_function()
+#        reward_function = mountain_car_continuous_reward_function()
+#
+#        seed_state = np.concatenate([np.random.uniform(low=-.6, high=-.4, size=1), np.zeros(1)])[np.newaxis, ...]
+#        i = 0
+#        while True:
+#            print 'Finding... iteration:', i
+#            i += 1
+#            states = []
+#            next_states = []
+#            state = np.copy(seed_state)
+#            policy = np.random.uniform(env.action_space.low, env.action_space.high, env._max_episode_steps)
+#            found = False
+#
+#            for a in policy:
+#                states.append(np.copy(state))
+#                action = np.atleast_2d(a)
+#                reward = reward_function.step_np(state, action)
+#                next_state = state_function.step_np(state, action)
+#                next_states.append(np.copy(next_state))
+#                state = np.copy(next_state)
+#
+#                if reward[0] > 50.: found = True
+#
+#            if found: break
+#
+#        states = np.concatenate(states, axis=0)
+#        actions = np.copy(policy[..., np.newaxis])
+#        next_states = np.concatenate(next_states, axis=0)
+#
+#    states0 = np.copy(states)
+#    actions0 = np.copy(actions)
+#    next_states0 = np.copy(next_states)
+#
+#    count = 0
+#    increments = 10
+#    for i in range(0, len(x_train), increments):
+#        states = np.copy(states0)
+#        actions = np.copy(actions0)
+#        next_states = np.copy(next_states0)
+#        size = np.minimum(i + increments, len(x_train))
+#        idx = np.random.randint(len(x_train), size=size)
+#        gpm.set_training_data(np.copy(x_train[idx]), np.copy(y_train[idx]))
+#
+#        count += 1
+#        plt.figure(count)
+#        plt.clf()
+#
+#        try:
+#            mu, sigma = gpm.predict(states, actions)
+#
+#            #---#
+#            for i in range(env.observation_space.shape[0]):
+#                plt.subplot(2, env.observation_space.shape[0], i+1)
+#                plt.grid()
+#                plt.plot(np.arange(len(next_states)), next_states[:, i])
+#                plt.errorbar(np.arange(len(mu)), mu[:, i], yerr=np.sqrt(sigma[:, i]), color='m', ecolor='g')
+#
+#            #---#
+#            no_lines = 50
+#
+#            seed_state = np.copy(states[0:1, ...])
+#            seed_state = np.tile(seed_state, [no_lines, 1])
+#
+#            states = []
+#            state = np.copy(seed_state)
+#            for action, i in zip(actions, range(len(actions))):
+#                print i
+#                mu, sigma = gpm.predict(state, np.tile(action[np.newaxis, ...], [no_lines, 1]))
+#                state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(mu, sigma)], axis=0)
+#                states.append(state)
+#            states = np.stack(states, axis=-1)
+#
+#            for i in range(env.observation_space.shape[0]):
+#                plt.subplot(2, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
+#                for j in range(no_lines):
+#                    plt.plot(np.arange(len(states[j, i, :])), states[j, i, :], color='r')
+#                plt.plot(np.arange(len(next_states[:, i])), next_states[:, i])
+#                plt.grid()
+#            plt.title(str(size))
+#            plt.show(block=False)
+#        except Exception as e:
+#            print(e)
+#    plt.show()
+#    exit()
 
     # Try fitting the model.
     init_states = np.stack([env.reset() for _ in range(args.train_policy_batch_size)], axis=0)
     #rng_state = np.random.get_state()
-    gpm._fit(init_states)
+    gpm._fit(init_states, np.copy(states_actions), np.copy(next_states), hyperparameters)
     #np.random.set_state(rng_state)
 
     # Test the model on the environment.
