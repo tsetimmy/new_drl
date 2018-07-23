@@ -42,19 +42,16 @@ class gp_model:
         self.reward_function = real_env_pendulum_reward()
 
         #Neural network initialization
-        self.hidden_size = 32
-        self.w1 = np.random.normal(size=[self.state_dim + 1, self.hidden_size])
-        self.w2 = np.random.normal(size=[self.hidden_size + 1, self.hidden_size])
-        self.w3 = np.random.normal(size=[self.hidden_size + 1, self.action_dim])
+        self.hidden_dim = 32
+        self.w1 = np.concatenate([np.random.normal(size=[self.state_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
+        self.w2 = np.concatenate([np.random.normal(size=[self.hidden_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
+        self.w3 = np.concatenate([np.random.normal(size=[self.hidden_dim, self.action_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.action_dim])], axis=0)
 
-        #print self.w3[-1, -1]
         self.thetas = self._pack([self.w1, self.w2, self.w3])
-        #self.thetas[-1] = 0.
-        #print self.w3[-1, -1]
 
-        self.sizes = [[self.state_dim + 1, self.hidden_size],
-                      [self.hidden_size + 1, self.hidden_size],
-                      [self.hidden_size + 1, self.action_dim]]
+        self.sizes = [[self.state_dim + 1, self.hidden_dim],
+                      [self.hidden_dim + 1, self.hidden_dim],
+                      [self.hidden_dim + 1, self.action_dim]]
         w1, w2, w3 = self._unpack(self.thetas, self.sizes)
         np.testing.assert_equal(w1, self.w1)
         np.testing.assert_equal(w2, self.w2)
@@ -91,11 +88,13 @@ class gp_model:
 
 
         n = len(Xt)
+        '''
         print X.shape
         print Xt.shape
         print yt.shape
         print hyperparameters.shape
         print '------------------------'
+        '''
         #np.random.seed(0)
         X = np.copy(X)
         Xt = np.copy(Xt)
@@ -113,7 +112,9 @@ class gp_model:
         state = np.copy(X)
         for unroll_step in range(self.unroll_steps):
             action = self._forward(thetas, state)#TODO: _forward has to take hyperstate as input.
-            #TODO: get rewards here.
+
+            reward = self.reward_function.build_np(state, action)
+            rewards.append((self.discount_factor**unroll_step)*reward)
 
             state_action = np.concatenate([state, action], axis=-1)
 
@@ -138,12 +139,19 @@ class gp_model:
             sigma_vec = np.concatenate(sigma_vec, axis=-1)
 
             state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(mu_vec, sigma_vec)], axis=0)
-            #TODO: update state information here.
+
+            # Update information state. FIFO strategy.
+            Xt = np.concatenate([np.expand_dims(state_action, axis=1), Xt[:, :-1, :]], axis=1)
+            yt = np.concatenate([np.expand_dims(state, axis=1), yt[:, :-1, :]], axis=1)
+
             print unroll_step, self.unroll_steps
 
+        rewards = np.concatenate(rewards, axis=-1)
+        rewards = np.sum(rewards, axis=-1)
+        loss = -np.mean(rewards)
+        return loss
+
         exit()
-
-
 
         '''
         rewards = []
@@ -415,4 +423,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
