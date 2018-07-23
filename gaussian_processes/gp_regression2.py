@@ -141,17 +141,17 @@ class gp_model:
             state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(mu_vec, sigma_vec)], axis=0)
 
             # Update information state. FIFO strategy.
-            Xt = np.concatenate([np.expand_dims(state_action, axis=1), Xt[:, :-1, :]], axis=1)
-            yt = np.concatenate([np.expand_dims(state, axis=1), yt[:, :-1, :]], axis=1)
+            Xt = np.concatenate([Xt[:, 1:, :], np.expand_dims(state_action, axis=1)], axis=1)
+            yt = np.concatenate([yt[:, 1:, :], np.expand_dims(state, axis=1)], axis=1)
 
             print unroll_step, self.unroll_steps
 
         rewards = np.concatenate(rewards, axis=-1)
         rewards = np.sum(rewards, axis=-1)
         loss = -np.mean(rewards)
+        exit()
         return loss
 
-        exit()
 
         '''
         rewards = []
