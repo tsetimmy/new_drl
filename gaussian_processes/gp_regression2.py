@@ -1,9 +1,11 @@
 import numpy as np
 from scipy.optimize import minimize
-import tensorflow as tf
+#import tensorflow as tf
 from gp_np import gaussian_process
 #from gp_regression import gp_model as gp_model_tf
 from hyperparameter_optimizer import log_marginal_likelihood, batch_sek
+
+import random
 
 import sys
 sys.path.append('..')
@@ -16,7 +18,7 @@ import gym
 
 class gp_model:
     def __init__(self, x_dim, y_dim, state_dim, action_dim, action_space_low, action_space_high,
-                 unroll_steps, no_samples, discount_factor, train_set_size, hyperparameters, x_train, y_train):
+                 unroll_steps, no_samples, discount_factor, train_set_size):#, hyperparameters, x_train, y_train):
         assert x_dim == state_dim + action_dim
         assert len(action_space_low.shape) == 1
         np.testing.assert_equal(-action_space_low, action_space_high)
@@ -31,12 +33,12 @@ class gp_model:
         self.no_samples = no_samples
         self.discount_factor = discount_factor
         self.train_set_size = train_set_size
-        self.hyperparameters = hyperparameters#Redundant; remove later.
-        self.x_train = x_train#Redundant; remove later.
-        self.y_train = y_train#Redundant; remove later.
-        self._clip_training_set()
+        #self.hyperparameters = hyperparameters#Redundant; remove later.
+        #self.x_train = x_train#Redundant; remove later.
+        #self.y_train = y_train#Redundant; remove later.
+        #self._clip_training_set()
 
-        self.models = [gaussian_process(self.x_dim, *self.hyperparameters[i], x_train=self.x_train, y_train=self.y_train[..., i:i+1]) for i in range(self.y_dim)]#Redundant; remove later.
+        #self.models = [gaussian_process(self.x_dim, *self.hyperparameters[i], x_train=self.x_train, y_train=self.y_train[..., i:i+1]) for i in range(self.y_dim)]#Redundant; remove later.
 
         #Use real reward function
         #Note: mountain car for the time being
@@ -45,16 +47,20 @@ class gp_model:
 
         #Neural network initialization
         self.hidden_dim = 32
-        self.w1 = np.concatenate([np.random.normal(size=[self.state_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
+
+        self.w0 = np.concatenate([np.random.normal(size=[self.train_set_size*self.state_dim, self.state_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.state_dim])], axis=0)
+        self.w1 = np.concatenate([np.random.normal(size=[2*self.state_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
         self.w2 = np.concatenate([np.random.normal(size=[self.hidden_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
         self.w3 = np.concatenate([np.random.normal(size=[self.hidden_dim, self.action_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.action_dim])], axis=0)
 
-        self.thetas = self._pack([self.w1, self.w2, self.w3])
+        self.thetas = self._pack([self.w0, self.w1, self.w2, self.w3])
 
-        self.sizes = [[self.state_dim + 1, self.hidden_dim],
+        self.sizes = [[self.train_set_size*self.state_dim + 1, self.state_dim],
+                      [2*self.state_dim + 1, self.hidden_dim],
                       [self.hidden_dim + 1, self.hidden_dim],
                       [self.hidden_dim + 1, self.action_dim]]
-        w1, w2, w3 = self._unpack(self.thetas, self.sizes)
+        w0, w1, w2, w3 = self._unpack(self.thetas, self.sizes)
+        np.testing.assert_equal(w0, self.w0)
         np.testing.assert_equal(w1, self.w1)
         np.testing.assert_equal(w2, self.w2)
         np.testing.assert_equal(w3, self.w3)
@@ -94,18 +100,12 @@ class gp_model:
         assert Xt.shape[-1] == self.state_dim + self.action_dim
         assert yt.shape[-1] == self.state_dim
         assert len(hyperparameters) == self.state_dim
-        #assert len(Xt) == self.train_set_size
+        assert len(Xt) == self.train_set_size
 
+        rng_state = np.random.get_state()
+        np.random.seed(1)
 
         n = len(Xt)
-        '''
-        print X.shape
-        print Xt.shape
-        print yt.shape
-        print hyperparameters.shape
-        print '------------------------'
-        '''
-        #np.random.seed(0)
         X = np.copy(X)
         Xt = np.copy(Xt)
         yt = np.copy(yt)
@@ -122,17 +122,7 @@ class gp_model:
         state = np.copy(X)
         for unroll_step in range(self.unroll_steps):
 
-            #TODO: Can this be optimized further?
-            alphas = []
-            Ls = []
-            for i in range(self.state_dim):
-                length_scale, signal_sd, noise_sd = hyperparameters[i]
-                K = batch_sek(Xt, Xt, signal_sd, length_scale)
-                L = np.linalg.cholesky(K + np.tile(noise_sd**2*np.eye(n)[np.newaxis, ...], [len(K), 1, 1]))
-                alpha = np.linalg.solve(np.transpose(L, [0, 2, 1]), np.linalg.solve(L, yt[..., i:i+1]))
-                Ls.append(L)
-                alphas.append(alpha)
-            alphas = np.concatenate(alphas, axis=-1)
+            Ls, alphas = self._hyperstate(Xt, yt, hyperparameters)
 
             action = self._forward(thetas, state, alphas)
 
@@ -168,14 +158,12 @@ class gp_model:
             Xt = np.concatenate([Xt[:, 1:, :], np.expand_dims(state_action, axis=1)], axis=1)
             yt = np.concatenate([yt[:, 1:, :], np.expand_dims(state, axis=1)], axis=1)
 
-            print unroll_step, self.unroll_steps
 
         rewards = np.concatenate(rewards, axis=-1)
         rewards = np.sum(rewards, axis=-1)
         loss = -np.mean(rewards)
-        exit()
+        np.random.set_state(rng_state)
         return loss
-
 
         '''
         rewards = []
@@ -199,17 +187,35 @@ class gp_model:
         return loss
         '''
 
+    #TODO: Can this be optimized further?
+    def _hyperstate(self, Xt, yt, hyperparameters):
+        alphas = []
+        Ls = []
+        for i in range(self.state_dim):
+            length_scale, signal_sd, noise_sd = hyperparameters[i]
+            K = batch_sek(Xt, Xt, signal_sd, length_scale)
+            L = np.linalg.cholesky(K + np.tile(noise_sd**2*np.eye(self.train_set_size)[np.newaxis, ...], [len(K), 1, 1]))
+            alpha = np.linalg.solve(np.transpose(L, [0, 2, 1]), np.linalg.solve(L, yt[..., i:i+1]))
+            Ls.append(L)
+            alphas.append(alpha)
+        alphas = np.concatenate(alphas, axis=-1)
+        return Ls, alphas
+
     def _forward(self, thetas, X, hyperstate):
-        #TODO: Use the hyperstate as input to the policy network.
         assert len(X.shape) == 2
         assert X.shape[-1] == self.state_dim
         X = np.copy(X)
 
-        w1, w2, w3 = self._unpack(thetas, self.sizes)
+        w0, w1, w2, w3 = self._unpack(thetas, self.sizes)
 
-        X = self._add_bias(X)
+        hyperstate = np.reshape(hyperstate, [len(hyperstate), -1])
+        hyperstate = self._add_bias(hyperstate)
+        hyperstate_embeddding = self._relu(np.matmul(hyperstate, w0))
 
-        h1 = self._relu(np.matmul(X, w1))
+        state_hyperstate = np.concatenate([X, hyperstate_embeddding], axis=-1)
+        state_hyperstate = self._add_bias(state_hyperstate)
+
+        h1 = self._relu(np.matmul(state_hyperstate, w1))
         h1 = self._add_bias(h1)
 
         h2 = self._relu(np.matmul(h1, w2))
@@ -255,12 +261,24 @@ def gather_data(env, epochs):
         while True:
             action = np.random.uniform(env.action_space.low, env.action_space.high, 1)
             next_state, reward, done, _ = env.step(action)
-            data.append([state, action, next_state])
+            data.append([state, action, reward, next_state, done])
             state = np.copy(next_state)
             if done:
                 break
-    states, actions, next_states = [np.stack(e, axis=0) for e in zip(*data)]
-    return states, actions, next_states
+    return data
+    #states, actions, next_states = [np.stack(e, axis=0) for e in zip(*data)]
+    #return states, actions, next_states
+
+#TODO: Currently using random sampling. Any better methods?
+def select_data(data_buffer, train_set_size):
+    batch = random.sample(data_buffer, train_set_size)
+    return unpack(batch)
+
+def unpack(data_buffer):
+    states, actions, _, next_states, _ = zip(*data_buffer)
+    states, actions, next_states = [np.stack(ele, axis=0) for ele in [states, actions, next_states]]
+    states_actions = np.concatenate([states, actions], axis=-1)
+    return states_actions, next_states
 
 def main():
     parser = argparse.ArgumentParser()
@@ -279,8 +297,15 @@ def main():
     env = gym.make(args.environment)
 
     # Gather data.
-    states, actions, next_states = gather_data(env, args.gather_data_epochs)
+    #states, actions, next_states = gather_data(env, args.gather_data_epochs)
+    #states_actions = np.concatenate([states, actions], axis=-1)
+    data_buffer = gather_data(env, args.gather_data_epochs)
+    states_actions, next_states = unpack(data_buffer)
+    '''
+    states, actions, _, next_states, _ = zip(*data_buffer)
+    states, actions, next_states = [np.stack(ele, axis=0) for ele in [states, actions, next_states]]
     states_actions = np.concatenate([states, actions], axis=-1)
+    '''
 
     '''
     # Train hyperparameters.
@@ -323,13 +348,13 @@ def main():
                    unroll_steps=args.unroll_steps,
                    no_samples=args.no_samples,
                    discount_factor=args.discount_factor,
-                   train_set_size=args.train_set_size,
-                   hyperparameters=hyperparameters,#Redundant; remove later.
-                   x_train=np.copy(states_actions),#Redundant; remove later.
-                   y_train=np.copy(next_states))#Redundant; remove later.
+                   train_set_size=args.train_set_size)
+                   #hyperparameters=hyperparameters,#Redundant; remove later.
+                   #x_train=np.copy(states_actions),#Redundant; remove later.
+                   #y_train=np.copy(next_states))#Redundant; remove later.
 
-    x_train = np.copy(states_actions)#Redundant; remove later.
-    y_train = np.copy(next_states)#Redundant; remove later.
+    #x_train = np.copy(states_actions)#Redundant; remove later.
+    #y_train = np.copy(next_states)#Redundant; remove later.
 
 #    # Quick plotting experiment (for sanity check).
 #    import matplotlib.pyplot as plt
@@ -430,22 +455,25 @@ def main():
 
     # Try fitting the model.
     init_states = np.stack([env.reset() for _ in range(args.train_policy_batch_size)], axis=0)
-    #rng_state = np.random.get_state()
-    gpm._fit(init_states, np.copy(states_actions), np.copy(next_states), hyperparameters)
-    #np.random.set_state(rng_state)
+    #gpm._fit(init_states, np.copy(states_actions), np.copy(next_states), hyperparameters)
 
     # Test the model on the environment.
-    for _ in range(10):
+    for epoch in range(1000):
+        Xt, yt = select_data(data_buffer, args.train_set_size)
+        _, hyperstate = gpm._hyperstate(Xt[np.newaxis, ...], yt[np.newaxis, ...], hyperparameters)
+        gpm._fit(init_states, Xt, yt, hyperparameters)
+        data_buffer = []#Clears every episode.
         total_rewards = 0.
         state = env.reset()
         while True:
-            env.render()
-            action = gpm._forward(gpm.thetas, state[np.newaxis, ...])[0]
+            #env.render()
+            action = gpm._forward(gpm.thetas, state[np.newaxis, ...], hyperstate)[0]
             next_state, reward, done, _ = env.step(action)
+            data_buffer.append([state, action, reward, next_state, done])
             total_rewards += float(reward)
             state = np.copy(next_state)
             if done:
-                print total_rewards
+                print 'epoch:', epoch, 'total_rewards:', total_rewards
                 break
 
 if __name__ == '__main__':
