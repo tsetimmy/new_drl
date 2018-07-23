@@ -16,7 +16,7 @@ import gym
 
 class gp_model:
     def __init__(self, x_dim, y_dim, state_dim, action_dim, action_space_low, action_space_high,
-                 unroll_steps, no_samples, discount_factor, hyperparameters, x_train, y_train):
+                 unroll_steps, no_samples, discount_factor, train_set_size, hyperparameters, x_train, y_train):
         assert x_dim == state_dim + action_dim
         assert len(action_space_low.shape) == 1
         np.testing.assert_equal(-action_space_low, action_space_high)
@@ -30,9 +30,11 @@ class gp_model:
         self.unroll_steps = unroll_steps
         self.no_samples = no_samples
         self.discount_factor = discount_factor
+        self.train_set_size = train_set_size
         self.hyperparameters = hyperparameters#Redundant; remove later.
         self.x_train = x_train#Redundant; remove later.
         self.y_train = y_train#Redundant; remove later.
+        self._clip_training_set()
 
         self.models = [gaussian_process(self.x_dim, *self.hyperparameters[i], x_train=self.x_train, y_train=self.y_train[..., i:i+1]) for i in range(self.y_dim)]#Redundant; remove later.
 
@@ -56,6 +58,13 @@ class gp_model:
         np.testing.assert_equal(w1, self.w1)
         np.testing.assert_equal(w2, self.w2)
         np.testing.assert_equal(w3, self.w3)
+
+    def _clip_training_set(self):
+        assert len(self.x_train) == len(self.y_train)
+        if len(self.x_train) > self.train_set_size:
+            idx = np.random.randint(len(self.x_train), size=self.train_set_size)
+            self.x_train = np.copy(self.x_train[idx])
+            self.y_train = np.copy(self.y_train[idx])
 
     def _pack(self, thetas):
         return np.concatenate([theta.flatten() for theta in thetas])
@@ -85,6 +94,7 @@ class gp_model:
         assert Xt.shape[-1] == self.state_dim + self.action_dim
         assert yt.shape[-1] == self.state_dim
         assert len(hyperparameters) == self.state_dim
+        #assert len(Xt) == self.train_set_size
 
 
         n = len(Xt)
@@ -111,7 +121,20 @@ class gp_model:
         rewards = []
         state = np.copy(X)
         for unroll_step in range(self.unroll_steps):
-            action = self._forward(thetas, state)#TODO: _forward has to take hyperstate as input.
+
+            #TODO: Can this be optimized further?
+            alphas = []
+            Ls = []
+            for i in range(self.state_dim):
+                length_scale, signal_sd, noise_sd = hyperparameters[i]
+                K = batch_sek(Xt, Xt, signal_sd, length_scale)
+                L = np.linalg.cholesky(K + np.tile(noise_sd**2*np.eye(n)[np.newaxis, ...], [len(K), 1, 1]))
+                alpha = np.linalg.solve(np.transpose(L, [0, 2, 1]), np.linalg.solve(L, yt[..., i:i+1]))
+                Ls.append(L)
+                alphas.append(alpha)
+            alphas = np.concatenate(alphas, axis=-1)
+
+            action = self._forward(thetas, state, alphas)
 
             reward = self.reward_function.build_np(state, action)
             rewards.append((self.discount_factor**unroll_step)*reward)
@@ -125,7 +148,8 @@ class gp_model:
                 Xtest = np.expand_dims(state_action, axis=1)
                 #Xtest = np.tile(Xtest, [1, 2, 1])
                 K = batch_sek(Xt, Xt, signal_sd, length_scale)
-                L = np.linalg.cholesky(K + np.tile(noise_sd**2*np.eye(n)[np.newaxis, ...], [len(K), 1, 1]))
+                #L = np.linalg.cholesky(K + np.tile(noise_sd**2*np.eye(n)[np.newaxis, ...], [len(K), 1, 1]))
+                L = Ls[i]
                 v = np.linalg.solve(L, batch_sek(Xt, Xtest, signal_sd, length_scale))
                 mu = np.matmul(np.transpose(v, [0, 2, 1]), np.linalg.solve(L, yt[..., i:i+1]))
                 sigma = batch_sek(Xtest, Xtest, signal_sd, length_scale) - np.matmul(np.transpose(v, [0, 2, 1]), v)
@@ -175,7 +199,8 @@ class gp_model:
         return loss
         '''
 
-    def _forward(self, thetas, X):
+    def _forward(self, thetas, X, hyperstate):
+        #TODO: Use the hyperstate as input to the policy network.
         assert len(X.shape) == 2
         assert X.shape[-1] == self.state_dim
         X = np.copy(X)
@@ -246,6 +271,7 @@ def main():
     parser.add_argument("--gather-data-epochs", type=int, default=1, help='Epochs for initial data gather.')
     parser.add_argument("--train-hp-iterations", type=int, default=2000)
     parser.add_argument("--train-policy-batch-size", type=int, default=30)
+    parser.add_argument("--train-set-size", type=int, default=50)
     args = parser.parse_args()
 
     print args
@@ -297,6 +323,7 @@ def main():
                    unroll_steps=args.unroll_steps,
                    no_samples=args.no_samples,
                    discount_factor=args.discount_factor,
+                   train_set_size=args.train_set_size,
                    hyperparameters=hyperparameters,#Redundant; remove later.
                    x_train=np.copy(states_actions),#Redundant; remove later.
                    y_train=np.copy(next_states))#Redundant; remove later.
