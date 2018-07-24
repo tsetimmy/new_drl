@@ -5,23 +5,25 @@ from gp_np import gaussian_process
 #from gp_regression import gp_model as gp_model_tf
 from hyperparameter_optimizer import log_marginal_likelihood, batch_sek
 
-import random
-
 import sys
 sys.path.append('..')
 #from custom_environments.environment_state_functions import mountain_car_continuous_state_function
-#from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
+from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
 from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
 
 import argparse
 import gym
+import random
+import copy
 
 class gp_model:
-    def __init__(self, x_dim, y_dim, state_dim, action_dim, action_space_low, action_space_high,
+    def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, action_space_low, action_space_high,
                  unroll_steps, no_samples, discount_factor, train_set_size):#, hyperparameters, x_train, y_train):
+        assert environment in ['Pendulum-v0', 'MountainCarContinuous-v0']
         assert x_dim == state_dim + action_dim
         assert len(action_space_low.shape) == 1
         np.testing.assert_equal(-action_space_low, action_space_high)
+        self.environment = environment
         self.x_dim = x_dim
         self.y_dim = y_dim
         self.state_dim = state_dim
@@ -41,9 +43,10 @@ class gp_model:
         #self.models = [gaussian_process(self.x_dim, *self.hyperparameters[i], x_train=self.x_train, y_train=self.y_train[..., i:i+1]) for i in range(self.y_dim)]#Redundant; remove later.
 
         #Use real reward function
-        #Note: mountain car for the time being
-        #self.reward_function = mountain_car_continuous_reward_function()
-        self.reward_function = real_env_pendulum_reward()
+        if self.environment == 'Pendulum-v0':
+            self.reward_function = real_env_pendulum_reward()
+        elif self.environment == 'MountainCarContinuous-v0':
+            self.reward_function = mountain_car_continuous_reward_function()
 
         #Neural network initialization
         self.hidden_dim = 32
@@ -269,16 +272,37 @@ def gather_data(env, epochs):
     #states, actions, next_states = [np.stack(e, axis=0) for e in zip(*data)]
     #return states, actions, next_states
 
-#TODO: Currently using random sampling. Any better methods?
-def select_data(data_buffer, train_set_size):
-    batch = random.sample(data_buffer, train_set_size)
-    return unpack(batch)
-
 def unpack(data_buffer):
     states, actions, _, next_states, _ = zip(*data_buffer)
     states, actions, next_states = [np.stack(ele, axis=0) for ele in [states, actions, next_states]]
     states_actions = np.concatenate([states, actions], axis=-1)
     return states_actions, next_states
+
+def distance(batch, datum):
+    states_actions, _ = unpack(batch)
+    state_action = np.concatenate([datum[0], datum[1]], axis=-1)
+
+    norm_distances = 0.
+    for i in xrange(len(states_actions)):
+        norm_distances += np.linalg.norm(states_actions[i] - state_action)
+    return norm_distances
+
+def select_data(data_buffer, train_set_size):
+    random_sample_size = int(train_set_size * .1)
+    remainder_size = train_set_size - random_sample_size
+    data_buffer_copy = copy.deepcopy(data_buffer)
+
+    batch = [data_buffer_copy.pop(random.randrange(len(data_buffer_copy))) for _ in xrange(random_sample_size)]
+
+    for _ in range(remainder_size):
+        distances = []
+        for i in range(len(data_buffer_copy)):
+            distances.append(distance(batch, data_buffer_copy[i]))
+
+        idx = np.argmax(distances)
+        batch.append(data_buffer_copy.pop(idx))
+
+    return unpack(batch)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -339,7 +363,8 @@ def main():
     hyperparameters = np.stack(hyperparameters, axis=0)
 
     # Initialize the model.
-    gpm = gp_model(x_dim=env.observation_space.shape[0]+env.action_space.shape[0],
+    gpm = gp_model(environment=args.environment,
+                   x_dim=env.observation_space.shape[0]+env.action_space.shape[0],
                    y_dim=env.observation_space.shape[0],
                    state_dim=env.observation_space.shape[0],
                    action_dim=env.action_space.shape[0],
