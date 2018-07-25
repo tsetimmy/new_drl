@@ -142,7 +142,11 @@ def main():
 
     # Quick plotting experiment (for sanity check).
     import matplotlib.pyplot as plt
-    states2, actions2, next_states2 = gather_data(env, 1, unpack=True)
+    if args.environment == 'Pendulum-v0':
+        states2, actions2, next_states2 = gather_data(env, 1, unpack=True)
+    elif args.environment == 'MountainCarContinuous-v0':
+        from utils import mcc_get_success_policy
+        states2, actions2, next_states2 = mcc_get_success_policy(env)
     states_actions2 = np.concatenate([states2, actions2], axis=-1)
 
     predictors = []
