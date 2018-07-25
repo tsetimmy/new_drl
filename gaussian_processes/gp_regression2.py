@@ -257,7 +257,7 @@ class gp_model:
         return mu, sigma
 #-----------------------------------------------------------------------------------------------#
 
-def gather_data(env, epochs):
+def gather_data(env, epochs, unpack=False):
     data = []
     for epoch in range(epochs):
         state = env.reset()
@@ -268,9 +268,11 @@ def gather_data(env, epochs):
             state = np.copy(next_state)
             if done:
                 break
-    return data
-    #states, actions, next_states = [np.stack(e, axis=0) for e in zip(*data)]
-    #return states, actions, next_states
+    if unpack == False:
+        return data
+    else:
+        states, actions, _, next_states, _ = zip(*data)
+        return [np.stack(ele, axis=0) for ele in [states, actions, next_states]]
 
 def unpack(data_buffer):
     states, actions, _, next_states, _ = zip(*data_buffer)
