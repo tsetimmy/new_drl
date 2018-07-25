@@ -2,7 +2,8 @@ import numpy as np
 from scipy.optimize import minimize
 import argparse
 import gym
-from gaussian_processes.gp_regression2 import gather_data
+
+from utils import gather_data, gather_data2
 
 class RandomFourierFeatureMapper:
     def __init__(self, input_dim, output_dim, stddev=1., seed=1):
@@ -123,16 +124,16 @@ def main():
 
     env = gym.make(args.environment)
 
-    states, actions, next_states = gather_data(env, 4, unpack=True)
+    states, actions, next_states = gather_data(env, 3, unpack=True)
     states_actions = np.concatenate([states, actions], axis=-1)
 
-    output_dim = 128
+    output_dim = 128*2
     noise_sd_clip_threshold = 5e-5
     rffm = RandomFourierFeatureMapper(states_actions.shape[-1], int(output_dim))
 
     hyperparameters = []
     for i in range(env.observation_space.shape[0]):
-        thetas0 = np.array([1., 1., 1., 1.])
+        thetas0 = np.array([1., 1., 5e-4, 1.])
         options = {'maxiter': args.train_hp_iterations, 'disp': True}
         _res = minimize(log_marginal_likelihood, thetas0, method='nelder-mead', args=(rffm, states_actions, next_states[:, i:i+1], output_dim, noise_sd_clip_threshold), options=options)
         length_scale, signal_sd, noise_sd, prior_sd = _res.x

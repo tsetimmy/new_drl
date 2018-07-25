@@ -11,6 +11,8 @@ sys.path.append('..')
 from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
 from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
 
+from utils import gather_data
+
 import argparse
 import gym
 import random
@@ -256,24 +258,6 @@ class gp_model:
 
         return mu, sigma
 #-----------------------------------------------------------------------------------------------#
-
-def gather_data(env, epochs, unpack=False):
-    data = []
-    for epoch in range(epochs):
-        state = env.reset()
-        while True:
-            action = np.random.uniform(env.action_space.low, env.action_space.high, 1)
-            next_state, reward, done, _ = env.step(action)
-            data.append([state, action, reward, next_state, done])
-            state = np.copy(next_state)
-            if done:
-                break
-    if unpack == False:
-        return data
-    else:
-        states, actions, _, next_states, _ = zip(*data)
-        return [np.stack(ele, axis=0) for ele in [states, actions, next_states]]
-
 def unpack(data_buffer):
     states, actions, _, next_states, _ = zip(*data_buffer)
     states, actions, next_states = [np.stack(ele, axis=0) for ele in [states, actions, next_states]]

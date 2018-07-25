@@ -356,3 +356,41 @@ def str2list(string):
         l[i] = int(l[i])
 
     return l
+
+def gather_data(env, epochs, unpack=False, sample_obs_space=False):
+    data = []
+    for epoch in range(epochs):
+        state = env.reset()
+        while True:
+            action = np.random.uniform(env.action_space.low, env.action_space.high, 1)
+            next_state, reward, done, _ = env.step(action)
+            data.append([state, action, reward, next_state, done])
+            state = np.copy(next_state)
+            if done:
+                break
+    if unpack == False:
+        return data
+    else:
+        states, actions, _, next_states, _ = zip(*data)
+        return [np.stack(ele, axis=0) for ele in [states, actions, next_states]]
+
+def gather_data2(env, no_samples=1000):
+    assert env.spec.id in ['Pendulum-v0', 'MountainCarContinuous-v0']
+    if env.spec.id == 'Pendulum-v0':
+        from prototype8.dmlac.real_env_pendulum import real_env_pendulum_state
+        state_func = real_env_pendulum_state()
+        high = np.array([np.pi, 8.])
+        rand = np.random.uniform(low=-high, high=high, size=[no_samples, len(high)])
+        pos = rand[:, 0]
+        vel = rand[:, 1]
+        states = np.stack([np.cos(pos), np.sin(pos), vel], axis=-1)
+    elif env.spec.id == 'MountainCarContinuous-v0':
+        from custom_environments.environment_state_functions import mountain_car_continuous_state_function
+        state_func = mountain_car_continuous_state_function()
+        states = np.random.uniform(low=env.observation_space.low, high=env.observation_space.high, size=[no_samples, len(env.observation_space.low)])
+
+    actions = np.random.uniform(low=env.action_space.low, high=env.action_space.high, size=[no_samples, len(env.action_space.low)])
+
+    next_states = state_func.step_np(states, actions)
+
+    return states, actions, next_states
