@@ -150,15 +150,16 @@ def main():
     states_actions2 = np.concatenate([states2, actions2], axis=-1)
 
     predictors = []
+    for i in range(env.observation_space.shape[0]):
+        length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
+        predictors.append(predictor(output_dim, length_scale=length_scale, signal_sd=signal_sd, noise_sd=noise_sd, prior_sd=prior_sd))
 
     for i in range(env.observation_space.shape[0]):
         plt.subplot(2, env.observation_space.shape[0], i+1)
         length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
 
-        predict = predictor(output_dim, length_scale=length_scale, signal_sd=signal_sd, noise_sd=noise_sd, prior_sd=prior_sd)
-        predict.update(rffm, states_actions, next_states[:, i:i+1])
-        predict_mu, predict_sigma = predict.predict(rffm, states_actions2)
-        predictors.append(predict)
+        predictors[i].update(rffm, states_actions, next_states[:, i:i+1])
+        predict_mu, predict_sigma = predictors[i].predict(rffm, states_actions2)
 
         plt.plot(np.arange(len(next_states2[:, i:i+1])), next_states2[:, i:i+1])
         plt.errorbar(np.arange(len(predict_mu)), predict_mu, yerr=np.sqrt(predict_sigma), color='m', ecolor='g')
