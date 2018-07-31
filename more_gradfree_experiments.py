@@ -124,7 +124,7 @@ def main():
 
     env = gym.make(args.environment)
 
-    states, actions, next_states = gather_data(env, 3, unpack=True)
+    states, actions, next_states = gather_data(env, 5, unpack=True)
     states_actions = np.concatenate([states, actions], axis=-1)
 
     output_dim = 128*2
@@ -149,54 +149,60 @@ def main():
         states2, actions2, next_states2 = mcc_get_success_policy(env)
     states_actions2 = np.concatenate([states2, actions2], axis=-1)
 
+    states3, actions3, next_states3 = gather_data(env, 3, unpack=True)
+    states_actions3 = np.concatenate([states3, actions3], axis=-1)
+
     predictors = []
     for i in range(env.observation_space.shape[0]):
         length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
         predictors.append(predictor(output_dim, length_scale=length_scale, signal_sd=signal_sd, noise_sd=noise_sd, prior_sd=prior_sd))
 
-    for i in range(env.observation_space.shape[0]):
-        plt.subplot(2, env.observation_space.shape[0], i+1)
-        length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
-
-        predictors[i].update(rffm, states_actions, next_states[:, i:i+1])
-        predict_mu, predict_sigma = predictors[i].predict(rffm, states_actions2)
-
-        plt.plot(np.arange(len(next_states2[:, i:i+1])), next_states2[:, i:i+1])
-        plt.errorbar(np.arange(len(predict_mu)), predict_mu, yerr=np.sqrt(predict_sigma), color='m', ecolor='g')
-        plt.grid()
-
-    traj = []
-    no_lines = 50
-    state = np.tile(np.copy(states2[0:1, ...]), [no_lines, 1])
-    for a in actions2:
-        action = np.tile(a[np.newaxis, ...], [no_lines, 1])
-        state_action = np.concatenate([state, action], axis=-1)
-
-        mu_vec = []
-        sigma_vec = []
+    for sa, ns in zip([states_actions, states_actions3], [next_states, next_states3]):
+        plt.figure()
         for i in range(env.observation_space.shape[0]):
-            predict_mu, predict_sigma = predictors[i].predict(rffm, state_action)
-            mu_vec.append(predict_mu)
-            sigma_vec.append(predict_sigma)
+            plt.subplot(2, env.observation_space.shape[0], i+1)
+            length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
 
-        mu_vec = np.concatenate(mu_vec, axis=-1)
-        sigma_vec = np.concatenate(sigma_vec, axis=-1)
+            predictors[i].update(rffm, sa, ns[:, i:i+1])
+            predict_mu, predict_sigma = predictors[i].predict(rffm, states_actions2)
 
-        state = np.stack([np.random.multivariate_normal(mu, np.diag(sigma)) for mu, sigma in zip(mu_vec, sigma_vec)], axis=0)
-        traj.append(np.copy(state))
+            plt.plot(np.arange(len(next_states2[:, i:i+1])), next_states2[:, i:i+1])
+            plt.errorbar(np.arange(len(predict_mu)), predict_mu, yerr=np.sqrt(predict_sigma), color='m', ecolor='g')
+            plt.grid()
 
-    traj = np.stack(traj, axis=-1)
+        traj = []
+        no_lines = 50
+        state = np.tile(np.copy(states2[0:1, ...]), [no_lines, 1])
+        for a in actions2:
+            action = np.tile(a[np.newaxis, ...], [no_lines, 1])
+            state_action = np.concatenate([state, action], axis=-1)
 
-    for i in range(env.observation_space.shape[0]):
-        plt.subplot(2, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
-        for j in range(no_lines):
-            y = traj[j, i, :]
-            plt.plot(np.arange(len(y)), y, color='r')
+            mu_vec = []
+            sigma_vec = []
+            for i in range(env.observation_space.shape[0]):
+                predict_mu, predict_sigma = predictors[i].predict(rffm, state_action)
+                mu_vec.append(predict_mu)
+                sigma_vec.append(predict_sigma)
 
-        plt.plot(np.arange(len(next_states2[..., i])), next_states2[..., i])
-        plt.grid()
+            mu_vec = np.concatenate(mu_vec, axis=-1)
+            sigma_vec = np.concatenate(sigma_vec, axis=-1)
 
-    plt.show()
+            state = np.stack([np.random.multivariate_normal(mu, np.diag(sigma)) for mu, sigma in zip(mu_vec, sigma_vec)], axis=0)
+            traj.append(np.copy(state))
+
+        traj = np.stack(traj, axis=-1)
+
+        for i in range(env.observation_space.shape[0]):
+            plt.subplot(2, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
+            for j in range(no_lines):
+                y = traj[j, i, :]
+                plt.plot(np.arange(len(y)), y, color='r')
+
+            plt.plot(np.arange(len(next_states2[..., i])), next_states2[..., i])
+            plt.grid()
+
+        plt.show(block=False)
+    raw_input("Press Enter to continue ...")
 
 if __name__ == '__main__':
     main()
