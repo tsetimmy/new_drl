@@ -357,7 +357,7 @@ def str2list(string):
 
     return l
 
-def gather_data(env, epochs, unpack=False, sample_obs_space=False):
+def gather_data(env, epochs, unpack=False):
     data = []
     for epoch in range(epochs):
         state = env.reset()

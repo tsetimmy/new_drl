@@ -10,24 +10,25 @@ from custom_environments.environment_reward_functions import mountain_car_contin
 from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
 
 from more_gradfree_experiments import posterior
+from gaussian_processes.gp_regression2 import unpack
 from utils import gather_data, gather_data2
 
 import gym
-import time
 
-def _basis(X, random_matrix, bias, output_dim, length_scale, signal_sd):
+def _basis(X, random_matrix, bias, basis_dim, length_scale, signal_sd):
     x_omega_plus_bias = np.matmul(X, (1./length_scale)*random_matrix) + bias
-    z = signal_sd * np.sqrt(2./output_dim) * np.cos(x_omega_plus_bias)
+    z = signal_sd * np.sqrt(2./basis_dim) * np.cos(x_omega_plus_bias)
     return z
 
-class regression_wrapper:
-    def __init__(self, input_dim, output_dim, length_scale=1., signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=2000, noise_sd_clip_threshold=5e-5):
+class RegressionWrapper:
+    def __init__(self, input_dim, basis_dim, length_scale=1., signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=2000, noise_sd_clip_threshold=5e-5):
         self.input_dim = input_dim
-        self.output_dim = output_dim
+        self.basis_dim = basis_dim
         self.length_scale = length_scale
         self.signal_sd = signal_sd
         self.noise_sd = noise_sd
         self.prior_sd = prior_sd
+        self.hyperparameters = np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd])
 
         self.rffm_seed = rffm_seed
         self.train_hp_iterations = train_hp_iterations
@@ -38,28 +39,21 @@ class regression_wrapper:
         rng_state = np.random.get_state()
         np.random.seed(self.rffm_seed)
 
-        self.random_matrix = np.random.normal(size=[self.input_dim, self.output_dim])
-        self.bias = np.random.uniform(low=0., high=2.*np.pi, size=[self.output_dim])
+        self.random_matrix = np.random.normal(size=[self.input_dim, self.basis_dim])
+        self.bias = np.random.uniform(low=0., high=2.*np.pi, size=[self.basis_dim])
 
         np.random.set_state(rng_state)
 
     def _init_statistics(self):
-        self.XX = np.zeros([self.output_dim, self.output_dim])
-        self.Xy = np.zeros([self.output_dim, 1])
-
-    '''
-    def _basis(self, X, length_scale, signal_sd):
-        x_omega_plus_bias = np.matmul(X, (1./length_scale)*self.random_matrix) + self.bias
-        z = signal_sd * np.sqrt(2./self.output_dim) * np.cos(x_omega_plus_bias)
-        return z
-    '''
+        self.XX = np.zeros([self.basis_dim, self.basis_dim])
+        self.Xy = np.zeros([self.basis_dim, 1])
 
     def _update(self, X, y):
         assert len(X.shape) == 2
         assert len(y.shape) == 2
         assert X.shape[0] == y.shape[0]
 
-        basis = _basis(X, self.random_matrix, self.bias, self.output_dim, self.length_scale, self.signal_sd)
+        basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, self.length_scale, self.signal_sd)
         self.XX += np.matmul(basis.T, basis)
         self.Xy += np.matmul(basis.T, y)
 
@@ -69,6 +63,7 @@ class regression_wrapper:
         _res = minimize(self._log_marginal_likelihood, thetas, method='nelder-mead', args=(X, y), options=options)
         self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd = _res.x
         self.noise_sd = np.maximum(self.noise_sd, self.noise_sd_clip_threshold)
+        self.hyperparameters = np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd])
         print self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd
 
     def _log_marginal_likelihood(self, thetas, X, y):
@@ -76,7 +71,7 @@ class regression_wrapper:
             length_scale, signal_sd, noise_sd, prior_sd = thetas
             noise_sd_clipped = np.maximum(noise_sd, self.noise_sd_clip_threshold)
 
-            basis = _basis(X, self.random_matrix, self.bias, self.output_dim, length_scale, signal_sd)
+            basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, length_scale, signal_sd)
             N = len(basis.T)
             XX = np.matmul(basis.T, basis)
             Xy = np.matmul(basis.T, y)
@@ -98,15 +93,15 @@ class regression_wrapper:
         self._update(X, y)
 
     def _predict(self, X):
-        basis = _basis(X, self.random_matrix, self.bias, self.output_dim, self.length_scale, self.signal_sd)
+        basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, self.length_scale, self.signal_sd)
         mu, sigma, _, _ = posterior(self.XX, self.Xy, self.noise_sd, self.prior_sd)
         predict_mu = np.matmul(basis, mu)
         predict_sigma = self.noise_sd**2 + np.sum(np.multiply(np.matmul(basis, sigma), basis), axis=-1, keepdims=True)
         return predict_mu, predict_sigma
 
-class agent:
+class Agent:
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, action_space_low, action_space_high,
-                 unroll_steps, no_samples, discount_factor, rffm_seed=1, output_dim=256):
+                 unroll_steps, no_samples, discount_factor, rffm_seed=1, basis_dim=256):
         assert environment in ['Pendulum-v0', 'MountainCarContinuous-v0']
         assert x_dim == state_dim + action_dim
         assert len(action_space_low.shape) == 1
@@ -123,13 +118,16 @@ class agent:
         self.no_samples = no_samples
         self.discount_factor = discount_factor
         self.rffm_seed = rffm_seed
-        self.output_dim = output_dim
+        self.basis_dim = basis_dim
+
+        self.count = 0
+        self.mod_interval = 500
 
         #Initialize random matrix
         rng_state = np.random.get_state()
         np.random.seed(self.rffm_seed)
-        self.random_matrix = np.random.normal(size=[self.x_dim, self.output_dim])
-        self.bias = np.random.uniform(low=0., high=2.*np.pi, size=[self.output_dim])
+        self.random_matrix = np.random.normal(size=[self.x_dim, self.basis_dim])
+        self.bias = np.random.uniform(low=0., high=2.*np.pi, size=[self.basis_dim])
         np.random.set_state(rng_state)
 
         #Use real reward function
@@ -138,37 +136,87 @@ class agent:
         elif self.environment == 'MountainCarContinuous-v0':
             self.reward_function = mountain_car_continuous_reward_function()
 
-        #TODO: initialize neural network
-        self.thetas = None
+        self.hidden_dim = 32
+        self.hyperstate_dim = self.state_dim*self.basis_dim*(self.basis_dim+1)/2+self.state_dim*self.basis_dim
+        self.w0 = np.concatenate([np.random.normal(size=[self.hyperstate_dim, self.state_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.state_dim])], axis=0)
+        self.w1 = np.concatenate([np.random.normal(size=[2*self.state_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
+        self.w2 = np.concatenate([np.random.normal(size=[self.hidden_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
+        self.w3 = np.concatenate([np.random.normal(size=[self.hidden_dim, self.action_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.action_dim])], axis=0)
 
-    def _forward(self, X, hyperstate):
+        self.thetas = self._pack([self.w0, self.w1, self.w2, self.w3])
+
+        self.sizes = [[self.hyperstate_dim + 1, self.state_dim],
+                      [2*self.state_dim + 1, self.hidden_dim],
+                      [self.hidden_dim + 1, self.hidden_dim],
+                      [self.hidden_dim + 1, self.action_dim]]
+
+        w0, w1, w2, w3 = self._unpack(self.thetas, self.sizes)
+        np.testing.assert_equal(w0, self.w0)
+        np.testing.assert_equal(w1, self.w1)
+        np.testing.assert_equal(w2, self.w2)
+        np.testing.assert_equal(w3, self.w3)
+
+    def _pack(self, thetas):
+        return np.concatenate([theta.flatten() for theta in thetas])
+
+    def _unpack(self, thetas, sizes):
+        sidx = 0
+        weights = []
+        for size in sizes:
+            i, j = size
+            w = thetas[sidx:sidx+i*j].reshape([i, j])
+            sidx += i*j
+            weights.append(w)
+        return weights
+
+    def _forward(self, thetas, X, hyperstate):
+        w0, w1, w2, w3 = self._unpack(thetas, self.sizes)
+
         wn, Vn = hyperstate
 
         batch_size, state_dim, _, _ = Vn.shape
-
-        indices = np.triu_indices(self.output_dim, 1)
+        indices = np.triu_indices(self.basis_dim, 1)
         for i in range(batch_size):
             for j in range(state_dim):
                 Vn[i, j][indices] = np.nan
-
         Vn = Vn[~np.isnan(Vn)]
         Vn = np.reshape(Vn, [batch_size, state_dim, -1])
-        print Vn.shape
 
-        #wn = np.reshape(wn, [len(wn), -1])
-        print wn.shape
-        exit()
-        #TODO: code this
-        return np.random.uniform(size=[len(X), 1])
+        hyperstate = np.concatenate([Vn, np.squeeze(wn, axis=-1)], axis=-1)
+        hyperstate = np.reshape(hyperstate, [len(hyperstate), -1])
+        hyperstate = self._add_bias(hyperstate)
+        hyperstate_embeddding = self._relu(np.matmul(hyperstate, w0))
 
-    def _fit(self, X, XXtr, Xytr, hyperparamters):
+        state_hyperstate = np.concatenate([X, hyperstate_embeddding], axis=-1)
+        state_hyperstate = self._add_bias(state_hyperstate)
+
+        h1 = self._relu(np.matmul(state_hyperstate, w1))
+        h1 = self._add_bias(h1)
+
+        h2 = self._relu(np.matmul(h1, w2))
+        h2 = self._add_bias(h2)
+
+        out = np.tanh(np.matmul(h2, w3))
+        out = out * self.action_space_high#action bounds.
+
+        return out
+
+    def _add_bias(self, X):
+        assert len(X.shape) == 2
+        return np.concatenate([X, np.ones([len(X), 1])], axis=-1)
+
+    def _relu(self, X):
+        return np.maximum(X, 0.)
+
+    def _fit(self, X, XXtr, Xytr, hyperparameters):
         assert len(XXtr) == self.state_dim
         assert len(Xytr) == self.state_dim
+        assert len(hyperparameters) == self.state_dim
 
         A = []
         for i in xrange(self.state_dim):
             _, _, noise_sd, prior_sd = hyperparameters[i]
-            V0 = prior_sd**2*np.eye(self.output_dim)
+            V0 = prior_sd**2*np.eye(self.basis_dim)
             noise = noise_sd**2*np.linalg.inv(V0)
             tmp = np.linalg.inv(noise + XXtr[i])
             A.append(tmp)
@@ -188,41 +236,12 @@ class agent:
         self.thetas = np.copy(_res.x)
 
     def _loss(self, thetas, X, XXtr, Xytr, A=[], hyperparameters=None):
-        #---------------------------------------------------#
-        assert len(XXtr) == self.state_dim
-        assert len(Xytr) == self.state_dim
-
-        A = []
-        for i in xrange(self.state_dim):
-            _, _, noise_sd, prior_sd = hyperparameters[i]
-            V0 = prior_sd**2*np.eye(self.output_dim)
-            noise = noise_sd**2*np.linalg.inv(V0)
-            tmp = np.linalg.inv(noise + XXtr[i])
-            A.append(tmp)
-        A = np.stack(A, axis=0)
-
-        X = np.expand_dims(X, axis=1)
-        X = np.tile(X, [1, self.no_samples, 1])
-        X = np.reshape(X, [-1, self.state_dim])
-
-        XXtr = np.tile(XXtr[np.newaxis, ...], [len(X), 1, 1, 1])
-        Xytr = np.tile(Xytr[np.newaxis, ...], [len(X), 1, 1, 1])
-        A = np.tile(A[np.newaxis, ...], [len(X), 1, 1, 1])
-        print XXtr.shape
-        print '-------------------'
-        #---------------------------------------------------#
-
-
-
-
-
         rng_state = np.random.get_state()
         np.random.seed(2)
 
         rewards = []
         state = X
         for unroll_step in xrange(self.unroll_steps):
-
             Vns = []
             wns = []
             for i in xrange(self.state_dim):
@@ -232,7 +251,7 @@ class agent:
                 Vns.append(Vn)
                 wns.append(wn)
 
-            action = self._forward(state, hyperstate=[np.stack(wns, axis=1), np.stack(Vns, axis=1)])
+            action = self._forward(thetas, state, hyperstate=[np.stack(wns, axis=1), np.stack(Vns, axis=1)])
 
             reward = self.reward_function.build_np(state, action)
             rewards.append((self.discount_factor**unroll_step)*reward)
@@ -244,10 +263,8 @@ class agent:
             bases = []
             for i in xrange(self.state_dim):
                 length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
-                basis = _basis(state_action, self.random_matrix, self.bias, self.output_dim, length_scale, signal_sd)
+                basis = _basis(state_action, self.random_matrix, self.bias, self.basis_dim, length_scale, signal_sd)
                 bases.append(basis)
-                #Vn = noise_sd**2*A[:, i, ...]
-                #wn = np.matmul(A[:, i, ...], Xytr[:, i, ...])
                 basis = np.expand_dims(basis, axis=1)
                 
                 pred_mu = np.squeeze(np.matmul(basis, wns[i]))
@@ -276,30 +293,101 @@ class agent:
         rewards = np.sum(rewards, axis=-1)
         loss = -np.mean(rewards)
         np.random.set_state(rng_state)
+
+        if (self.count)%self.mod_interval==0 or\
+           (self.count-1)%self.mod_interval==0 or\
+           (self.count-2)%self.mod_interval==0 or\
+           (self.count-3)%self.mod_interval==0 or\
+           (self.count-4)%self.mod_interval==0 or\
+           (self.count-5)%self.mod_interval==0 or\
+           (self.count-6)%self.mod_interval==0 or\
+           (self.count-7)%self.mod_interval==0 or\
+           (self.count-8)%self.mod_interval==0 or\
+           (self.count-9)%self.mod_interval==0 or\
+           (self.count-10)%self.mod_interval==0:
+           print 'count:', self.count, 'loss:', loss
+        self.count += 1
         return loss
 
-def main2():
-    env = gym.make('Pendulum-v0')
-    output_dim = 5
-    tmp = agent(environment=env.spec.id,
+def main_loop():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--environment", type=str, default='Pendulum-v0')
+    parser.add_argument("--unroll-steps", type=int, default=200)
+    parser.add_argument("--discount-factor", type=float, default=.995)
+    parser.add_argument("--gather-data-epochs", type=int, default=1, help='Epochs for initial data gather.')
+    parser.add_argument("--train-hp-iterations", type=int, default=2000*10)
+    parser.add_argument("--train-policy-batch-size", type=int, default=30)
+    parser.add_argument("--no-samples", type=int, default=1)
+    parser.add_argument("--basis-dim", type=int, default=45)
+    parser.add_argument("--rffm-seed", type=int, default=1)
+    args = parser.parse_args()
+
+    print args
+
+    env = gym.make(args.environment)
+
+    agent = Agent(environment=env.spec.id,
                 x_dim=env.observation_space.shape[0]+env.action_space.shape[0],
                 y_dim=env.observation_space.shape[0],
                 state_dim=env.observation_space.shape[0],
                 action_dim=env.action_space.shape[0],
                 action_space_low=env.action_space.low,
                 action_space_high=env.action_space.high,
-                unroll_steps=200,
-                no_samples=7,
-                discount_factor=.999,
-                rffm_seed=1,
-                output_dim=output_dim)
-    tmp._loss(thetas=np.random.uniform(size=[10, 3]),
-              X=np.random.uniform(size=[5, 3]),
-              XXtr=np.random.uniform(size=[3, output_dim, output_dim]),
-              Xytr=np.random.uniform(size=[3, output_dim, 1]),
-              hyperparameters=np.random.uniform(size=[3, 4]))
+                unroll_steps=args.unroll_steps,
+                no_samples=args.no_samples,
+                discount_factor=args.discount_factor,
+                rffm_seed=args.rffm_seed,
+                basis_dim=args.basis_dim)
+    regression_wrappers = [RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0],
+                                             basis_dim=args.basis_dim,
+                                             length_scale=1.,
+                                             signal_sd=1.,
+                                             noise_sd=5e-4,
+                                             prior_sd=1.,
+                                             rffm_seed=args.rffm_seed,
+                                             train_hp_iterations=args.train_hp_iterations,
+                                             noise_sd_clip_threshold=5e-5)
+                           for _ in range(env.observation_space.shape[0])]
 
-def main():
+    flag = False
+    data_buffer = gather_data(env, args.gather_data_epochs)
+
+    init_states = np.stack([env.reset() for _ in range(args.train_policy_batch_size)], axis=0)
+
+    for epoch in range(1000):
+        #Train hyperparameters and update systems model.
+        states_actions, next_states = unpack(data_buffer)
+        for i in range(env.observation_space.shape[0]):
+            if flag == False:
+                regression_wrappers[i]._train_hyperparameters(states_actions, next_states[:, i:i+1])
+                regression_wrappers[i]._reset_statistics(states_actions, next_states[:, i:i+1])
+            else:
+                regression_wrappers[i]._update(states_actions, next_states[:, i:i+1])
+        if len(data_buffer) >= 3000: flag = True
+        if flag: data_buffer = []
+
+        #Fit policy network.
+        XX, Xy, hyperparameters = [np.stack(ele, axis=0) for ele in zip(*[[rw.XX, rw.Xy, rw.hyperparameters] for rw in regression_wrappers])]
+        agent._fit(init_states, XX, Xy, hyperparameters)
+
+        #Get hyperstate
+        wns, Vns, _, _ = zip(*[posterior(rw.XX, rw.Xy, rw.noise_sd, rw.prior_sd) for rw in regression_wrappers])
+        hyperstate = [np.stack(ele, axis=0)[np.newaxis, ...] for ele in [wns, Vns]]
+
+        total_rewards = 0.
+        state = env.reset()
+        while True:
+            #env.render()
+            action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate)[0]
+            next_state, reward, done, _ = env.step(action)
+            data_buffer.append([state, action, reward, next_state, done])
+            total_rewards += float(reward)
+            state = np.copy(next_state)
+            if done:
+                print 'epoch:', epoch, 'total_rewards:', total_rewards
+                break
+
+def plotting_experiments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", type=str, default='Pendulum-v0')
     parser.add_argument("--train-hp-iterations", type=int, default=2000)
@@ -310,7 +398,7 @@ def main():
 
     predictors = []
     for i in range(env.observation_space.shape[0]):
-        predictors.append(regression_wrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0], output_dim=128*2, length_scale=1.,
+        predictors.append(RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=128*2, length_scale=1.,
                                           signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations, noise_sd_clip_threshold=5e-5))
 
     states, actions, next_states = gather_data(env, 5, unpack=True)
@@ -371,5 +459,5 @@ def main():
     plt.show()
 
 if __name__ == '__main__':
-    #main()
-    main2()
+    #plotting_experiments()
+    main_loop()
