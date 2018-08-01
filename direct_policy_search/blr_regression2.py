@@ -139,25 +139,34 @@ class agent:
             self.reward_function = mountain_car_continuous_reward_function()
 
         #TODO: initialize neural network
+        self.thetas = None
 
-    def _forward(self, X):
+    def _forward(self, X, hyperstate):
+        wn, Vn = hyperstate
+
+        batch_size, state_dim, _, _ = Vn.shape
+
+        indices = np.triu_indices(self.output_dim, 1)
+        for i in range(batch_size):
+            for j in range(state_dim):
+                Vn[i, j][indices] = np.nan
+
+        Vn = Vn[~np.isnan(Vn)]
+        Vn = np.reshape(Vn, [batch_size, state_dim, -1])
+        print Vn.shape
+
+        #wn = np.reshape(wn, [len(wn), -1])
+        print wn.shape
+        exit()
         #TODO: code this
         return np.random.uniform(size=[len(X), 1])
 
-    def _fit(self):
-        #TODO: code this
-        pass
-
-    def _loss(self, thetas, X, XXtr, Xytr, hyperparameters):
+    def _fit(self, X, XXtr, Xytr, hyperparamters):
         assert len(XXtr) == self.state_dim
         assert len(Xytr) == self.state_dim
 
-        rng_state = np.random.get_state()
-        np.random.seed(2)
-
-        #Optimize this: does tiling does not to happen everytime loss is called?
         A = []
-        for i in range(self.state_dim):
+        for i in xrange(self.state_dim):
             _, _, noise_sd, prior_sd = hyperparameters[i]
             V0 = prior_sd**2*np.eye(self.output_dim)
             noise = noise_sd**2*np.linalg.inv(V0)
@@ -173,12 +182,57 @@ class agent:
         Xytr = np.tile(Xytr[np.newaxis, ...], [len(X), 1, 1, 1])
         A = np.tile(A[np.newaxis, ...], [len(X), 1, 1, 1])
 
+        options = {'maxiter': 1, 'disp': True}
+        _res = minimize(self._loss, self.thetas, method='powell', args=(X, XXtr, Xytr, A, hyperparameters), options=options)
+        assert self.thetas.shape == _res.x.shape
+        self.thetas = np.copy(_res.x)
+
+    def _loss(self, thetas, X, XXtr, Xytr, A=[], hyperparameters=None):
+        #---------------------------------------------------#
+        assert len(XXtr) == self.state_dim
+        assert len(Xytr) == self.state_dim
+
+        A = []
+        for i in xrange(self.state_dim):
+            _, _, noise_sd, prior_sd = hyperparameters[i]
+            V0 = prior_sd**2*np.eye(self.output_dim)
+            noise = noise_sd**2*np.linalg.inv(V0)
+            tmp = np.linalg.inv(noise + XXtr[i])
+            A.append(tmp)
+        A = np.stack(A, axis=0)
+
+        X = np.expand_dims(X, axis=1)
+        X = np.tile(X, [1, self.no_samples, 1])
+        X = np.reshape(X, [-1, self.state_dim])
+
+        XXtr = np.tile(XXtr[np.newaxis, ...], [len(X), 1, 1, 1])
+        Xytr = np.tile(Xytr[np.newaxis, ...], [len(X), 1, 1, 1])
+        A = np.tile(A[np.newaxis, ...], [len(X), 1, 1, 1])
+        print XXtr.shape
+        print '-------------------'
+        #---------------------------------------------------#
+
+
+
+
+
+        rng_state = np.random.get_state()
+        np.random.seed(2)
+
         rewards = []
         state = X
         for unroll_step in xrange(self.unroll_steps):
 
-            #TODO: _forward must take hyperstate as input
-            action = self._forward(state)
+            Vns = []
+            wns = []
+            for i in xrange(self.state_dim):
+                length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
+                Vn = noise_sd**2*A[:, i, ...]
+                wn = np.matmul(A[:, i, ...], Xytr[:, i, ...])
+                Vns.append(Vn)
+                wns.append(wn)
+
+            action = self._forward(state, hyperstate=[np.stack(wns, axis=1), np.stack(Vns, axis=1)])
 
             reward = self.reward_function.build_np(state, action)
             rewards.append((self.discount_factor**unroll_step)*reward)
@@ -188,16 +242,16 @@ class agent:
             means = []
             covs = []
             bases = []
-            for i in range(self.state_dim):
+            for i in xrange(self.state_dim):
                 length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
                 basis = _basis(state_action, self.random_matrix, self.bias, self.output_dim, length_scale, signal_sd)
                 bases.append(basis)
-                Vn = noise_sd**2*A[:, i, ...]
-                wn = np.matmul(A[:, i, ...], Xytr[:, i, ...])
+                #Vn = noise_sd**2*A[:, i, ...]
+                #wn = np.matmul(A[:, i, ...], Xytr[:, i, ...])
                 basis = np.expand_dims(basis, axis=1)
                 
-                pred_mu = np.squeeze(np.matmul(basis, wn))
-                pred_sigma = noise_sd**2 + np.squeeze(np.matmul(np.matmul(basis, Vn), np.transpose(basis, [0, 2, 1])))
+                pred_mu = np.squeeze(np.matmul(basis, wns[i]))
+                pred_sigma = noise_sd**2 + np.squeeze(np.matmul(np.matmul(basis, Vns[i]), np.transpose(basis, [0, 2, 1])))
 
                 means.append(pred_mu)
                 covs.append(pred_sigma)
@@ -226,7 +280,7 @@ class agent:
 
 def main2():
     env = gym.make('Pendulum-v0')
-    output_dim = 256
+    output_dim = 5
     tmp = agent(environment=env.spec.id,
                 x_dim=env.observation_space.shape[0]+env.action_space.shape[0],
                 y_dim=env.observation_space.shape[0],
