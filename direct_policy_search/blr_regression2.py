@@ -319,8 +319,7 @@ class Agent:
            (self.count-7)%self.mod_interval==0 or\
            (self.count-8)%self.mod_interval==0 or\
            (self.count-9)%self.mod_interval==0 or\
-           (self.count-10)%self.mod_interval==0 or\
-           1==1:
+           (self.count-10)%self.mod_interval==0:
            print 'count:', self.count, 'loss:', loss
         self.count += 1
         return loss
