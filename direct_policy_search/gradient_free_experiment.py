@@ -101,10 +101,10 @@ class gradient_free_experiment:
             state = self.state_function.step_np(state, action)
 
         self.it += 1
-        rewards = np.stack(rewards, axis=-1)
+        rewards = np.concatenate(rewards, axis=-1)
         rewards = np.sum(rewards, axis=-1)
         loss = np.mean(-rewards)
-        print loss
+        print self.it, loss
         return loss
 
     def callback(self, thetas):
@@ -149,7 +149,7 @@ def main2():
     env = gym.make(args.environment)
     gfe = gradient_free_experiment(args.environment, env.observation_space.shape[0] + 1, env.action_space.shape[0], env.action_space.low, env.action_space.high)
 
-    weights = pickle.load(open('weights_e176b1c6-7f36-4eaf-b5c4-ef87cea93704.p', 'rb'))
+    weights = pickle.load(open('weights_2bf4ab45-c2c4-4184-8b9b-0e42bdc61c7a.p', 'rb'))
 
     offset = 0
     gfe.h1 = np.copy(weights[:gfe.state_dim*gfe.hidden_dim].reshape([gfe.state_dim, gfe.hidden_dim]))
@@ -183,5 +183,5 @@ def main2():
                 break
 
 if __name__ == '__main__':
-    #main()
-    main2()
+    main()
+    #main2()

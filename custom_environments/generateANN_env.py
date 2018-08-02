@@ -33,7 +33,8 @@ class ANN:
             self.opt = tf.train.AdamOptimizer().minimize(self.loss)
             
         else:
-            self.build_graph(tf.placeholder(shape=[None, self.input_dim], dtype=tf.float64))
+            self.inputs = tf.placeholder(shape=[None, self.input_dim], dtype=tf.float64)
+            self.outputs = self.build_graph(self.inputs)
 
     def build_graph(self, inputs):
         fc1 = slim.fully_connected(inputs, 256, activation_fn=tf.nn.relu, scope=self.scope+'/fc1', reuse=self.reuse)
@@ -49,6 +50,19 @@ class ANN:
         
         return self.build_graph(states_actions)
 
+    def build_np(self, sess, states, actions):
+        assert len(states.shape) == 2
+        assert len(actions.shape) == 2
+        assert states.shape[0] == actions.shape[0]
+
+        states_actions = np.concatenate([states, actions], axis=-1)
+        rewards = sess.run(self.outputs, feed_dict={self.inputs:states_actions})
+        assert len(rewards.shape) == 2
+        assert states.shape[0] == rewards.shape[0]
+        assert rewards.shape[-1] == 1
+
+        return rewards
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", type=str, default='MountainCarContinuous-v0')
@@ -61,17 +75,18 @@ def main():
     print args
 
     env = gym.make(args.env)
-    ann = ANN(env.observation_space.shape[0]+env.action_space.shape[0], env.observation_space.shape[0], train_weights=True)
+    ann = ANN(env.observation_space.shape[0]+env.action_space.shape[0], 1, train_weights=True)
 
-    permutation = np.random.permutation(args.data_size)
-    #reward_function = real_env_pendulum_reward()
-    #reward_function = mountain_car_continuous_reward_function(goal_position=args.goal_position)
-    state_function = mountain_car_continuous_state_function()
-    states = np.random.uniform(env.observation_space.low, env.observation_space.high, size=[args.data_size, env.observation_space.shape[0]])
+    reward_function = real_env_pendulum_reward()
+    #state_function = real_env_pendulum_state()
+
+    high = np.array([np.pi, 1.])
+    states = np.random.uniform(low=-high, high=high, size=[args.data_size, len(high)])
+    states = np.stack([np.cos(states[:, 0]), np.sin(states[:, 0]), states[:, 1]], axis=-1)
     actions = np.random.uniform(env.action_space.low, env.action_space.high, size=[args.data_size, env.action_space.shape[0]])
-    next_states = state_function.step_np(states, actions)
-    #rewards = reward_function.build_np(states, actions)
-    #rewards = reward_function.step_np(states, actions)[..., np.newaxis]
+
+    rewards = reward_function.step_np(states, actions)
+
 
     #saver = tf.train.Saver()
 
@@ -81,13 +96,14 @@ def main():
         for it in range(args.iterations):
             for i in range(0, args.data_size, args.batch_size):
                 inputs = np.concatenate([states[i:i+args.batch_size, ...], actions[i:i+args.batch_size, ...]], axis=-1)
-                targets = next_states[i:i+args.batch_size, ...]
+                targets = rewards[i:i+args.batch_size, ...]
                 loss, _ = sess.run([ann.loss, ann.opt], feed_dict={ann.inputs:inputs, ann.targets:targets})
-                print 'iterations:', it, 'i:', i, 'loss:', loss
+                if it % 1000 == 0:
+                    print 'iterations:', it, 'i:', i, 'loss:', loss
 
         #print sess.run(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))
         #saver.save(sess, './weights/pendulum_reward.ckpt')
-        pickle.dump(sess.run(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)), open('./weights/mountain_car_continuous_next_state.p', 'wb'))
+        pickle.dump(sess.run(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)), open('./weights/pendulum_reward.p', 'wb'))
     #print str(reward_function.goal_position_np)
 
 if __name__ == '__main__':

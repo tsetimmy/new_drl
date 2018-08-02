@@ -5,6 +5,8 @@ import argparse
 import sys
 sys.path.append('..')
 
+import tensorflow as tf
+from custom_environments.generateANN_env import ANN
 #from custom_environments.environment_state_functions import mountain_car_continuous_state_function
 from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
 from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
@@ -14,6 +16,7 @@ from gaussian_processes.gp_regression2 import unpack
 from utils import gather_data, gather_data2
 
 import gym
+import pickle
 
 def _basis(X, random_matrix, bias, basis_dim, length_scale, signal_sd):
     x_omega_plus_bias = np.matmul(X, (1./length_scale)*random_matrix) + bias
@@ -100,17 +103,20 @@ class RegressionWrapper:
         return predict_mu, predict_sigma
 
 class Agent:
-    def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, action_space_low, action_space_high,
-                 unroll_steps, no_samples, discount_factor, rffm_seed=1, basis_dim=256):
+    def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
+                 action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, rffm_seed=1, basis_dim=256):
         assert environment in ['Pendulum-v0', 'MountainCarContinuous-v0']
         assert x_dim == state_dim + action_dim
         assert len(action_space_low.shape) == 1
+        np.testing.assert_equal(-observation_space_low, observation_space_high)
         np.testing.assert_equal(-action_space_low, action_space_high)
         self.environment = environment
         self.x_dim = x_dim
         self.y_dim = y_dim
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.observation_space_low = observation_space_low
+        self.observation_space_high = observation_space_high
         self.action_space_low = action_space_low
         self.action_space_high = action_space_high
 
@@ -132,7 +138,12 @@ class Agent:
 
         #Use real reward function
         if self.environment == 'Pendulum-v0':
-            self.reward_function = real_env_pendulum_reward()
+            #self.reward_function = real_env_pendulum_reward()
+            self.reward_function = ANN(self.state_dim+self.action_dim, 1)
+            self.placeholders_reward = [tf.placeholder(shape=v.shape, dtype=tf.float64)
+                                        for v in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.reward_function.scope)]
+            self.assign_ops0 = [v.assign(pl) for v, pl in zip(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.reward_function.scope),
+                                self.placeholders_reward)]
         elif self.environment == 'MountainCarContinuous-v0':
             self.reward_function = mountain_car_continuous_reward_function()
 
@@ -185,7 +196,7 @@ class Agent:
         hyperstate = np.concatenate([Vn, np.squeeze(wn, axis=-1)], axis=-1)
         hyperstate = np.reshape(hyperstate, [len(hyperstate), -1])
         hyperstate = self._add_bias(hyperstate)
-        hyperstate_embeddding = self._relu(np.matmul(hyperstate, w0))
+        hyperstate_embeddding = np.tanh(np.matmul(hyperstate, w0))
 
         state_hyperstate = np.concatenate([X, hyperstate_embeddding], axis=-1)
         state_hyperstate = self._add_bias(state_hyperstate)
@@ -208,7 +219,7 @@ class Agent:
     def _relu(self, X):
         return np.maximum(X, 0.)
 
-    def _fit(self, X, XXtr, Xytr, hyperparameters):
+    def _fit(self, X, XXtr, Xytr, hyperparameters, sess):
         assert len(XXtr) == self.state_dim
         assert len(Xytr) == self.state_dim
         assert len(hyperparameters) == self.state_dim
@@ -231,11 +242,11 @@ class Agent:
         A = np.tile(A[np.newaxis, ...], [len(X), 1, 1, 1])
 
         options = {'maxiter': 1, 'disp': True}
-        _res = minimize(self._loss, self.thetas, method='powell', args=(X, XXtr, Xytr, A, hyperparameters), options=options)
+        _res = minimize(self._loss, self.thetas, method='powell', args=(X, XXtr, Xytr, A, hyperparameters, sess), options=options)
         assert self.thetas.shape == _res.x.shape
         self.thetas = np.copy(_res.x)
 
-    def _loss(self, thetas, X, XXtr, Xytr, A=[], hyperparameters=None):
+    def _loss(self, thetas, X, XXtr, Xytr, A=[], hyperparameters=None, sess=None):
         rng_state = np.random.get_state()
         np.random.seed(2)
 
@@ -253,7 +264,10 @@ class Agent:
 
             action = self._forward(thetas, state, hyperstate=[np.stack(wns, axis=1), np.stack(Vns, axis=1)])
 
-            reward = self.reward_function.build_np(state, action)
+            if self.environment == 'Pendulum-v0':
+                reward = self.reward_function.build_np(sess, state, action)
+            elif self.environment == 'MountainCarContinuous-v0':
+                reward = self.reward_function.build_np(state, action)
             rewards.append((self.discount_factor**unroll_step)*reward)
 
             state_action = np.concatenate([state, action], axis=-1)
@@ -276,6 +290,7 @@ class Agent:
             covs = np.stack(covs, axis=-1)
 
             state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(means, covs)], axis=0)
+            state = np.clip(state, self.observation_space_low, self.observation_space_high)
 
             bases = np.stack(bases, axis=1)
             bases = np.expand_dims(bases, axis=2)
@@ -304,7 +319,8 @@ class Agent:
            (self.count-7)%self.mod_interval==0 or\
            (self.count-8)%self.mod_interval==0 or\
            (self.count-9)%self.mod_interval==0 or\
-           (self.count-10)%self.mod_interval==0:
+           (self.count-10)%self.mod_interval==0 or\
+           1==1:
            print 'count:', self.count, 'loss:', loss
         self.count += 1
         return loss
@@ -314,7 +330,7 @@ def main_loop():
     parser.add_argument("--environment", type=str, default='Pendulum-v0')
     parser.add_argument("--unroll-steps", type=int, default=200)
     parser.add_argument("--discount-factor", type=float, default=.995)
-    parser.add_argument("--gather-data-epochs", type=int, default=1, help='Epochs for initial data gather.')
+    parser.add_argument("--gather-data-epochs", type=int, default=2, help='Epochs for initial data gather.')
     parser.add_argument("--train-hp-iterations", type=int, default=2000*10)
     parser.add_argument("--train-policy-batch-size", type=int, default=30)
     parser.add_argument("--no-samples", type=int, default=1)
@@ -331,6 +347,8 @@ def main_loop():
                 y_dim=env.observation_space.shape[0],
                 state_dim=env.observation_space.shape[0],
                 action_dim=env.action_space.shape[0],
+                observation_space_low=env.observation_space.low,
+                observation_space_high=env.observation_space.high,
                 action_space_low=env.action_space.low,
                 action_space_high=env.action_space.high,
                 unroll_steps=args.unroll_steps,
@@ -354,38 +372,42 @@ def main_loop():
 
     init_states = np.stack([env.reset() for _ in range(args.train_policy_batch_size)], axis=0)
 
-    for epoch in range(1000):
-        #Train hyperparameters and update systems model.
-        states_actions, next_states = unpack(data_buffer)
-        for i in range(env.observation_space.shape[0]):
-            if flag == False:
-                regression_wrappers[i]._train_hyperparameters(states_actions, next_states[:, i:i+1])
-                regression_wrappers[i]._reset_statistics(states_actions, next_states[:, i:i+1])
-            else:
-                regression_wrappers[i]._update(states_actions, next_states[:, i:i+1])
-        if len(data_buffer) >= 3000: flag = True
-        if flag: data_buffer = []
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        weights = pickle.load(open('../custom_environments/weights/pendulum_reward.p', 'rb'))
+        sess.run(agent.assign_ops0, feed_dict=dict(zip(agent.placeholders_reward, weights)))
+        for epoch in range(1000):
+            #Train hyperparameters and update systems model.
+            states_actions, next_states = unpack(data_buffer)
+            for i in range(env.observation_space.shape[0]):
+                if flag == False:
+                    regression_wrappers[i]._train_hyperparameters(states_actions, next_states[:, i:i+1])
+                    regression_wrappers[i]._reset_statistics(states_actions, next_states[:, i:i+1])
+                else:
+                    regression_wrappers[i]._update(states_actions, next_states[:, i:i+1])
+            if len(data_buffer) >= 3000: flag = True
+            if flag: data_buffer = []
 
-        #Fit policy network.
-        XX, Xy, hyperparameters = [np.stack(ele, axis=0) for ele in zip(*[[rw.XX, rw.Xy, rw.hyperparameters] for rw in regression_wrappers])]
-        agent._fit(init_states, XX, Xy, hyperparameters)
+            #Fit policy network.
+            XX, Xy, hyperparameters = [np.stack(ele, axis=0) for ele in zip(*[[rw.XX, rw.Xy, rw.hyperparameters] for rw in regression_wrappers])]
+            agent._fit(init_states, XX, Xy, hyperparameters, sess)
 
-        #Get hyperstate
-        wns, Vns, _, _ = zip(*[posterior(rw.XX, rw.Xy, rw.noise_sd, rw.prior_sd) for rw in regression_wrappers])
-        hyperstate = [np.stack(ele, axis=0)[np.newaxis, ...] for ele in [wns, Vns]]
+            #Get hyperstate
+            wns, Vns, _, _ = zip(*[posterior(rw.XX, rw.Xy, rw.noise_sd, rw.prior_sd) for rw in regression_wrappers])
+            hyperstate = [np.stack(ele, axis=0)[np.newaxis, ...] for ele in [wns, Vns]]
 
-        total_rewards = 0.
-        state = env.reset()
-        while True:
-            #env.render()
-            action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate)[0]
-            next_state, reward, done, _ = env.step(action)
-            data_buffer.append([state, action, reward, next_state, done])
-            total_rewards += float(reward)
-            state = np.copy(next_state)
-            if done:
-                print 'epoch:', epoch, 'total_rewards:', total_rewards
-                break
+            total_rewards = 0.
+            state = env.reset()
+            while True:
+                #env.render()
+                action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate)[0]
+                next_state, reward, done, _ = env.step(action)
+                data_buffer.append([state, action, reward, next_state, done])
+                total_rewards += float(reward)
+                state = np.copy(next_state)
+                if done:
+                    print 'epoch:', epoch, 'total_rewards:', total_rewards
+                    break
 
 def plotting_experiments():
     parser = argparse.ArgumentParser()
