@@ -23,6 +23,9 @@ class mountain_car_continuous_reward_function:
 
         self.state_function = mountain_car_continuous_state_function()
 
+    def build_np(self, state, action):
+        return self.step_np(state, action)
+
     def step_np(self, state, action):
         assert len(state) == len(action)
         assert len(state.shape) == 2

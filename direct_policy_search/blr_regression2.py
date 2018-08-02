@@ -108,7 +108,6 @@ class Agent:
         assert environment in ['Pendulum-v0', 'MountainCarContinuous-v0']
         assert x_dim == state_dim + action_dim
         assert len(action_space_low.shape) == 1
-        np.testing.assert_equal(-observation_space_low, observation_space_high)
         np.testing.assert_equal(-action_space_low, action_space_high)
         self.environment = environment
         self.x_dim = x_dim
@@ -373,8 +372,9 @@ def main_loop():
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        weights = pickle.load(open('../custom_environments/weights/pendulum_reward.p', 'rb'))
-        sess.run(agent.assign_ops0, feed_dict=dict(zip(agent.placeholders_reward, weights)))
+        if args.environment == 'Pendulum-v0':
+            weights = pickle.load(open('../custom_environments/weights/pendulum_reward.p', 'rb'))
+            sess.run(agent.assign_ops0, feed_dict=dict(zip(agent.placeholders_reward, weights)))
         for epoch in range(1000):
             #Train hyperparameters and update systems model.
             states_actions, next_states = unpack(data_buffer)
