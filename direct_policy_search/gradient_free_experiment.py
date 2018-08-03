@@ -167,7 +167,7 @@ def main2():
     print args
 
     env = gym.make(args.environment)
-    gfe = gradient_free_experiment(args.environment, env.observation_space.shape[0] + 1, env.action_space.shape[0], env.action_space.low, env.action_space.high)
+    gfe = gradient_free_experiment(args.environment, env.observation_space.shape[0] + 1, env.action_space.shape[0], env.action_space.low, env.action_space.high, None, None, None)
 
     weights = pickle.load(open(args.path, 'rb'))
 
