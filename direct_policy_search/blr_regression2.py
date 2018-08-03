@@ -17,6 +17,7 @@ from utils import gather_data, gather_data2
 
 import gym
 import pickle
+import warnings
 
 def _basis(X, random_matrix, bias, basis_dim, length_scale, signal_sd):
     x_omega_plus_bias = np.matmul(X, (1./length_scale)*random_matrix) + bias
@@ -219,6 +220,7 @@ class Agent:
         return np.maximum(X, 0.)
 
     def _fit(self, X, XXtr, Xytr, hyperparameters, sess):
+        warnings.filterwarnings('error')
         assert len(XXtr) == self.state_dim
         assert len(Xytr) == self.state_dim
         assert len(hyperparameters) == self.state_dim
@@ -247,81 +249,86 @@ class Agent:
 
     def _loss(self, thetas, X, XXtr, Xytr, A=[], hyperparameters=None, sess=None):
         rng_state = np.random.get_state()
-        np.random.seed(2)
+        try:
+            np.random.seed(2)
 
-        rewards = []
-        state = X
-        for unroll_step in xrange(self.unroll_steps):
-            Vns = []
-            wns = []
-            for i in xrange(self.state_dim):
-                length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
-                Vn = noise_sd**2*A[:, i, ...]
-                wn = np.matmul(A[:, i, ...], Xytr[:, i, ...])
-                Vns.append(Vn)
-                wns.append(wn)
+            rewards = []
+            state = X
+            for unroll_step in xrange(self.unroll_steps):
+                Vns = []
+                wns = []
+                for i in xrange(self.state_dim):
+                    length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
+                    Vn = noise_sd**2*A[:, i, ...]
+                    wn = np.matmul(A[:, i, ...], Xytr[:, i, ...])
+                    Vns.append(Vn)
+                    wns.append(wn)
 
-            action = self._forward(thetas, state, hyperstate=[np.stack(wns, axis=1), np.stack(Vns, axis=1)])
+                action = self._forward(thetas, state, hyperstate=[np.stack(wns, axis=1), np.stack(Vns, axis=1)])
 
-            if self.environment == 'Pendulum-v0':
-                reward = self.reward_function.build_np(sess, state, action)
-            elif self.environment == 'MountainCarContinuous-v0':
-                reward = self.reward_function.build_np(state, action)
-            rewards.append((self.discount_factor**unroll_step)*reward)
+                if self.environment == 'Pendulum-v0':
+                    reward = self.reward_function.build_np(sess, state, action)
+                elif self.environment == 'MountainCarContinuous-v0':
+                    reward = self.reward_function.build_np(state, action)
+                rewards.append((self.discount_factor**unroll_step)*reward)
 
-            state_action = np.concatenate([state, action], axis=-1)
+                state_action = np.concatenate([state, action], axis=-1)
 
-            means = []
-            covs = []
-            bases = []
-            for i in xrange(self.state_dim):
-                length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
-                basis = _basis(state_action, self.random_matrix, self.bias, self.basis_dim, length_scale, signal_sd)
-                bases.append(basis)
-                basis = np.expand_dims(basis, axis=1)
-                
-                pred_mu = np.squeeze(np.matmul(basis, wns[i]))
-                pred_sigma = noise_sd**2 + np.squeeze(np.matmul(np.matmul(basis, Vns[i]), np.transpose(basis, [0, 2, 1])))
+                means = []
+                covs = []
+                bases = []
+                for i in xrange(self.state_dim):
+                    length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
+                    basis = _basis(state_action, self.random_matrix, self.bias, self.basis_dim, length_scale, signal_sd)
+                    bases.append(basis)
+                    basis = np.expand_dims(basis, axis=1)
+                    
+                    pred_mu = np.squeeze(np.matmul(basis, wns[i]))
+                    pred_sigma = noise_sd**2 + np.squeeze(np.matmul(np.matmul(basis, Vns[i]), np.transpose(basis, [0, 2, 1])))
 
-                means.append(pred_mu)
-                covs.append(pred_sigma)
-            means = np.stack(means, axis=-1)
-            covs = np.stack(covs, axis=-1)
+                    means.append(pred_mu)
+                    covs.append(pred_sigma)
+                means = np.stack(means, axis=-1)
+                covs = np.stack(covs, axis=-1)
 
-            state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(means, covs)], axis=0)
-            state = np.clip(state, self.observation_space_low, self.observation_space_high)
+                state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(means, covs)], axis=0)
+                state = np.clip(state, self.observation_space_low, self.observation_space_high)
 
-            bases = np.stack(bases, axis=1)
-            bases = np.expand_dims(bases, axis=2)
-            bases_transpose = np.transpose(bases, [0, 1, 3, 2])
+                bases = np.stack(bases, axis=1)
+                bases = np.expand_dims(bases, axis=2)
+                bases_transpose = np.transpose(bases, [0, 1, 3, 2])
 
-            XXtr += np.matmul(bases_transpose, bases)
-            state_expand_dims = state[..., np.newaxis][..., np.newaxis]
-            Xytr += np.matmul(bases_transpose, state_expand_dims)
+                XXtr += np.matmul(bases_transpose, bases)
+                state_expand_dims = state[..., np.newaxis][..., np.newaxis]
+                Xytr += np.matmul(bases_transpose, state_expand_dims)
 
-            tmp = np.matmul(bases, A)
-            A -= np.matmul(np.matmul(A, bases_transpose), tmp) /\
-                 (1. + np.matmul(tmp, bases_transpose))
+                tmp = np.matmul(bases, A)
+                A -= np.matmul(np.matmul(A, bases_transpose), tmp) /\
+                     (1. + np.matmul(tmp, bases_transpose))
 
-        rewards = np.concatenate(rewards, axis=-1)
-        rewards = np.sum(rewards, axis=-1)
-        loss = -np.mean(rewards)
-        np.random.set_state(rng_state)
+            rewards = np.concatenate(rewards, axis=-1)
+            rewards = np.sum(rewards, axis=-1)
+            loss = -np.mean(rewards)
+            np.random.set_state(rng_state)
 
-        if (self.count)%self.mod_interval==0 or\
-           (self.count-1)%self.mod_interval==0 or\
-           (self.count-2)%self.mod_interval==0 or\
-           (self.count-3)%self.mod_interval==0 or\
-           (self.count-4)%self.mod_interval==0 or\
-           (self.count-5)%self.mod_interval==0 or\
-           (self.count-6)%self.mod_interval==0 or\
-           (self.count-7)%self.mod_interval==0 or\
-           (self.count-8)%self.mod_interval==0 or\
-           (self.count-9)%self.mod_interval==0 or\
-           (self.count-10)%self.mod_interval==0:
-           print 'count:', self.count, 'loss:', loss
-        self.count += 1
-        return loss
+            if (self.count)%self.mod_interval==0 or\
+               (self.count-1)%self.mod_interval==0 or\
+               (self.count-2)%self.mod_interval==0 or\
+               (self.count-3)%self.mod_interval==0 or\
+               (self.count-4)%self.mod_interval==0 or\
+               (self.count-5)%self.mod_interval==0 or\
+               (self.count-6)%self.mod_interval==0 or\
+               (self.count-7)%self.mod_interval==0 or\
+               (self.count-8)%self.mod_interval==0 or\
+               (self.count-9)%self.mod_interval==0 or\
+               (self.count-10)%self.mod_interval==0:
+               print 'count:', self.count, 'loss:', loss
+            self.count += 1
+            return loss
+        except Exception as e:
+            np.random.set_state(rng_state)
+            print e, 'Returning inf.'
+            return np.inf
 
 def main_loop():
     parser = argparse.ArgumentParser()
