@@ -200,10 +200,10 @@ class Agent:
         state_hyperstate = np.concatenate([X, hyperstate_embeddding], axis=-1)
         state_hyperstate = self._add_bias(state_hyperstate)
 
-        h1 = self._relu(np.matmul(state_hyperstate, w1))
+        h1 = np.tanh(np.matmul(state_hyperstate, w1))
         h1 = self._add_bias(h1)
 
-        h2 = self._relu(np.matmul(h1, w2))
+        h2 = np.tanh(np.matmul(h1, w2))
         h2 = self._add_bias(h2)
 
         out = np.tanh(np.matmul(h2, w3))
