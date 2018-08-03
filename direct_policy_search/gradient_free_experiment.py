@@ -137,10 +137,9 @@ class gradient_free_experiment:
             if loss < lowest:
                 self.thetas += perterbations
                 lowest = loss
-            lowest = np.minimum(loss, lowest)
             print 'lowest:', lowest
         pickle.dump(self.thetas, open('weights_random_search_'+self.uuid+'.p', 'wb'))
-
+        print 'weights_random_search_'+self.uuid+'.p'
 
     def act(self, state):
         action = self.forward(state[np.newaxis, ...], self.h1, self.h2, self.o)
@@ -203,5 +202,5 @@ def main2():
                 break
 
 if __name__ == '__main__':
-    main()
-    #main2()
+    #main()
+    main2()

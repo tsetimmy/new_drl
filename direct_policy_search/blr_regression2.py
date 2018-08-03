@@ -219,12 +219,7 @@ class Agent:
     def _relu(self, X):
         return np.maximum(X, 0.)
 
-    def _fit(self, X, XXtr, Xytr, hyperparameters, sess):
-        warnings.filterwarnings('error')
-        assert len(XXtr) == self.state_dim
-        assert len(Xytr) == self.state_dim
-        assert len(hyperparameters) == self.state_dim
-
+    def _process(self, X, XXtr, Xytr, hyperparameters):
         A = []
         for i in xrange(self.state_dim):
             _, _, noise_sd, prior_sd = hyperparameters[i]
@@ -242,6 +237,54 @@ class Agent:
         Xytr = np.tile(Xytr[np.newaxis, ...], [len(X), 1, 1, 1])
         A = np.tile(A[np.newaxis, ...], [len(X), 1, 1, 1])
 
+        return X, XXtr, Xytr, A
+
+    def _fit_random_search(self, X, XXtr, Xytr, hyperparameters, sess):
+        warnings.filterwarnings('error')
+        assert len(XXtr) == self.state_dim
+        assert len(Xytr) == self.state_dim
+        assert len(hyperparameters) == self.state_dim
+
+        X, XXtr, Xytr, A = self._process(X, XXtr, Xytr, hyperparameters)
+
+        maxiter = 10000
+        lowest = self._loss(self.thetas, X, XXtr, Xytr, A, hyperparameters, sess)
+        print 'Starting loss:', lowest
+        for i in xrange(maxiter):
+            scale = np.random.uniform(low=-5., high=5.)
+            perterbations = scale*np.random.normal(size=[len(self.thetas)])
+            loss = self._loss(self.thetas + perterbations, X, XXtr, Xytr, A, hyperparameters, sess)
+            if loss < lowest:
+                self.thetas += perterbations
+                lowest = loss
+            print 'lowest:', lowest
+
+    def _fit(self, X, XXtr, Xytr, hyperparameters, sess):
+        warnings.filterwarnings('error')
+        assert len(XXtr) == self.state_dim
+        assert len(Xytr) == self.state_dim
+        assert len(hyperparameters) == self.state_dim
+
+        '''
+        A = []
+        for i in xrange(self.state_dim):
+            _, _, noise_sd, prior_sd = hyperparameters[i]
+            V0 = prior_sd**2*np.eye(self.basis_dim)
+            noise = noise_sd**2*np.linalg.inv(V0)
+            tmp = np.linalg.inv(noise + XXtr[i])
+            A.append(tmp)
+        A = np.stack(A, axis=0)
+
+        X = np.expand_dims(X, axis=1)
+        X = np.tile(X, [1, self.no_samples, 1])
+        X = np.reshape(X, [-1, self.state_dim])
+
+        XXtr = np.tile(XXtr[np.newaxis, ...], [len(X), 1, 1, 1])
+        Xytr = np.tile(Xytr[np.newaxis, ...], [len(X), 1, 1, 1])
+        A = np.tile(A[np.newaxis, ...], [len(X), 1, 1, 1])
+        '''
+        X, XXtr, Xytr, A = self._process(X, XXtr, Xytr, hyperparameters)
+
         options = {'maxiter': 1, 'disp': True}
         _res = minimize(self._loss, self.thetas, method='powell', args=(X, XXtr, Xytr, A, hyperparameters, sess), options=options)
         assert self.thetas.shape == _res.x.shape
@@ -249,6 +292,10 @@ class Agent:
 
     def _loss(self, thetas, X, XXtr, Xytr, A=[], hyperparameters=None, sess=None):
         rng_state = np.random.get_state()
+        X = np.copy(X)
+        XXtr = np.copy(XXtr)
+        Xytr = np.copy(Xytr)
+        A = np.copy(A)
         try:
             np.random.seed(2)
 
@@ -321,8 +368,9 @@ class Agent:
                (self.count-7)%self.mod_interval==0 or\
                (self.count-8)%self.mod_interval==0 or\
                (self.count-9)%self.mod_interval==0 or\
-               (self.count-10)%self.mod_interval==0:
-               print 'count:', self.count, 'loss:', loss
+               (self.count-10)%self.mod_interval==0 or\
+               True:
+               print 'count:', self.count, 'loss:', loss,
             self.count += 1
             return loss
         except Exception as e:
@@ -396,7 +444,7 @@ def main_loop():
 
             #Fit policy network.
             XX, Xy, hyperparameters = [np.stack(ele, axis=0) for ele in zip(*[[rw.XX, rw.Xy, rw.hyperparameters] for rw in regression_wrappers])]
-            agent._fit(init_states, XX, Xy, hyperparameters, sess)
+            agent._fit_random_search(init_states, XX, Xy, hyperparameters, sess)
 
             #Get hyperstate
             wns, Vns, _, _ = zip(*[posterior(rw.XX, rw.Xy, rw.noise_sd, rw.prior_sd) for rw in regression_wrappers])
