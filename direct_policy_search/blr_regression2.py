@@ -327,8 +327,8 @@ class Agent:
             return loss
         except Exception as e:
             np.random.set_state(rng_state)
-            print e, 'Returning inf.'
-            return np.inf
+            print e, 'Returning 10e100'
+            return 10.**100
 
 def main_loop():
     parser = argparse.ArgumentParser()

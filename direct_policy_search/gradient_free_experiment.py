@@ -18,7 +18,7 @@ import uuid
 iterations = 0
 
 class gradient_free_experiment:
-    def __init__(self, env, state_dim, action_dim, action_space_high, action_space_low):
+    def __init__(self, env, state_dim, action_dim, action_space_high, action_space_low, batch_size, unroll_steps, discount_factor):
 
         #self.X = np.linspace(-2., 2., self.batch_size)
         #self.y = np.sin(self.X) + 5e-5 * np.random.randn(self.batch_size)
@@ -40,9 +40,9 @@ class gradient_free_experiment:
         self.thetas = np.concatenate([self.h1.flatten(), self.h2.flatten(), self.o.flatten()])
 
         self.uuid = str(uuid.uuid4())
-        self.batch_size = 20
-        self.unroll_steps = 100*2
-        self.discount_factor = .999
+        self.batch_size = batch_size
+        self.unroll_steps = unroll_steps
+        self.discount_factor = discount_factor
         if self.env == 'MountainCarContinuous-v0':
             self.reward_function = mountain_car_continuous_reward_function(goal_position=.45)
             self.state_function = mountain_car_continuous_state_function()
@@ -133,23 +133,27 @@ class gradient_free_experiment:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", type=str, default='MountainCarContinuous-v0')
+    parser.add_argument("--batch-size", type=int, default=20)
+    parser.add_argument("--unroll-steps", type=int, default=200)
+    parser.add_argument("--discount-factor", type=float, default=.999)
     args = parser.parse_args()
     print args
 
     env = gym.make(args.environment)
-    gfe = gradient_free_experiment(args.environment, env.observation_space.shape[0] + 1, env.action_space.shape[0], env.action_space.low, env.action_space.high)
+    gfe = gradient_free_experiment(args.environment, env.observation_space.shape[0] + 1, env.action_space.shape[0], env.action_space.low, env.action_space.high, args.batch_size, args.unroll_steps, args.discount_factor)
     gfe.fit()
 
 def main2():
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", type=str, default='MountainCarContinuous-v0')
+    parser.add_argument("--path", type=str, default='weights_2bf4ab45-c2c4-4184-8b9b-0e42bdc61c7a.p')
     args = parser.parse_args()
     print args
 
     env = gym.make(args.environment)
     gfe = gradient_free_experiment(args.environment, env.observation_space.shape[0] + 1, env.action_space.shape[0], env.action_space.low, env.action_space.high)
 
-    weights = pickle.load(open('weights_2bf4ab45-c2c4-4184-8b9b-0e42bdc61c7a.p', 'rb'))
+    weights = pickle.load(open(args.path, 'rb'))
 
     offset = 0
     gfe.h1 = np.copy(weights[:gfe.state_dim*gfe.hidden_dim].reshape([gfe.state_dim, gfe.hidden_dim]))
