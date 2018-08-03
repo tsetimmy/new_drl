@@ -104,7 +104,7 @@ class gradient_free_experiment:
         rewards = np.concatenate(rewards, axis=-1)
         rewards = np.sum(rewards, axis=-1)
         loss = np.mean(-rewards)
-        print self.it, loss
+        print self.it, loss,
         return loss
 
     def callback(self, thetas):
@@ -126,6 +126,22 @@ class gradient_free_experiment:
         self.o = np.copy(res[2])
         '''
 
+    def fit_random_search(self):
+        maxiter = 10000
+        lowest = self.loss(self.thetas)
+        print 'Starting loss:', lowest
+        for i in xrange(maxiter):
+            scale = np.random.uniform(low=-5., high=5.)
+            perterbations = scale*np.random.normal(size=[len(self.thetas)])
+            loss = self.loss(self.thetas + perterbations)
+            if loss < lowest:
+                self.thetas += perterbations
+                lowest = loss
+            lowest = np.minimum(loss, lowest)
+            print 'lowest:', lowest
+        pickle.dump(self.thetas, open('weights_random_search_'+self.uuid+'.p', 'wb'))
+
+
     def act(self, state):
         action = self.forward(state[np.newaxis, ...], self.h1, self.h2, self.o)
         return action[0]
@@ -141,7 +157,7 @@ def main():
 
     env = gym.make(args.environment)
     gfe = gradient_free_experiment(args.environment, env.observation_space.shape[0] + 1, env.action_space.shape[0], env.action_space.low, env.action_space.high, args.batch_size, args.unroll_steps, args.discount_factor)
-    gfe.fit()
+    gfe.fit_random_search()
 
 def main2():
     parser = argparse.ArgumentParser()
