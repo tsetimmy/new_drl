@@ -183,6 +183,7 @@ class Agent:
     def _forward(self, thetas, X, hyperstate):
         w0, w1, w2, w3 = self._unpack(thetas, self.sizes)
 
+        '''
         wn, Vn = hyperstate
 
         batch_size, state_dim, _, _ = Vn.shape
@@ -197,6 +198,9 @@ class Agent:
         hyperstate = np.reshape(hyperstate, [len(hyperstate), -1])
         hyperstate = self._add_bias(hyperstate)
         hyperstate_embeddding = np.tanh(np.matmul(hyperstate, w0))
+        '''
+
+        hyperstate_embeddding = np.zeros([len(X), w0.shape[-1]])
 
         state_hyperstate = np.concatenate([X, hyperstate_embeddding], axis=-1)
         state_hyperstate = self._add_bias(state_hyperstate)
@@ -247,11 +251,11 @@ class Agent:
 
         X, XXtr, Xytr, A = self._process(X, XXtr, Xytr, hyperparameters)
 
-        maxiter = 10000
+        maxiter = 100
         lowest = self._loss(self.thetas, X, XXtr, Xytr, A, hyperparameters, sess)
         print 'Starting loss:', lowest
         for i in xrange(maxiter):
-            scale = np.random.uniform(low=-5., high=5.)
+            scale = np.random.uniform(low=0., high=5.)
             perterbations = scale*np.random.normal(size=[len(self.thetas)])
             loss = self._loss(self.thetas + perterbations, X, XXtr, Xytr, A, hyperparameters, sess)
             if loss < lowest:
@@ -341,6 +345,7 @@ class Agent:
                 state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(means, covs)], axis=0)
                 state = np.clip(state, self.observation_space_low, self.observation_space_high)
 
+                '''
                 bases = np.stack(bases, axis=1)
                 bases = np.expand_dims(bases, axis=2)
                 bases_transpose = np.transpose(bases, [0, 1, 3, 2])
@@ -352,6 +357,7 @@ class Agent:
                 tmp = np.matmul(bases, A)
                 A -= np.matmul(np.matmul(A, bases_transpose), tmp) /\
                      (1. + np.matmul(tmp, bases_transpose))
+                '''
 
             rewards = np.concatenate(rewards, axis=-1)
             rewards = np.sum(rewards, axis=-1)
