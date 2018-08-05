@@ -395,26 +395,28 @@ def main_loop():
     parser.add_argument("--no-samples", type=int, default=1)
     parser.add_argument("--basis-dim", type=int, default=45)
     parser.add_argument("--rffm-seed", type=int, default=1)
+    parser.add_argument("--Agent", type=str, default='')
     args = parser.parse_args()
 
     print args
+    from blr_regression2_sans_hyperstate import Agent2
 
     env = gym.make(args.environment)
 
-    agent = Agent(environment=env.spec.id,
-                x_dim=env.observation_space.shape[0]+env.action_space.shape[0],
-                y_dim=env.observation_space.shape[0],
-                state_dim=env.observation_space.shape[0],
-                action_dim=env.action_space.shape[0],
-                observation_space_low=env.observation_space.low,
-                observation_space_high=env.observation_space.high,
-                action_space_low=env.action_space.low,
-                action_space_high=env.action_space.high,
-                unroll_steps=args.unroll_steps,
-                no_samples=args.no_samples,
-                discount_factor=args.discount_factor,
-                rffm_seed=args.rffm_seed,
-                basis_dim=args.basis_dim)
+    agent = eval('Agent'+args.Agent)(environment=env.spec.id,
+                                     x_dim=env.observation_space.shape[0]+env.action_space.shape[0],
+                                     y_dim=env.observation_space.shape[0],
+                                     state_dim=env.observation_space.shape[0],
+                                     action_dim=env.action_space.shape[0],
+                                     observation_space_low=env.observation_space.low,
+                                     observation_space_high=env.observation_space.high,
+                                     action_space_low=env.action_space.low,
+                                     action_space_high=env.action_space.high,
+                                     unroll_steps=args.unroll_steps,
+                                     no_samples=args.no_samples,
+                                     discount_factor=args.discount_factor,
+                                     rffm_seed=args.rffm_seed,
+                                     basis_dim=args.basis_dim)
     regression_wrappers = [RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0],
                                              basis_dim=args.basis_dim,
                                              length_scale=1.,
