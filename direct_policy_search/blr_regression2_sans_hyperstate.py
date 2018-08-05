@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.optimize import minimize
 import warnings
 from blr_regression2 import Agent, _basis
 

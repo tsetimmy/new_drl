@@ -64,9 +64,11 @@ class RegressionWrapper:
     def _train_hyperparameters(self, X, y):
         thetas = np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd])
         options = {'maxiter': self.train_hp_iterations, 'disp': True}
-        _res = minimize(self._log_marginal_likelihood, thetas, method='nelder-mead', args=(X, y), options=options)
+        _res = minimize(self._log_marginal_likelihood, thetas, method='powell', args=(X, y), options=options)
         self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd = _res.x
         self.noise_sd = np.maximum(self.noise_sd, self.noise_sd_clip_threshold)
+        self.length_scale = np.abs(self.length_scale)
+        self.signal_sd = np.abs(self.signal_sd)
         self.hyperparameters = np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd])
         print self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd
 
@@ -75,7 +77,7 @@ class RegressionWrapper:
             length_scale, signal_sd, noise_sd, prior_sd = thetas
             noise_sd_clipped = np.maximum(noise_sd, self.noise_sd_clip_threshold)
 
-            basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, length_scale, signal_sd)
+            basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, np.abs(length_scale), np.abs(signal_sd))
             N = len(basis.T)
             XX = np.matmul(basis.T, basis)
             Xy = np.matmul(basis.T, y)
@@ -89,8 +91,10 @@ class RegressionWrapper:
             lml = .5*(-N*np.log(noise_sd_clipped**2) - logdet1 + logdet2 - np.matmul(y.T, y)[0, 0]/noise_sd_clipped**2 + np.matmul(np.matmul(Xy.T, tmp.T), Xy)[0, 0]/noise_sd_clipped**2)
             loss = -lml
             return loss
-        except:
-            return np.inf
+        except Exception as e:
+            print e, 'Returning 10e100'
+            return 10e100
+
 
     def _reset_statistics(self, X, y):
         self._init_statistics()
@@ -382,18 +386,18 @@ class Agent:
         except Exception as e:
             np.random.set_state(rng_state)
             print e, 'Returning 10e100'
-            return 10.**100
+            return 10e100
 
 def main_loop():
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", type=str, default='Pendulum-v0')
     parser.add_argument("--unroll-steps", type=int, default=200)
     parser.add_argument("--discount-factor", type=float, default=.995)
-    parser.add_argument("--gather-data-epochs", type=int, default=2, help='Epochs for initial data gather.')
+    parser.add_argument("--gather-data-epochs", type=int, default=3, help='Epochs for initial data gather.')
     parser.add_argument("--train-hp-iterations", type=int, default=2000*10)
     parser.add_argument("--train-policy-batch-size", type=int, default=30)
     parser.add_argument("--no-samples", type=int, default=1)
-    parser.add_argument("--basis-dim", type=int, default=45)
+    parser.add_argument("--basis-dim", type=int, default=256)
     parser.add_argument("--rffm-seed", type=int, default=1)
     parser.add_argument("--Agent", type=str, default='')
     args = parser.parse_args()
@@ -421,11 +425,11 @@ def main_loop():
                                              basis_dim=args.basis_dim,
                                              length_scale=1.,
                                              signal_sd=1.,
-                                             noise_sd=5e-4,
+                                             noise_sd=5e-2,
                                              prior_sd=1.,
                                              rffm_seed=args.rffm_seed,
                                              train_hp_iterations=args.train_hp_iterations,
-                                             noise_sd_clip_threshold=5e-5)
+                                             noise_sd_clip_threshold=5e-4)
                            for _ in range(env.observation_space.shape[0])]
 
     flag = False
@@ -482,65 +486,68 @@ def plotting_experiments():
 
     predictors = []
     for i in range(env.observation_space.shape[0]):
-        predictors.append(RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=128*2, length_scale=1.,
-                                          signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations, noise_sd_clip_threshold=5e-5))
+        predictors.append(RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=256, length_scale=1.,
+                                          signal_sd=1., noise_sd=5e-2, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations, noise_sd_clip_threshold=5e-4))
 
-    states, actions, next_states = gather_data(env, 5, unpack=True)
+    states, actions, next_states = gather_data(env, 3, unpack=True)
     states_actions = np.concatenate([states, actions], axis=-1)
 
     # Quick plotting experiment (for sanity check).
     import matplotlib.pyplot as plt
-    if args.environment == 'Pendulum-v0':
-        states2, actions2, next_states2 = gather_data(env, 1, unpack=True)
-    elif args.environment == 'MountainCarContinuous-v0':
-        from utils import mcc_get_success_policy
-        states2, actions2, next_states2 = mcc_get_success_policy(env)
-    states_actions2 = np.concatenate([states2, actions2], axis=-1)
-
-    plt.figure()
+    from utils import mcc_get_success_policy
     for i in range(env.observation_space.shape[0]):
-        plt.subplot(2, env.observation_space.shape[0], i+1)
-
         predictors[i]._train_hyperparameters(states_actions, next_states[:, i:i+1])
         predictors[i]._update(states_actions, next_states[:, i:i+1])
-        predict_mu, predict_sigma = predictors[i]._predict(states_actions2)
 
-        plt.plot(np.arange(len(next_states2[:, i:i+1])), next_states2[:, i:i+1])
-        plt.errorbar(np.arange(len(predict_mu)), predict_mu, yerr=np.sqrt(predict_sigma), color='m', ecolor='g')
-        plt.grid()
+    while True:
+        if args.environment == 'Pendulum-v0':
+            states2, actions2, next_states2 = gather_data(env, 1, unpack=True)
+        elif args.environment == 'MountainCarContinuous-v0':
+            states2, actions2, next_states2 = mcc_get_success_policy(env)
+        states_actions2 = np.concatenate([states2, actions2], axis=-1)
 
-    traj = []
-    no_lines = 50
-    state = np.tile(np.copy(states2[0:1, ...]), [no_lines, 1])
-    for a in actions2:
-        action = np.tile(a[np.newaxis, ...], [no_lines, 1])
-        state_action = np.concatenate([state, action], axis=-1)
-
-        mu_vec = []
-        sigma_vec = []
+        plt.figure()
         for i in range(env.observation_space.shape[0]):
-            predict_mu, predict_sigma = predictors[i]._predict(state_action)
-            mu_vec.append(predict_mu)
-            sigma_vec.append(predict_sigma)
+            plt.subplot(2, env.observation_space.shape[0], i+1)
 
-        mu_vec = np.concatenate(mu_vec, axis=-1)
-        sigma_vec = np.concatenate(sigma_vec, axis=-1)
+            predict_mu, predict_sigma = predictors[i]._predict(states_actions2)
 
-        state = np.stack([np.random.multivariate_normal(mu, np.diag(sigma)) for mu, sigma in zip(mu_vec, sigma_vec)], axis=0)
-        traj.append(np.copy(state))
+            plt.plot(np.arange(len(next_states2[:, i:i+1])), next_states2[:, i:i+1])
+            plt.errorbar(np.arange(len(predict_mu)), predict_mu, yerr=np.sqrt(predict_sigma), color='m', ecolor='g')
+            plt.grid()
 
-    traj = np.stack(traj, axis=-1)
+        traj = []
+        no_lines = 50
+        state = np.tile(np.copy(states2[0:1, ...]), [no_lines, 1])
+        for a in actions2:
+            action = np.tile(a[np.newaxis, ...], [no_lines, 1])
+            state_action = np.concatenate([state, action], axis=-1)
 
-    for i in range(env.observation_space.shape[0]):
-        plt.subplot(2, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
-        for j in range(no_lines):
-            y = traj[j, i, :]
-            plt.plot(np.arange(len(y)), y, color='r')
+            mu_vec = []
+            sigma_vec = []
+            for i in range(env.observation_space.shape[0]):
+                predict_mu, predict_sigma = predictors[i]._predict(state_action)
+                mu_vec.append(predict_mu)
+                sigma_vec.append(predict_sigma)
 
-        plt.plot(np.arange(len(next_states2[..., i])), next_states2[..., i])
-        plt.grid()
+            mu_vec = np.concatenate(mu_vec, axis=-1)
+            sigma_vec = np.concatenate(sigma_vec, axis=-1)
 
-    plt.show()
+            state = np.stack([np.random.multivariate_normal(mu, np.diag(sigma)) for mu, sigma in zip(mu_vec, sigma_vec)], axis=0)
+            traj.append(np.copy(state))
+
+        traj = np.stack(traj, axis=-1)
+
+        for i in range(env.observation_space.shape[0]):
+            plt.subplot(2, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
+            for j in range(no_lines):
+                y = traj[j, i, :]
+                plt.plot(np.arange(len(y)), y, color='r')
+
+            plt.plot(np.arange(len(next_states2[..., i])), next_states2[..., i])
+            plt.grid()
+
+        plt.show(block=False)
 
 if __name__ == '__main__':
     #plotting_experiments()
