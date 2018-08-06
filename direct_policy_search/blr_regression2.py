@@ -400,10 +400,12 @@ def main_loop():
     parser.add_argument("--basis-dim", type=int, default=256)
     parser.add_argument("--rffm-seed", type=int, default=1)
     parser.add_argument("--Agent", type=str, default='')
+    parser.add_argument("--fit-function", type=str, default='_fit')
     args = parser.parse_args()
 
     print args
     from blr_regression2_sans_hyperstate import Agent2
+    from blr_regression2_tf import Agent3
 
     env = gym.make(args.environment)
 
@@ -456,7 +458,7 @@ def main_loop():
 
             #Fit policy network.
             XX, Xy, hyperparameters = [np.stack(ele, axis=0) for ele in zip(*[[rw.XX, rw.Xy, rw.hyperparameters] for rw in regression_wrappers])]
-            agent._fit_random_search(init_states, XX, Xy, hyperparameters, sess)
+            eval('agent.'+args.fit_function)(init_states, XX, Xy, hyperparameters, sess)
 
             #Get hyperstate
             wns, Vns, _, _ = zip(*[posterior(rw.XX, rw.Xy, rw.noise_sd, rw.prior_sd) for rw in regression_wrappers])

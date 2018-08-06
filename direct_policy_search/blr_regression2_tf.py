@@ -4,6 +4,8 @@ import tensorflow.contrib.slim as slim
 import tensorflow.contrib.distributions as tfd
 from blr_regression2 import Agent
 
+import warnings
+
 class Agent3(Agent):
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                  action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, rffm_seed=1, basis_dim=256):
@@ -17,14 +19,13 @@ class Agent3(Agent):
         del self.thetas
         del self.sizes
 
-        self.hyperparameters = np.random.normal(size=[self.state_dim, 4])#TODO: change this.
-
         self.policy_scope = 'policy_scope'
         self.policy_reuse_vars = None
         self.X = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float64)
         self.random_matrix_tf = tf.constant(self.random_matrix)
         self.bias_tf = tf.constant(self.bias)
 
+        self.hyperparameters = tf.placeholder(shape=[self.state_dim, 4], dtype=tf.float64)
         self.Vn = tf.placeholder(shape=[self.state_dim, self.basis_dim, self.basis_dim], dtype=tf.float64)
         self.wn = tf.placeholder(shape=[self.state_dim, self.basis_dim, 1], dtype=tf.float64)
 
@@ -33,16 +34,17 @@ class Agent3(Agent):
         for unroll_steps in xrange(self.unroll_steps):
             action = self.build_policy(state)
 
-            #TODO: Get reward here.
+            reward = self.reward_function.build(state, action)
+            rewards.append((self.discount_factor**unroll_steps)*reward)
+
             state_action = tf.concat([state, action], axis=-1)
             
             loc = []
             scale_diag = []
             for i in range(self.state_dim):
-                length_scale, signal_sd, noise_sd, prior_sd = self.hyperparameters[i]
-                x_omega_plus_bias = tf.matmul(state_action, (1./length_scale)*self.random_matrix) + self.bias
-                z = signal_sd * np.sqrt(2./self.basis_dim) * tf.cos(x_omega_plus_bias)
-                pred_sigma = noise_sd**2 + tf.reduce_sum(tf.multiply(tf.matmul(z, self.Vn[i]), z), axis=-1, keepdims=True)
+                x_omega_plus_bias = tf.matmul(state_action, (1./self.hyperparameters[i, 0])*self.random_matrix) + self.bias
+                z = self.hyperparameters[i, 1] * np.sqrt(2./self.basis_dim) * tf.cos(x_omega_plus_bias)
+                pred_sigma = self.hyperparameters[i, 2]**2 + tf.reduce_sum(tf.multiply(tf.matmul(z, self.Vn[i]), z), axis=-1, keepdims=True)
                 pred_mu = tf.matmul(z, self.wn[i])
                 
                 scale_diag.append(pred_sigma)
@@ -52,7 +54,37 @@ class Agent3(Agent):
             scale_diag = tf.concat(scale_diag, axis=-1)
 
             state = tfd.MultivariateNormalDiag(loc=loc, scale_diag=tf.sqrt(scale_diag)).sample()
-            print state.shape
+        rewards = tf.concat(rewards, axis=-1)
+        rewards = tf.reduce_sum(rewards, axis=-1)
+        rewards = tf.reduce_mean(rewards)
+        self.loss = -rewards
+        self.opt = tf.train.AdamOptimizer().minimize(self.loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'policy_scope'))
+
+    def _fit(self, X, XXtr, Xytr, hyperparameters, sess):
+        warnings.filterwarnings('error')
+        assert len(XXtr) == self.state_dim
+        assert len(Xytr) == self.state_dim
+        assert len(hyperparameters) == self.state_dim
+
+        Vns = []
+        wns = []
+        for i in range(self.state_dim):
+            assert XXtr[i].shape == (self.basis_dim, self.basis_dim)
+            assert Xytr[i].shape == (self.basis_dim, 1)
+            length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
+            tmp = np.linalg.inv((noise_sd/prior_sd)**2*np.eye(self.basis_dim) + XXtr[i])
+            Vn = noise_sd**2*tmp
+            wn = np.matmul(tmp, Xytr[i])
+
+            Vns.append(Vn)
+            wns.append(wn)
+
+        Vns = np.stack(Vns, axis=0)
+        wns = np.stack(wns, axis=0)
+
+        opt, loss = sess.run([self.opt, self.loss], feed_dict={self.X:X, self.Vn:Vns, self.wn:wns, self.hyperparameters:hyperparameters})
+        print 'loss:', loss
+        print 'opt:', opt
         exit()
 
     def build_policy(self, states):
