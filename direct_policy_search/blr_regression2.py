@@ -65,11 +65,18 @@ class RegressionWrapper:
 
     def _train_hyperparameters(self, X, y):
         options = {'maxiter': self.train_hp_iterations, 'disp': True}
-        for _ in range(100):
+
+        self.failed = False
+        thetas = np.copy(np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd]))
+        _res = minimize(self._log_marginal_likelihood, thetas, method='powell', args=(X, y), options=options)
+
+        if self.failed == True:
             self.failed = False
             thetas = np.copy(np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd]))
-            _res = minimize(self._log_marginal_likelihood, thetas, method='powell', args=(X, y), options=options)
-            if self.failed == False: break
+            _res = minimize(self._log_marginal_likelihood, thetas, method='nelder-mead', args=(X, y), options=options)
+
+        if self.failed:
+            print 'Warning: hyperparameter training was unsuccessful.'
 
         self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd = _res.x
         self.noise_sd = np.maximum(self.noise_sd, self.noise_sd_clip_threshold)
@@ -492,14 +499,21 @@ def plotting_experiments():
     args = parser.parse_args()
     print args
 
+    if args.environment == 'Pendulum-v0':
+        noise_sd_clip_threshold = 5e-4
+        train_set_size = 3
+    elif args.environment == 'MountainCarContinuous-v0':
+        noise_sd_clip_threshold = 5e-5
+        train_set_size = 1
+
     env = gym.make(args.environment)
 
     predictors = []
     for i in range(env.observation_space.shape[0]):
         predictors.append(RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=256, length_scale=1.,
-                                          signal_sd=1., noise_sd=5e-2, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations, noise_sd_clip_threshold=5e-4))
+                                          signal_sd=1., noise_sd=5e-2, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations, noise_sd_clip_threshold=noise_sd_clip_threshold))
 
-    states, actions, next_states = gather_data(env, 3, unpack=True)
+    states, actions, next_states = gather_data(env, train_set_size, unpack=True)
     states_actions = np.concatenate([states, actions], axis=-1)
 
     # Quick plotting experiment (for sanity check).
