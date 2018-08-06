@@ -74,7 +74,7 @@ class Agent2(Agent):
             print e, 'Returning 10e100'
             return 10.**100
 
-    def _forward(self, thetas, X):
+    def _forward(self, thetas, X, *unused):
         w1, w2, w3 = self._unpack(thetas, self.sizes)
 
         X = self._add_bias(X)

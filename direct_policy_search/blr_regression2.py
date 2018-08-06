@@ -461,14 +461,15 @@ def main_loop():
             eval('agent.'+args.fit_function)(init_states, XX, Xy, hyperparameters, sess)
 
             #Get hyperstate
-            wns, Vns, _, _ = zip(*[posterior(rw.XX, rw.Xy, rw.noise_sd, rw.prior_sd) for rw in regression_wrappers])
-            hyperstate = [np.stack(ele, axis=0)[np.newaxis, ...] for ele in [wns, Vns]]
+            #wns, Vns, _, _ = zip(*[posterior(rw.XX, rw.Xy, rw.noise_sd, rw.prior_sd) for rw in regression_wrappers])
+            #hyperstate = [np.stack(ele, axis=0)[np.newaxis, ...] for ele in [wns, Vns]]
 
             total_rewards = 0.
             state = env.reset()
             while True:
                 #env.render()
-                action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate)[0]
+                #action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate)[0]
+                action = agent._forward(agent.thetas, state[np.newaxis, ...])[0]
                 next_state, reward, done, _ = env.step(action)
                 data_buffer.append([state, action, reward, next_state, done])
                 total_rewards += float(reward)
