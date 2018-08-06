@@ -380,7 +380,7 @@ class Agent:
                (self.count-9)%self.mod_interval==0 or\
                (self.count-10)%self.mod_interval==0 or\
                True:
-               print 'count:', self.count, 'loss:', loss,
+               print 'count:', self.count, 'loss:', loss
             self.count += 1
             return loss
         except Exception as e:
@@ -469,7 +469,7 @@ def main_loop():
             while True:
                 #env.render()
                 #action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate)[0]
-                action = agent._forward(agent.thetas, state[np.newaxis, ...])[0]
+                action = agent._forward(agent.thetas, state[np.newaxis, ...], sess)[0]
                 next_state, reward, done, _ = env.step(action)
                 data_buffer.append([state, action, reward, next_state, done])
                 total_rewards += float(reward)

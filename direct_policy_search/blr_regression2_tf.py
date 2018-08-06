@@ -18,6 +18,7 @@ class Agent3(Agent):
         del self.w3
         del self.thetas
         del self.sizes
+        self.thetas = None
 
         self.policy_scope = 'policy_scope'
         self.policy_reuse_vars = None
@@ -28,6 +29,8 @@ class Agent3(Agent):
         self.hyperparameters = tf.placeholder(shape=[self.state_dim, 4], dtype=tf.float64)
         self.Vn = tf.placeholder(shape=[self.state_dim, self.basis_dim, self.basis_dim], dtype=tf.float64)
         self.wn = tf.placeholder(shape=[self.state_dim, self.basis_dim, 1], dtype=tf.float64)
+
+        self.act = self.build_policy(self.X)
 
         rewards = []
         state = self.X
@@ -82,10 +85,14 @@ class Agent3(Agent):
         Vns = np.stack(Vns, axis=0)
         wns = np.stack(wns, axis=0)
 
-        opt, loss = sess.run([self.opt, self.loss], feed_dict={self.X:X, self.Vn:Vns, self.wn:wns, self.hyperparameters:hyperparameters})
-        print 'loss:', loss
-        print 'opt:', opt
-        exit()
+        for i in range(200):
+            _, loss = sess.run([self.opt, self.loss], feed_dict={self.X:X, self.Vn:Vns, self.wn:wns, self.hyperparameters:hyperparameters})
+            print 'Gradient step #:', i, 'loss:', loss
+
+    def _forward(self, thetas, state, sess):
+        del thetas#unused
+        action = sess.run(self.act, feed_dict={self.X:state})
+        return action
 
     def build_policy(self, states):
         assert states.shape.as_list() == [None, self.state_dim]
@@ -108,9 +115,6 @@ class Agent3(Agent):
         self.policy_reuse_vars = True
 
         return policy
-
-
-
 
 def main():
     import argparse
@@ -152,4 +156,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
