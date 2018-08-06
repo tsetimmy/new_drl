@@ -415,6 +415,7 @@ def main_loop():
     parser.add_argument("--rffm-seed", type=int, default=1)
     parser.add_argument("--Agent", type=str, default='')
     parser.add_argument("--fit-function", type=str, default='_fit')
+    parser.add_argument("--noise-sd-clip-threshold", type=float, default=5e-4)
     args = parser.parse_args()
 
     print args
@@ -445,7 +446,7 @@ def main_loop():
                                              prior_sd=1.,
                                              rffm_seed=args.rffm_seed,
                                              train_hp_iterations=args.train_hp_iterations,
-                                             noise_sd_clip_threshold=5e-4)
+                                             noise_sd_clip_threshold=args.noise_sd_clip_threshold)
                            for _ in range(env.observation_space.shape[0])]
 
     flag = False
