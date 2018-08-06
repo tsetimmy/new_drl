@@ -57,6 +57,7 @@ class Agent3(Agent):
             scale_diag = tf.concat(scale_diag, axis=-1)
 
             state = tfd.MultivariateNormalDiag(loc=loc, scale_diag=tf.sqrt(scale_diag)).sample()
+            state = tf.clip_by_value(state, self.observation_space_low, self.observation_space_high)
         rewards = tf.concat(rewards, axis=-1)
         rewards = tf.reduce_sum(rewards, axis=-1)
         rewards = tf.reduce_mean(rewards)

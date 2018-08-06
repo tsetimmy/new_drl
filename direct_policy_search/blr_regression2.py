@@ -38,6 +38,8 @@ class RegressionWrapper:
         self.train_hp_iterations = train_hp_iterations
         self.noise_sd_clip_threshold = noise_sd_clip_threshold
 
+        self.failed = False
+
         self._init_statistics()
 
         rng_state = np.random.get_state()
@@ -62,9 +64,13 @@ class RegressionWrapper:
         self.Xy += np.matmul(basis.T, y)
 
     def _train_hyperparameters(self, X, y):
-        thetas = np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd])
         options = {'maxiter': self.train_hp_iterations, 'disp': True}
-        _res = minimize(self._log_marginal_likelihood, thetas, method='powell', args=(X, y), options=options)
+        for _ in range(100):
+            self.failed = False
+            thetas = np.copy(np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd]))
+            _res = minimize(self._log_marginal_likelihood, thetas, method='powell', args=(X, y), options=options)
+            if self.failed == False: break
+
         self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd = _res.x
         self.noise_sd = np.maximum(self.noise_sd, self.noise_sd_clip_threshold)
         self.length_scale = np.abs(self.length_scale)
@@ -92,6 +98,7 @@ class RegressionWrapper:
             loss = -lml
             return loss
         except Exception as e:
+            self.failed = True
             print e, 'Returning 10e100'
             return 10e100
 
