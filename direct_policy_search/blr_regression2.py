@@ -101,7 +101,7 @@ class RegressionWrapper:
             s2, logdet2 = np.linalg.slogdet(Vn)
             assert s1 == 1 and s2 == 1
 
-            lml = .5*(-N*np.log(noise_sd_clipped**2) - logdet1 + logdet2 - np.matmul(y.T, y)[0, 0]/noise_sd_clipped**2 + np.matmul(np.matmul(Xy.T, tmp.T), Xy)[0, 0]/noise_sd_clipped**2)
+            lml = .5*(-N*np.log(noise_sd_clipped**2) - logdet1 + logdet2 + (-np.matmul(y.T, y)[0, 0] + np.matmul(np.matmul(Xy.T, tmp.T), Xy)[0, 0])/noise_sd_clipped**2)
             loss = -lml
             return loss
         except Exception as e:
