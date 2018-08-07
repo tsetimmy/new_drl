@@ -524,7 +524,7 @@ def plotting_experiments():
     predictors = []
     for i in range(env.observation_space.shape[0]):
         predictors.append(RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=256, length_scale=1.,
-                                          signal_sd=1., noise_sd=5e-2, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations, noise_sd_clip_threshold=noise_sd_clip_threshold))
+                                          signal_sd=1., noise_sd=noise_sd_clip_threshold, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations, noise_sd_clip_threshold=noise_sd_clip_threshold))
 
     states, actions, next_states = gather_data(env, train_set_size, unpack=True)
     states_actions = np.concatenate([states, actions], axis=-1)
