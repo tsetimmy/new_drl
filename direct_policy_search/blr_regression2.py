@@ -97,6 +97,8 @@ class RegressionWrapper:
 
             wn, Vn, V0, tmp = posterior(XX, Xy, noise_sd_clipped, prior_sd)
 
+            assert np.all(np.linalg.eigvals(tmp) > 0.)
+
             s1, logdet1 = np.linalg.slogdet(V0)
             s2, logdet2 = np.linalg.slogdet(Vn)
             assert s1 == 1 and s2 == 1
@@ -110,7 +112,7 @@ class RegressionWrapper:
             '''
 
             lml = .5*(-N*np.log(noise_sd_clipped**2) - logdet1 + logdet2 + (-np.matmul(y.T, y)[0, 0] + np.matmul(np.matmul(Xy.T, tmp.T), Xy)[0, 0])/noise_sd_clipped**2)
-            loss = -lml + (length_scale**2 + signal_sd**2 + noise_sd_clipped**2 + prior_sd**2)*.5
+            loss = -lml + (length_scale**2 + signal_sd**2 + noise_sd_clipped**2 + prior_sd**2)*1.5
             return loss
         except Exception as e:
             self.failed = True
