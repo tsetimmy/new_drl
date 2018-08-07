@@ -97,7 +97,9 @@ class RegressionWrapper:
 
             wn, Vn, V0, tmp = posterior(XX, Xy, noise_sd_clipped, prior_sd)
 
-            assert np.all(np.linalg.eigvals(tmp) > 0.)
+            if np.all(np.linalg.eigvals(tmp) > 0.) == False:
+                print 'Covariance matrix is not positive semi-definite. Returning 10e100.'
+                return 10e100
 
             s1, logdet1 = np.linalg.slogdet(V0)
             s2, logdet2 = np.linalg.slogdet(Vn)
