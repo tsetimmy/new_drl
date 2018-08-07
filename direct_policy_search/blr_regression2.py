@@ -101,8 +101,16 @@ class RegressionWrapper:
             s2, logdet2 = np.linalg.slogdet(Vn)
             assert s1 == 1 and s2 == 1
 
+            '''
+            print np.matmul(np.matmul(Xy.T, tmp.T), Xy)[0, 0]
+            tmp1 = np.matmul(np.matmul(basis, tmp.T), basis.T)
+            tmp2 = np.matmul(np.matmul(y.T, tmp1), y)
+            print tmp2[0, 0]
+            print '------------------------------'
+            '''
+
             lml = .5*(-N*np.log(noise_sd_clipped**2) - logdet1 + logdet2 + (-np.matmul(y.T, y)[0, 0] + np.matmul(np.matmul(Xy.T, tmp.T), Xy)[0, 0])/noise_sd_clipped**2)
-            loss = -lml
+            loss = -lml + (length_scale**2 + signal_sd**2 + noise_sd_clipped**2 + prior_sd**2)*.5
             return loss
         except Exception as e:
             self.failed = True
@@ -504,7 +512,7 @@ def plotting_experiments():
         noise_sd_clip_threshold = 5e-4
         train_set_size = 3
     elif args.environment == 'MountainCarContinuous-v0':
-        noise_sd_clip_threshold = 5e-5
+        noise_sd_clip_threshold = 1e-4
         train_set_size = 1
 
     env = gym.make(args.environment)
@@ -572,8 +580,8 @@ def plotting_experiments():
             plt.plot(np.arange(len(next_states2[..., i])), next_states2[..., i])
             plt.grid()
 
-        plt.show(block=False)
+        plt.show(block=True)
 
 if __name__ == '__main__':
-    #plotting_experiments()
-    main_loop()
+    plotting_experiments()
+    #main_loop()
