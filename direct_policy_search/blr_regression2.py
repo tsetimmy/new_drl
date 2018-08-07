@@ -71,6 +71,7 @@ class RegressionWrapper:
         _res = minimize(self._log_marginal_likelihood, thetas, method='powell', args=(X, y), options=options)
 
         if self.failed == True:
+            print _res.x
             self.failed = False
             thetas = np.copy(np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd]))
             _res = minimize(self._log_marginal_likelihood, thetas, method='nelder-mead', args=(X, y), options=options)
@@ -120,7 +121,6 @@ class RegressionWrapper:
             self.failed = True
             print e, 'Returning 10e100'
             return 10e100
-
 
     def _reset_statistics(self, X, y):
         self._init_statistics()
