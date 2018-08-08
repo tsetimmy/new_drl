@@ -23,8 +23,11 @@ class Agent3(Agent):
         self.policy_scope = 'policy_scope'
         self.policy_reuse_vars = None
         self.X = tf.placeholder(shape=[None, self.state_dim], dtype=tf.float64)
-        self.random_matrix_tf = tf.constant(self.random_matrix)
-        self.bias_tf = tf.constant(self.bias)
+        self.random_matrix_tf = tf.constant(self.random_matrix, dtype=tf.float64)
+        self.bias_tf = tf.constant(self.bias, dtype=tf.float64)
+
+        self.observation_space_low_tf = tf.tile(tf.expand_dims(tf.constant(self.observation_space_low, dtype=tf.float64), axis=0), [tf.shape(self.X)[0], 1])
+        self.observation_space_high_tf = tf.tile(tf.expand_dims(tf.constant(self.observation_space_high, dtype=tf.float64), axis=0), [tf.shape(self.X)[0], 1])
 
         self.hyperparameters = tf.placeholder(shape=[self.state_dim, 4], dtype=tf.float64)
         self.Vn = tf.placeholder(shape=[self.state_dim, self.basis_dim, self.basis_dim], dtype=tf.float64)
@@ -57,7 +60,7 @@ class Agent3(Agent):
             scale_diag = tf.concat(scale_diag, axis=-1)
 
             state = tfd.MultivariateNormalDiag(loc=loc, scale_diag=tf.sqrt(scale_diag)).sample()
-            state = tf.clip_by_value(state, self.observation_space_low, self.observation_space_high)
+            state = tf.clip_by_value(state, self.observation_space_low_tf, self.observation_space_high_tf)
         rewards = tf.concat(rewards, axis=-1)
         rewards = tf.reduce_sum(rewards, axis=-1)
         rewards = tf.reduce_mean(rewards)
