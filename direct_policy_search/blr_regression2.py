@@ -96,30 +96,25 @@ class RegressionWrapper:
             XX = np.matmul(basis.T, basis)
             Xy = np.matmul(basis.T, y)
 
-            wn, Vn, V0, tmp = posterior(XX, Xy, noise_sd_clipped, prior_sd)
+            #wn, Vn, V0, tmp = posterior(XX, Xy, noise_sd_clipped, prior_sd)
+            tmp = np.linalg.inv((noise_sd_clipped/prior_sd)**2*np.eye(self.basis_dim) + XX)
 
             if np.all(np.linalg.eigvals(tmp) > 0.) == False:
                 print 'Covariance matrix is not positive semi-definite. Returning 10e100.'
                 return 10e100
 
-            s1, logdet1 = np.linalg.slogdet(V0)
-            s2, logdet2 = np.linalg.slogdet(Vn)
-            assert s1 == 1 and s2 == 1
+            s, logdet = np.linalg.slogdet(np.eye(self.basis_dim) + (prior_sd/noise_sd_clipped)**2*XX)
+            if s != 1:
+                print 'logdet is <= 0. Returning 10e100.'
+                return 10e100
 
-            '''
-            print np.matmul(np.matmul(Xy.T, tmp.T), Xy)[0, 0]
-            tmp1 = np.matmul(np.matmul(basis, tmp.T), basis.T)
-            tmp2 = np.matmul(np.matmul(y.T, tmp1), y)
-            print tmp2[0, 0]
-            print '------------------------------'
-            '''
-
-            lml = .5*(-N*np.log(noise_sd_clipped**2) - logdet1 + logdet2 + (-np.matmul(y.T, y)[0, 0] + np.matmul(np.matmul(Xy.T, tmp.T), Xy)[0, 0])/noise_sd_clipped**2)
-            loss = -lml + (length_scale**2 + signal_sd**2 + noise_sd_clipped**2 + prior_sd**2)*1.5
+            lml = .5*(-N*np.log(noise_sd_clipped**2) - logdet + (-np.matmul(y.T, y)[0, 0] + np.matmul(np.matmul(Xy.T, tmp.T), Xy)[0, 0])/noise_sd_clipped**2)
+            #loss = -lml + (length_scale**2 + signal_sd**2 + noise_sd_clipped**2 + prior_sd**2)*1.5
+            loss = -lml
             return loss
         except Exception as e:
             self.failed = True
-            print e, 'Returning 10e100'
+            print e, 'Returning 10e100.'
             return 10e100
 
     def _reset_statistics(self, X, y):
