@@ -1,4 +1,5 @@
 import numpy as np
+import scipy
 from scipy.optimize import minimize
 import argparse
 
@@ -38,8 +39,6 @@ class RegressionWrapper:
         self.train_hp_iterations = train_hp_iterations
         self.noise_sd_clip_threshold = noise_sd_clip_threshold
 
-        self.failed = False
-
         self._init_statistics()
 
         rng_state = np.random.get_state()
@@ -64,20 +63,11 @@ class RegressionWrapper:
         self.Xy += np.matmul(basis.T, y)
 
     def _train_hyperparameters(self, X, y):
+        warnings.filterwarnings('error')
         options = {'maxiter': self.train_hp_iterations, 'disp': True}
 
-        self.failed = False
         thetas = np.copy(np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd]))
         _res = minimize(self._log_marginal_likelihood, thetas, method='powell', args=(X, y), options=options)
-
-        if self.failed == True:
-            print _res.x
-            self.failed = False
-            thetas = np.copy(np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd]))
-            _res = minimize(self._log_marginal_likelihood, thetas, method='nelder-mead', args=(X, y), options=options)
-
-        if self.failed:
-            print 'Warning: hyperparameter training was unsuccessful.'
 
         self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd = _res.x
         self.noise_sd = np.maximum(self.noise_sd, self.noise_sd_clip_threshold)
@@ -96,25 +86,22 @@ class RegressionWrapper:
             XX = np.matmul(basis.T, basis)
             Xy = np.matmul(basis.T, y)
 
-            #wn, Vn, V0, tmp = posterior(XX, Xy, noise_sd_clipped, prior_sd)
-            tmp = np.linalg.inv((noise_sd_clipped/prior_sd)**2*np.eye(self.basis_dim) + XX)
-
-            if np.all(np.linalg.eigvals(tmp) > 0.) == False:
-                print 'Covariance matrix is not positive semi-definite. Returning 10e100.'
-                return 10e100
+            tmp0 = (noise_sd_clipped/prior_sd)**2*np.eye(self.basis_dim) + XX
+            tmp = np.matmul(Xy.T, scipy.linalg.solve(tmp0.T, Xy))
 
             s, logdet = np.linalg.slogdet(np.eye(self.basis_dim) + (prior_sd/noise_sd_clipped)**2*XX)
             if s != 1:
                 print 'logdet is <= 0. Returning 10e100.'
                 return 10e100
 
-            lml = .5*(-N*np.log(noise_sd_clipped**2) - logdet + (-np.matmul(y.T, y)[0, 0] + np.matmul(np.matmul(Xy.T, tmp.T), Xy)[0, 0])/noise_sd_clipped**2)
+            lml = .5*(-N*np.log(noise_sd_clipped**2) - logdet + (-np.matmul(y.T, y)[0, 0] + tmp[0, 0])/noise_sd_clipped**2)
             #loss = -lml + (length_scale**2 + signal_sd**2 + noise_sd_clipped**2 + prior_sd**2)*1.5
             loss = -lml
             return loss
         except Exception as e:
-            self.failed = True
+            print '------------'
             print e, 'Returning 10e100.'
+            print '************'
             return 10e100
 
     def _reset_statistics(self, X, y):
