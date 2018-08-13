@@ -52,10 +52,10 @@ class Agent2(Agent):
                     length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
                     basis = _basis(state_action, self.random_matrix, self.bias, self.basis_dim, length_scale, signal_sd)
 
-                    tmp = (noise_sd/prior_sd)**2*np.eye(self.basis_dim) + XX
+                    tmp = (noise_sd/prior_sd)**2*np.eye(self.basis_dim) + XX[i]
 
-                    predict_sigma = noise_sd**2 + np.sum(np.multiply(basis, noise_sd**2*scipy.linalg.solve(tmp, basis.T).T), axis=-1, keepdims=True)
-                    predict_mu = np.matmul(basis, scipy.linalg.solve(tmp, Xy))
+                    pred_sigma = noise_sd**2 + np.sum(np.multiply(basis, noise_sd**2*scipy.linalg.solve(tmp, basis.T).T), axis=-1, keepdims=True)
+                    pred_mu = np.matmul(basis, scipy.linalg.solve(tmp, Xy[i]))
 
                     #pred_mu = np.matmul(basis, wn[i])
                     #pred_sigma = noise_sd**2 + np.sum(np.multiply(np.matmul(basis, Vn[i]), basis), axis=-1, keepdims=True)
