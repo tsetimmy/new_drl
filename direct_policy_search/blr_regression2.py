@@ -64,12 +64,20 @@ class RegressionWrapper:
 
     def _train_hyperparameters(self, X, y):
         warnings.filterwarnings('error')
-        options = {'maxiter': self.train_hp_iterations, 'disp': True}
+        '''
+        import cma
+        thetas = np.copy(np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd]))
+        options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
+        res = cma.fmin(self._log_marginal_likelihood, thetas, 2., args=(X, y), options=options)
+        results = np.copy(res[0])
+        '''
 
+        options = {'maxiter': self.train_hp_iterations, 'disp': True}
         thetas = np.copy(np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd]))
         _res = minimize(self._log_marginal_likelihood, thetas, method='powell', args=(X, y), options=options)
+        results = np.copy(_res.x)
 
-        self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd = _res.x
+        self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd = results
         self.noise_sd = np.maximum(self.noise_sd, self.noise_sd_clip_threshold)
         self.length_scale = np.abs(self.length_scale)
         self.signal_sd = np.abs(self.signal_sd)
