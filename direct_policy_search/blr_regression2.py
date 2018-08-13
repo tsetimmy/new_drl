@@ -26,7 +26,7 @@ def _basis(X, random_matrix, bias, basis_dim, length_scale, signal_sd):
     return z
 
 class RegressionWrapper:
-    def __init__(self, input_dim, basis_dim, length_scale=1., signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=2000, noise_sd_clip_threshold=5e-5):
+    def __init__(self, input_dim, basis_dim, length_scale=1., signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=2000):
         self.input_dim = input_dim
         self.basis_dim = basis_dim
         self.length_scale = length_scale
@@ -37,7 +37,6 @@ class RegressionWrapper:
 
         self.rffm_seed = rffm_seed
         self.train_hp_iterations = train_hp_iterations
-        self.noise_sd_clip_threshold = noise_sd_clip_threshold
 
         self._init_statistics()
 
@@ -78,7 +77,7 @@ class RegressionWrapper:
         results = np.copy(_res.x)
 
         self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd = results
-        self.noise_sd = np.maximum(self.noise_sd, self.noise_sd_clip_threshold)
+        self.noise_sd = np.abs(self.noise_sd)
         self.length_scale = np.abs(self.length_scale)
         self.signal_sd = np.abs(self.signal_sd)
         self.hyperparameters = np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd])
@@ -87,23 +86,23 @@ class RegressionWrapper:
     def _log_marginal_likelihood(self, thetas, X, y):
         try:
             length_scale, signal_sd, noise_sd, prior_sd = thetas
-            noise_sd_clipped = np.maximum(noise_sd, self.noise_sd_clip_threshold)
+            noise_sd_abs = np.abs(noise_sd)
 
             basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, np.abs(length_scale), np.abs(signal_sd))
             N = len(basis.T)
             XX = np.matmul(basis.T, basis)
             Xy = np.matmul(basis.T, y)
 
-            tmp0 = (noise_sd_clipped/prior_sd)**2*np.eye(self.basis_dim) + XX
+            tmp0 = (noise_sd_abs/prior_sd)**2*np.eye(self.basis_dim) + XX
             tmp = np.matmul(Xy.T, scipy.linalg.solve(tmp0.T, Xy))
 
-            s, logdet = np.linalg.slogdet(np.eye(self.basis_dim) + (prior_sd/noise_sd_clipped)**2*XX)
+            s, logdet = np.linalg.slogdet(np.eye(self.basis_dim) + (prior_sd/noise_sd_abs)**2*XX)
             if s != 1:
                 print 'logdet is <= 0. Returning 10e100.'
                 return 10e100
 
-            lml = .5*(-N*np.log(noise_sd_clipped**2) - logdet + (-np.matmul(y.T, y)[0, 0] + tmp[0, 0])/noise_sd_clipped**2)
-            #loss = -lml + (length_scale**2 + signal_sd**2 + noise_sd_clipped**2 + prior_sd**2)*1.5
+            lml = .5*(-N*np.log(noise_sd_abs**2) - logdet + (-np.matmul(y.T, y)[0, 0] + tmp[0, 0])/noise_sd_abs**2)
+            #loss = -lml + (length_scale**2 + signal_sd**2 + noise_sd_abs**2 + prior_sd**2)*1.5
             loss = -lml
             return loss
         except Exception as e:
@@ -422,7 +421,6 @@ def main_loop():
     parser.add_argument("--rffm-seed", type=int, default=1)
     parser.add_argument("--Agent", type=str, default='')
     parser.add_argument("--fit-function", type=str, default='_fit')
-    parser.add_argument("--noise-sd-clip-threshold", type=float, default=5e-4)
     args = parser.parse_args()
 
     print args
@@ -452,8 +450,7 @@ def main_loop():
                                              noise_sd=5e-2,
                                              prior_sd=1.,
                                              rffm_seed=args.rffm_seed,
-                                             train_hp_iterations=args.train_hp_iterations,
-                                             noise_sd_clip_threshold=args.noise_sd_clip_threshold)
+                                             train_hp_iterations=args.train_hp_iterations)
                            for _ in range(env.observation_space.shape[0])]
 
     flag = False
@@ -508,10 +505,8 @@ def plotting_experiments():
     print args
 
     if args.environment == 'Pendulum-v0':
-        noise_sd_clip_threshold = 5e-4
         train_set_size = 3
     elif args.environment == 'MountainCarContinuous-v0':
-        noise_sd_clip_threshold = 1e-4
         train_set_size = 1
 
     env = gym.make(args.environment)
@@ -519,7 +514,7 @@ def plotting_experiments():
     predictors = []
     for i in range(env.observation_space.shape[0]):
         predictors.append(RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=256, length_scale=1.,
-                                          signal_sd=1., noise_sd=noise_sd_clip_threshold, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations, noise_sd_clip_threshold=noise_sd_clip_threshold))
+                                          signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations))
 
     states, actions, next_states = gather_data(env, train_set_size, unpack=True)
     states_actions = np.concatenate([states, actions], axis=-1)
