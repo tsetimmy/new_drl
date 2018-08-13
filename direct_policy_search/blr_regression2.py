@@ -524,6 +524,14 @@ def plotting_experiments():
     from utils import mcc_get_success_policy
     for i in range(env.observation_space.shape[0]):
         predictors[i]._train_hyperparameters(states_actions, next_states[:, i:i+1])
+
+    states_, actions_, next_states_ = gather_data(env, 40, unpack=True)
+    states_actions_ = np.concatenate([states, actions], axis=-1)
+
+    states_actions = np.concatenate([states_actions, states_actions_], axis=0)
+    next_states = np.concatenate([next_states, next_states_], axis=0)
+
+    for i in range(env.observation_space.shape[0]):
         predictors[i]._update(states_actions, next_states[:, i:i+1])
 
     while True:
