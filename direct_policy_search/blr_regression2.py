@@ -122,8 +122,8 @@ class RegressionWrapper:
         #predict_sigma = self.noise_sd**2 + np.sum(np.multiply(np.matmul(basis, sigma), basis), axis=-1, keepdims=True)
 
         tmp = (self.noise_sd/self.prior_sd)**2*np.eye(self.basis_dim) + self.XX
-        predict_sigma = self.noise_sd**2 + np.sum(np.multiply(basis, self.noise_sd**2*np.linalg.solve(tmp, basis.T).T), axis=-1, keepdims=True)
-        predict_mu = np.matmul(basis, np.linalg.solve(tmp, self.Xy))
+        predict_sigma = self.noise_sd**2 + np.sum(np.multiply(basis, self.noise_sd**2*scipy.linalg.solve(tmp, basis.T).T), axis=-1, keepdims=True)
+        predict_mu = np.matmul(basis, scipy.linalg.solve(tmp, self.Xy))
 
         return predict_mu, predict_sigma
 
@@ -447,7 +447,7 @@ def main_loop():
                                              basis_dim=args.basis_dim,
                                              length_scale=1.,
                                              signal_sd=1.,
-                                             noise_sd=5e-2,
+                                             noise_sd=5e-4,
                                              prior_sd=1.,
                                              rffm_seed=args.rffm_seed,
                                              train_hp_iterations=args.train_hp_iterations)
