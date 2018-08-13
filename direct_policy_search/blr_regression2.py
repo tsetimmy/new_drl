@@ -12,7 +12,7 @@ from custom_environments.generateANN_env import ANN
 from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
 from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
 
-from more_gradfree_experiments import posterior
+#from more_gradfree_experiments import posterior
 from gaussian_processes.gp_regression2 import unpack
 from utils import gather_data, gather_data2
 
@@ -72,8 +72,8 @@ class RegressionWrapper:
         results = np.copy(res[0])
         '''
 
-        options = {'maxiter': self.train_hp_iterations, 'disp': True}
         thetas = np.copy(np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd]))
+        options = {'maxiter': self.train_hp_iterations, 'disp': True}
         _res = minimize(self._log_marginal_likelihood, thetas, method='powell', args=(X, y), options=options)
         results = np.copy(_res.x)
 
@@ -118,9 +118,14 @@ class RegressionWrapper:
 
     def _predict(self, X):
         basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, self.length_scale, self.signal_sd)
-        mu, sigma, _, _ = posterior(self.XX, self.Xy, self.noise_sd, self.prior_sd)
-        predict_mu = np.matmul(basis, mu)
-        predict_sigma = self.noise_sd**2 + np.sum(np.multiply(np.matmul(basis, sigma), basis), axis=-1, keepdims=True)
+        #mu, sigma, _, _ = posterior(self.XX, self.Xy, self.noise_sd, self.prior_sd)
+        #predict_mu = np.matmul(basis, mu)
+        #predict_sigma = self.noise_sd**2 + np.sum(np.multiply(np.matmul(basis, sigma), basis), axis=-1, keepdims=True)
+
+        tmp = (self.noise_sd/self.prior_sd)**2*np.eye(self.basis_dim) + self.XX
+        predict_sigma = self.noise_sd**2 + np.sum(np.multiply(basis, self.noise_sd**2*np.linalg.solve(tmp, basis.T).T), axis=-1, keepdims=True)
+        predict_mu = np.matmul(basis, np.linalg.solve(tmp, self.Xy))
+
         return predict_mu, predict_sigma
 
 class Agent:

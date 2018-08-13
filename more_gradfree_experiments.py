@@ -44,12 +44,14 @@ class RandomFourierFeatureMapper:
 def basis_func(rffm, X, output_dim, signal_sd, length_scale):
     return rffm.map(X, signal_sd=signal_sd, stddev=length_scale, output_dim=int(np.round(output_dim)))
 
+'''
 def posterior(XX, Xy, noise_sd, prior_sd):
     tmp = np.linalg.inv((noise_sd/prior_sd)**2*np.eye(len(XX)) + XX)
     Vn = noise_sd**2*tmp
     wn = np.matmul(tmp, Xy)
     V0 = prior_sd**2*np.eye(len(XX))
     return wn, Vn, V0, tmp
+'''
 
 def log_marginal_likelihood(thetas, rffm, X, y, output_dim, noise_sd_clip_threshold=None):
     assert len(thetas) == 4
