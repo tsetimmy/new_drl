@@ -504,10 +504,10 @@ def plotting_experiments():
     args = parser.parse_args()
     print args
 
-    if args.environment == 'Pendulum-v0':
-        train_set_size = 3
-    elif args.environment == 'MountainCarContinuous-v0':
+    if args.environment == 'MountainCarContinuous-v0':
         train_set_size = 1
+    else:
+        train_set_size = 3
 
     env = gym.make(args.environment)
 
@@ -527,10 +527,10 @@ def plotting_experiments():
         predictors[i]._update(states_actions, next_states[:, i:i+1])
 
     while True:
-        if args.environment == 'Pendulum-v0':
-            states2, actions2, next_states2 = gather_data(env, 1, unpack=True)
-        elif args.environment == 'MountainCarContinuous-v0':
+        if args.environment == 'MountainCarContinuous-v0':
             states2, actions2, next_states2 = mcc_get_success_policy(env)
+        else:
+            states2, actions2, next_states2 = gather_data(env, 1, unpack=True)
         states_actions2 = np.concatenate([states2, actions2], axis=-1)
 
         plt.figure()

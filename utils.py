@@ -362,7 +362,7 @@ def gather_data(env, epochs, unpack=False):
     for epoch in range(epochs):
         state = env.reset()
         while True:
-            action = np.random.uniform(env.action_space.low, env.action_space.high, 1)
+            action = np.random.uniform(low=env.action_space.low, high=env.action_space.high)
             next_state, reward, done, _ = env.step(action)
             data.append([state, action, reward, next_state, done])
             state = np.copy(next_state)
