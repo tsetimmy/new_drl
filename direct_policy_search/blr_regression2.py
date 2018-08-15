@@ -14,7 +14,7 @@ from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
 
 #from more_gradfree_experiments import posterior
 from gaussian_processes.gp_regression2 import unpack
-from utils import gather_data, gather_data2
+from utils import gather_data
 
 import gym
 import pickle
@@ -516,7 +516,7 @@ def plotting_experiments():
         predictors.append(RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=256, length_scale=1.,
                                           signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations))
 
-    states, actions, next_states = gather_data(env, train_set_size, unpack=True)
+    states, actions, _, next_states = gather_data(env, train_set_size, unpack=True)
     states_actions = np.concatenate([states, actions], axis=-1)
 
     # Quick plotting experiment (for sanity check).
@@ -530,7 +530,7 @@ def plotting_experiments():
         if args.environment == 'MountainCarContinuous-v0':
             states2, actions2, next_states2 = mcc_get_success_policy(env)
         else:
-            states2, actions2, next_states2 = gather_data(env, 1, unpack=True)
+            states2, actions2, _, next_states2 = gather_data(env, 1, unpack=True)
         states_actions2 = np.concatenate([states2, actions2], axis=-1)
 
         plt.figure()

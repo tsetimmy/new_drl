@@ -3,7 +3,7 @@ from scipy.optimize import minimize
 import argparse
 import gym
 
-from utils import gather_data, gather_data2
+from utils import gather_data
 
 class RandomFourierFeatureMapper:
     def __init__(self, input_dim, output_dim, stddev=1., seed=1):
@@ -126,7 +126,7 @@ def main():
 
     env = gym.make(args.environment)
 
-    states, actions, next_states = gather_data(env, 5, unpack=True)
+    states, actions, _, next_states = gather_data(env, 5, unpack=True)
     states_actions = np.concatenate([states, actions], axis=-1)
 
     output_dim = 128*2
@@ -145,13 +145,13 @@ def main():
     # Quick plotting experiment (for sanity check).
     import matplotlib.pyplot as plt
     if args.environment == 'Pendulum-v0':
-        states2, actions2, next_states2 = gather_data(env, 1, unpack=True)
+        states2, actions2, _, next_states2 = gather_data(env, 1, unpack=True)
     elif args.environment == 'MountainCarContinuous-v0':
         from utils import mcc_get_success_policy
         states2, actions2, next_states2 = mcc_get_success_policy(env)
     states_actions2 = np.concatenate([states2, actions2], axis=-1)
 
-    states3, actions3, next_states3 = gather_data(env, 3, unpack=True)
+    states3, actions3, _, next_states3 = gather_data(env, 3, unpack=True)
     states_actions3 = np.concatenate([states3, actions3], axis=-1)
 
     predictors = []

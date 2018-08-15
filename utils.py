@@ -371,8 +371,8 @@ def gather_data(env, epochs, unpack=False):
     if unpack == False:
         return data
     else:
-        states, actions, _, next_states, _ = zip(*data)
-        return [np.stack(ele, axis=0) for ele in [states, actions, next_states]]
+        states, actions, rewards, next_states = [np.stack(ele, axis=0) for ele in zip(*data)[:-1]]
+        return states, actions, rewards[..., np.newaxis], next_states
 
 def gather_data2(env, no_samples=1000):
     assert env.spec.id in ['Pendulum-v0', 'MountainCarContinuous-v0']
