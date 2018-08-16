@@ -409,6 +409,7 @@ def mcc_get_success_policy(env):
         print 'Finding... iteration:', i
         i += 1
         states = []
+        rewards = []
         next_states = []
         state = np.copy(seed_state)
         policy = np.random.uniform(env.action_space.low, env.action_space.high, env._max_episode_steps)
@@ -419,6 +420,7 @@ def mcc_get_success_policy(env):
             states.append(np.copy(state))
             action = np.atleast_2d(a)
             reward = reward_function.step_np(state, action)
+            rewards.append(reward)
             next_state = state_function.step_np(state, action)
             next_states.append(np.copy(next_state))
             state = np.copy(next_state)
@@ -430,8 +432,9 @@ def mcc_get_success_policy(env):
 
         if found: break
 
-    states = np.concatenate(states, axis=0)[:length, ...]
+    states = np.concatenate(states, axis=0)
     actions = np.copy(policy[..., np.newaxis])[:length, ...]
-    next_states = np.concatenate(next_states, axis=0)[:length, ...]
+    rewards = np.stack(rewards, axis=0)
+    next_states = np.concatenate(next_states, axis=0)
 
-    return states, actions, next_states
+    return states, actions, rewards, next_states
