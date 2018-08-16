@@ -63,18 +63,18 @@ class RegressionWrapper:
 
     def _train_hyperparameters(self, X, y):
         warnings.filterwarnings('error')
-        '''
         import cma
         thetas = np.copy(np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd]))
-        options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
+        options = {'maxiter': 1000, 'verb_disp': 0, 'verb_log': 0}
         res = cma.fmin(self._log_marginal_likelihood, thetas, 2., args=(X, y), options=options)
         results = np.copy(res[0])
-        '''
 
+        '''
         thetas = np.copy(np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd]))
         options = {'maxiter': self.train_hp_iterations, 'disp': True}
         _res = minimize(self._log_marginal_likelihood, thetas, method='powell', args=(X, y), options=options)
         results = np.copy(_res.x)
+        '''
 
         self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd = results
         self.noise_sd = np.abs(self.noise_sd)
@@ -512,11 +512,11 @@ def plotting_experiments():
     env = gym.make(args.environment)
 
     predictors = []
-    for i in range(env.observation_space.shape[0]):
+    for i in range(env.observation_space.shape[0] + 1):
         predictors.append(RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=256, length_scale=1.,
                                           signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations))
 
-    states, actions, _, next_states = gather_data(env, train_set_size, unpack=True)
+    states, actions, rewards, next_states = gather_data(env, train_set_size, unpack=True)
     states_actions = np.concatenate([states, actions], axis=-1)
 
     # Quick plotting experiment (for sanity check).
@@ -525,17 +525,19 @@ def plotting_experiments():
     for i in range(env.observation_space.shape[0]):
         predictors[i]._train_hyperparameters(states_actions, next_states[:, i:i+1])
         predictors[i]._update(states_actions, next_states[:, i:i+1])
+    predictors[-1]._train_hyperparameters(states_actions, rewards)
+    predictors[-1]._update(states_actions, rewards)
 
     while True:
         if args.environment == 'MountainCarContinuous-v0':
             states2, actions2, next_states2 = mcc_get_success_policy(env)
         else:
-            states2, actions2, _, next_states2 = gather_data(env, 1, unpack=True)
+            states2, actions2, rewards2, next_states2 = gather_data(env, 1, unpack=True)
         states_actions2 = np.concatenate([states2, actions2], axis=-1)
 
         plt.figure()
         for i in range(env.observation_space.shape[0]):
-            plt.subplot(2, env.observation_space.shape[0], i+1)
+            plt.subplot(3, env.observation_space.shape[0], i+1)
 
             predict_mu, predict_sigma = predictors[i]._predict(states_actions2)
 
@@ -566,13 +568,19 @@ def plotting_experiments():
         traj = np.stack(traj, axis=-1)
 
         for i in range(env.observation_space.shape[0]):
-            plt.subplot(2, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
+            plt.subplot(3, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
             for j in range(no_lines):
                 y = traj[j, i, :]
                 plt.plot(np.arange(len(y)), y, color='r')
 
             plt.plot(np.arange(len(next_states2[..., i])), next_states2[..., i])
             plt.grid()
+
+        plt.subplot(3, 1, 3)
+        predict_mu, predict_sigma = predictors[-1]._predict(states_actions2)
+        plt.plot(np.arange(len(rewards2)), rewards2)
+        plt.errorbar(np.arange(len(predict_mu)), predict_mu, yerr=np.sqrt(predict_sigma), color='m', ecolor='g')
+        plt.grid()
 
         plt.show(block=True)
 
