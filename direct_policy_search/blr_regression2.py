@@ -13,7 +13,7 @@ from custom_environments.environment_reward_functions import mountain_car_contin
 from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
 
 #from more_gradfree_experiments import posterior
-from gaussian_processes.gp_regression2 import unpack
+#from gaussian_processes.gp_regression2 import unpack
 from utils import gather_data
 
 import gym
@@ -63,18 +63,18 @@ class RegressionWrapper:
 
     def _train_hyperparameters(self, X, y):
         warnings.filterwarnings('error')
+        '''
         import cma
         thetas = np.copy(np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd]))
         options = {'maxiter': 1000, 'verb_disp': 0, 'verb_log': 0}
         res = cma.fmin(self._log_marginal_likelihood, thetas, 2., args=(X, y), options=options)
         results = np.copy(res[0])
-
         '''
+
         thetas = np.copy(np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd]))
         options = {'maxiter': self.train_hp_iterations, 'disp': True}
         _res = minimize(self._log_marginal_likelihood, thetas, method='powell', args=(X, y), options=options)
         results = np.copy(_res.x)
-        '''
 
         self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd = results
         self.noise_sd = np.abs(self.noise_sd)
@@ -106,9 +106,9 @@ class RegressionWrapper:
             loss = -lml
             return loss
         except Exception as e:
-            print '------------'
-            print e, 'Returning 10e100.'
-            print '************'
+            #print '------------'
+            #print e, 'Returning 10e100.'
+            #print '************'
             return 10e100
 
     def _reset_statistics(self, X, y):
@@ -117,10 +117,6 @@ class RegressionWrapper:
 
     def _predict(self, X):
         basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, self.length_scale, self.signal_sd)
-        #mu, sigma, _, _ = posterior(self.XX, self.Xy, self.noise_sd, self.prior_sd)
-        #predict_mu = np.matmul(basis, mu)
-        #predict_sigma = self.noise_sd**2 + np.sum(np.multiply(np.matmul(basis, sigma), basis), axis=-1, keepdims=True)
-
         tmp = (self.noise_sd/self.prior_sd)**2*np.eye(self.basis_dim) + self.XX
         predict_sigma = self.noise_sd**2 + np.sum(np.multiply(basis, self.noise_sd**2*scipy.linalg.solve(tmp, basis.T).T), axis=-1, keepdims=True)
         predict_mu = np.matmul(basis, scipy.linalg.solve(tmp, self.Xy))
@@ -129,7 +125,8 @@ class RegressionWrapper:
 
 class Agent:
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
-                 action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, rffm_seed=1, basis_dim=256):
+                 action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, rffm_seed=1, basis_dim=256,
+                 learn_reward=0):
         assert environment in ['Pendulum-v0', 'MountainCarContinuous-v0']
         assert x_dim == state_dim + action_dim
         assert len(action_space_low.shape) == 1
@@ -149,6 +146,7 @@ class Agent:
         self.discount_factor = discount_factor
         self.rffm_seed = rffm_seed
         self.basis_dim = basis_dim
+        self.learn_reward = learn_reward
 
         self.count = 0
         self.mod_interval = 500
@@ -161,14 +159,14 @@ class Agent:
         np.random.set_state(rng_state)
 
         #Use real reward function
-        if self.environment == 'Pendulum-v0':
+        if self.environment == 'Pendulum-v0' and self.learn_reward == 0:
             #self.reward_function = real_env_pendulum_reward()
             self.reward_function = ANN(self.state_dim+self.action_dim, 1)
             self.placeholders_reward = [tf.placeholder(shape=v.shape, dtype=tf.float64)
                                         for v in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.reward_function.scope)]
             self.assign_ops0 = [v.assign(pl) for v, pl in zip(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.reward_function.scope),
                                 self.placeholders_reward)]
-        elif self.environment == 'MountainCarContinuous-v0':
+        elif self.environment == 'MountainCarContinuous-v0' and self.learn_reward == 0:
             self.reward_function = mountain_car_continuous_reward_function()
 
         self.hidden_dim = 32
@@ -267,6 +265,7 @@ class Agent:
 
         return X, XXtr, Xytr, A
 
+    '''
     def _fit_random_search(self, X, XXtr, Xytr, hyperparameters, sess):
         warnings.filterwarnings('error')
         assert len(XXtr) == self.state_dim
@@ -286,12 +285,13 @@ class Agent:
                 self.thetas += perterbations
                 lowest = loss
             print 'lowest:', lowest
+    '''
 
     def _fit(self, X, XXtr, Xytr, hyperparameters, sess):
         warnings.filterwarnings('error')
-        assert len(XXtr) == self.state_dim
-        assert len(Xytr) == self.state_dim
-        assert len(hyperparameters) == self.state_dim
+        assert len(XXtr) == self.state_dim + self.learn_reward
+        assert len(Xytr) == self.state_dim + self.learn_reward
+        assert len(hyperparameters) == self.state_dim + self.learn_reward
 
         '''
         A = []
@@ -340,13 +340,8 @@ class Agent:
                     wns.append(wn)
 
                 action = self._forward(thetas, state, hyperstate=[np.stack(wns, axis=1), np.stack(Vns, axis=1)])
-
-                if self.environment == 'Pendulum-v0':
-                    reward = self.reward_function.build_np(sess, state, action)
-                elif self.environment == 'MountainCarContinuous-v0':
-                    reward = self.reward_function.build_np(state, action)
+                reward = self._reward(state, action, sess, XXtr[:, -1], Xytr[:, -1], hyperparameters[-1])
                 rewards.append((self.discount_factor**unroll_step)*reward)
-
                 state_action = np.concatenate([state, action], axis=-1)
 
                 means = []
@@ -369,6 +364,7 @@ class Agent:
                 state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(means, covs)], axis=0)
                 state = np.clip(state, self.observation_space_low, self.observation_space_high)
 
+                #TODO: Update reward posterior (if not using true reward model).
                 '''
                 bases = np.stack(bases, axis=1)
                 bases = np.expand_dims(bases, axis=2)
@@ -408,6 +404,30 @@ class Agent:
             print e, 'Returning 10e100'
             return 10e100
 
+    def _reward(self, state, action, sess, XX, Xy, hyperparameters):
+        if self.environment == 'Pendulum-v0' and self.learn_reward == 0:
+            reward = self.reward_function.build_np(sess, state, action)
+        elif self.environment == 'MountainCarContinuous-v0' and self.learn_reward == 0:
+            reward = self.reward_function.build_np(state, action)
+        else:
+            state_action = np.concatenate([state, action], axis=-1)
+            length_scale, signal_sd, noise_sd, prior_sd = hyperparameters
+            basis = _basis(state_action, self.random_matrix, self.bias, self.basis_dim, length_scale, signal_sd)
+            basis = np.expand_dims(basis, axis=1)
+            print 'here'
+            print basis.shape
+            print XX.shape
+            print Xy.shape
+            exit()
+
+        return reward
+
+
+def unpack(data_buffer):
+    states, actions, rewards, next_states = [np.stack(ele, axis=0) for ele in zip(*data_buffer)[:-1]]
+    states_actions = np.concatenate([states, actions], axis=-1)
+    return states_actions, rewards[..., np.newaxis], next_states
+
 def main_loop():
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", type=str, default='Pendulum-v0')
@@ -419,8 +439,9 @@ def main_loop():
     parser.add_argument("--no-samples", type=int, default=1)
     parser.add_argument("--basis-dim", type=int, default=256)
     parser.add_argument("--rffm-seed", type=int, default=1)
-    parser.add_argument("--Agent", type=str, default='')
-    parser.add_argument("--fit-function", type=str, default='_fit')
+    parser.add_argument("--Agent", type=str, choices=['', '2', '3'], default='')
+    parser.add_argument("--fit-function", type=str, choices=['_fit', '_fit_cma', '_fit_random_search'], default='_fit')
+    parser.add_argument("--learn-reward", type=int, choices=[0, 1], default=1)
     args = parser.parse_args()
 
     print args
@@ -442,7 +463,8 @@ def main_loop():
                                      no_samples=args.no_samples,
                                      discount_factor=args.discount_factor,
                                      rffm_seed=args.rffm_seed,
-                                     basis_dim=args.basis_dim)
+                                     basis_dim=args.basis_dim,
+                                     learn_reward=args.learn_reward)
     regression_wrappers = [RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0],
                                              basis_dim=args.basis_dim,
                                              length_scale=1.,
@@ -451,7 +473,7 @@ def main_loop():
                                              prior_sd=1.,
                                              rffm_seed=args.rffm_seed,
                                              train_hp_iterations=args.train_hp_iterations)
-                           for _ in range(env.observation_space.shape[0])]
+                           for _ in range(env.observation_space.shape[0]+args.learn_reward)]
 
     flag = False
     data_buffer = gather_data(env, args.gather_data_epochs)
@@ -460,18 +482,19 @@ def main_loop():
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        if args.environment == 'Pendulum-v0':
+        if args.environment == 'Pendulum-v0' and args.learn_reward == 0:
             weights = pickle.load(open('../custom_environments/weights/pendulum_reward.p', 'rb'))
             sess.run(agent.assign_ops0, feed_dict=dict(zip(agent.placeholders_reward, weights)))
         for epoch in range(1000):
             #Train hyperparameters and update systems model.
-            states_actions, next_states = unpack(data_buffer)
-            for i in range(env.observation_space.shape[0]):
+            states_actions, rewards, next_states = unpack(data_buffer)
+            next_states_and_rewards = np.concatenate([next_states, rewards], axis=-1)
+            for i in range(env.observation_space.shape[0]+args.learn_reward):
                 if flag == False:
-                    regression_wrappers[i]._train_hyperparameters(states_actions, next_states[:, i:i+1])
-                    regression_wrappers[i]._reset_statistics(states_actions, next_states[:, i:i+1])
+                    regression_wrappers[i]._train_hyperparameters(states_actions, next_states_and_rewards[:, i:i+1])
+                    regression_wrappers[i]._reset_statistics(states_actions, next_states_and_rewards[:, i:i+1])
                 else:
-                    regression_wrappers[i]._update(states_actions, next_states[:, i:i+1])
+                    regression_wrappers[i]._update(states_actions, next_states_and_rewards[:, i:i+1])
             if len(data_buffer) >= 3000: flag = True
             if flag: data_buffer = []
 
@@ -530,7 +553,7 @@ def plotting_experiments():
 
     while True:
         if args.environment == 'MountainCarContinuous-v0':
-            states2, actions2, next_states2 = mcc_get_success_policy(env)
+            states2, actions2, rewards2, next_states2 = mcc_get_success_policy(env)
         else:
             states2, actions2, rewards2, next_states2 = gather_data(env, 1, unpack=True)
         states_actions2 = np.concatenate([states2, actions2], axis=-1)
@@ -585,5 +608,5 @@ def plotting_experiments():
         plt.show(block=True)
 
 if __name__ == '__main__':
-    plotting_experiments()
-    #main_loop()
+    #plotting_experiments()
+    main_loop()

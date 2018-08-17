@@ -6,9 +6,11 @@ from blr_regression2 import Agent, _basis
 
 class Agent2(Agent):
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
-                 action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, rffm_seed=1, basis_dim=256):
+                 action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, rffm_seed=1, basis_dim=256,
+                 learn_reward=0):
         Agent.__init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
-                       action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, rffm_seed, basis_dim)
+                       action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, rffm_seed, basis_dim,
+                       learn_reward)
         self._init_thetas2()
 
     def _init_thetas2(self):
@@ -37,13 +39,8 @@ class Agent2(Agent):
             state = X
             for unroll_step in xrange(self.unroll_steps):
                 action = self._forward(thetas, state)
-
-                if self.environment == 'Pendulum-v0':
-                    reward = self.reward_function.build_np(sess, state, action)
-                elif self.environment == 'MountainCarContinuous-v0':
-                    reward = self.reward_function.build_np(state, action)
+                reward = self._reward(state, action, sess, XX[-1], Xy[-1], hyperparameters[-1])
                 rewards.append((self.discount_factor**unroll_step)*reward)
-
                 state_action = np.concatenate([state, action], axis=-1)
 
                 means = []
@@ -94,9 +91,9 @@ class Agent2(Agent):
 
     def _fit_cma(self, X, XXtr, Xytr, hyperparameters, sess):
         warnings.filterwarnings('error')
-        assert len(XXtr) == self.state_dim
-        assert len(Xytr) == self.state_dim
-        assert len(hyperparameters) == self.state_dim
+        assert len(XXtr) == self.state_dim + self.learn_reward
+        assert len(Xytr) == self.state_dim + self.learn_reward
+        assert len(hyperparameters) == self.state_dim + self.learn_reward
 
         loss = lambda thetas: self._loss(thetas, np.copy(X), np.copy(XXtr), np.copy(Xytr), np.copy(hyperparameters), sess)
 
@@ -104,3 +101,19 @@ class Agent2(Agent):
         options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
         res = cma.fmin(loss, self.thetas, 2., options=options)
         self.thetas = np.copy(res[0])
+
+    def _reward(self, state, action, sess, XX, Xy, hyperparameters):
+        if self.environment == 'Pendulum-v0' and self.learn_reward == 0:
+            reward = self.reward_function.build_np(sess, state, action)
+        elif self.environment == 'MountainCarContinuous-v0' and self.learn_reward == 0:
+            reward = self.reward_function.build_np(state, action)
+        else:
+            state_action = np.concatenate([state, action], axis=-1)
+            length_scale, signal_sd, noise_sd, prior_sd = hyperparameters
+            basis = _basis(state_action, self.random_matrix, self.bias, self.basis_dim, length_scale, signal_sd)
+            tmp = (noise_sd/prior_sd)**2*np.eye(self.basis_dim) + XX
+            predict_sigma = noise_sd**2 + np.sum(np.multiply(basis, noise_sd**2*scipy.linalg.solve(tmp, basis.T).T), axis=-1, keepdims=True)
+            predict_mu = np.matmul(basis, scipy.linalg.solve(tmp, Xy))
+            reward = np.stack([np.random.normal(loc=loc, scale=scale) for loc, scale in zip(predict_mu, predict_sigma)], axis=0)
+        return reward
+
