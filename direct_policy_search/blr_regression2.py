@@ -210,8 +210,10 @@ class Agent:
         noises_tiled = np.tile(noises[np.newaxis, ...], [len(XXtr), 1, 1, 1])
 
         A = noises_tiled + XXtr
-        if (np.linalg.cond(A) >= 1./sys.float_info.epsilon).any(): raise Exception('Matrix(es) is/are ill-conditioned (detected in _forward). unroll_step:'+str(unroll_step)+'.')
-        wn = np.linalg.solve(A, Xytr)
+
+        #if (np.linalg.cond(A) >= 1./sys.float_info.epsilon).any(): raise Exception('Matrix(es) is/are ill-conditioned (detected in _forward). unroll_step:'+str(unroll_step)+'.')
+        #wn = np.linalg.solve(A, Xytr)
+        wn = solve(A, Xytr)
 
         batch_size, dim, _, _ = A.shape
         indices = np.triu_indices(self.basis_dim, 1)
@@ -278,6 +280,7 @@ class Agent:
             rewards = []
             state = X
             for unroll_step in xrange(self.unroll_steps):
+                print 'unroll steps:', unroll_step
                 action = self._forward(thetas, state, hyperstate=[XXtr, Xytr], hyperparameters=hyperparameters, unroll_step=unroll_step)
                 reward, basis_reward = self._reward(state, action, sess, XXtr[:, -1], Xytr[:, -1], hyperparameters[-1])
                 rewards.append((self.discount_factor**unroll_step)*reward)
@@ -293,12 +296,14 @@ class Agent:
                     bases.append(basis)
 
                     tmp0 = (noise_sd/prior_sd)**2*np.tile(np.eye(self.basis_dim)[np.newaxis, ...], [len(XXtr[:, i]), 1, 1]) + XXtr[:, i]
-                    if (np.linalg.cond(tmp0) >= 1./sys.float_info.epsilon).any(): raise Exception('Matrix(es) is/are ill-conditioned (detected in _loss).')
-                    tmp1 = noise_sd**2*np.linalg.solve(tmp0, np.transpose(basis, [0, 2, 1]))#scipy.linalg.solve does not support broadcasting; have to use np.linalg.solve.
+                    #if (np.linalg.cond(tmp0) >= 1./sys.float_info.epsilon).any(): raise Exception('Matrix(es) is/are ill-conditioned (detected in _loss).')
+                    #tmp1 = noise_sd**2*np.linalg.solve(tmp0, np.transpose(basis, [0, 2, 1]))#scipy.linalg.solve does not support broadcasting; have to use np.linalg.solve.
+                    tmp1 = noise_sd**2*solve(tmp0, np.transpose(basis, [0, 2, 1]))
                     pred_sigma = noise_sd**2 + np.matmul(basis, tmp1)
                     pred_sigma = np.squeeze(pred_sigma, axis=-1)
 
-                    pred_mu = np.matmul(basis, np.linalg.solve(tmp0, Xytr[:, i]))
+                    #pred_mu = np.matmul(basis, np.linalg.solve(tmp0, Xytr[:, i]))
+                    pred_mu = np.matmul(basis, solve(tmp0, Xytr[:, i]))
                     pred_mu = np.squeeze(pred_mu, axis=-1)
 
                     means.append(pred_mu)
@@ -341,14 +346,36 @@ class Agent:
             basis = np.expand_dims(basis, axis=1)
 
             tmp0 = (noise_sd/prior_sd)**2*np.tile(np.eye(self.basis_dim)[np.newaxis, ...], [len(XX), 1, 1]) + XX
-            if (np.linalg.cond(tmp0) >= 1./sys.float_info.epsilon).any(): raise Exception('Matrix(es) is/are ill-conditioned (detected in _reward).')
-            tmp1 = noise_sd**2*np.linalg.solve(tmp0, np.transpose(basis, [0, 2, 1]))#scipy.linalg.solve does not support broadcasting; have to use np.linalg.solve.
+            #if (np.linalg.cond(tmp0) >= 1./sys.float_info.epsilon).any(): raise Exception('Matrix(es) is/are ill-conditioned (detected in _reward).')
+            #tmp1 = noise_sd**2*np.linalg.solve(tmp0, np.transpose(basis, [0, 2, 1]))#scipy.linalg.solve does not support broadcasting; have to use np.linalg.solve.
+            tmp1 = noise_sd**2*solve(tmp0, np.transpose(basis, [0, 2, 1]))
             pred_sigma = noise_sd**2 + np.matmul(basis, tmp1)
             pred_sigma = np.squeeze(pred_sigma, axis=-1)
-            pred_mu = np.matmul(basis, np.linalg.solve(tmp0, Xy))
+            #pred_mu = np.matmul(basis, np.linalg.solve(tmp0, Xy))
+            pred_mu = np.matmul(basis, solve(tmp0, Xy))
             pred_mu = np.squeeze(pred_mu, axis=-1)
             reward = np.stack([np.random.normal(loc=loc, scale=scale) for loc, scale in zip(pred_mu, pred_sigma)], axis=0)
         return reward, [basis]
+
+def solve(A, b):
+    assert len(A.shape) == len(b.shape)
+    assert len(A.shape) >= 3
+    assert A.shape[:-1] == b.shape[:-1]
+    A = np.copy(A)
+    b = np.copy(b)
+
+    bs = list(A.shape[:-2])
+    dimA = list(A.shape[-2:])
+    dimb = list(b.shape[-2:])
+
+    A = np.reshape(A, [-1]+dimA)
+    b = np.reshape(b, [-1]+dimb)
+
+    results = [scipy.linalg.solve(_A, _b) for _A, _b in zip(A, b)]
+    results = np.stack(results, axis=0)
+    results = np.reshape(results, bs+dimb)
+
+    return results
 
 def update_hyperstate(agent, hyperstate, hyperparameters, datum, dim):
     state, action, reward, next_state, _ = [np.atleast_2d(np.copy(dat)) for dat in datum]
