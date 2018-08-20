@@ -262,7 +262,6 @@ class Agent:
 
         import cma
         options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
-        self.F = False
         print 'Before calling cma.fmin'
         res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), np.copy(XXtr), np.copy(Xytr), None, np.copy(hyperparameters), sess), options=options)
         results = np.copy(res[0])
