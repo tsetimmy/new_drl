@@ -350,6 +350,27 @@ class Agent:
             reward = np.stack([np.random.normal(loc=loc, scale=scale) for loc, scale in zip(pred_mu, pred_sigma)], axis=0)
         return reward, [basis]
 
+def update_hyperstate(agent, hyperstate, hyperparameters, datum, dim):
+    state, action, reward, next_state, _ = [np.atleast_2d(np.copy(dat)) for dat in datum]
+    XX, Xy = hyperstate
+    assert XX.shape[1] == len(hyperparameters)
+    assert Xy.shape[1] == len(hyperparameters)
+    assert len(hyperparameters) == dim
+    state_action = np.concatenate([state, action], axis=-1)
+    y = np.concatenate([next_state, reward], axis=-1)[..., :dim]
+
+    xx = []
+    xy = []
+    for i, hp in zip(range(dim), hyperparameters):
+        length_scale, signal_sd, _, _ = hp
+        basis = _basis(state_action, agent.random_matrix, agent.bias, agent.basis_dim, length_scale, signal_sd)
+        xx.append(np.matmul(basis.T, basis))
+        xy.append(np.matmul(basis.T, y[..., i:i+1]))
+    xx = np.stack(xx, axis=0)[np.newaxis, ...]
+    xy = np.stack(xy, axis=0)[np.newaxis, ...]
+
+    return [XX + xx, Xy + xy]
+
 def unpack(data_buffer):
     states, actions, rewards, next_states = [np.stack(ele, axis=0) for ele in zip(*data_buffer)[:-1]]
     states_actions = np.concatenate([states, actions], axis=-1)
@@ -369,6 +390,7 @@ def main_loop():
     parser.add_argument("--Agent", type=str, choices=['', '2', '3'], default='')
     parser.add_argument("--fit-function", type=str, choices=['_fit', '_fit_cma', '_fit_random_search'], default='_fit')
     parser.add_argument("--learn-reward", type=int, choices=[0, 1], default=1)
+    parser.add_argument("--max-train-hp-datapoints", type=int, default=20000)
     args = parser.parse_args()
 
     print args
@@ -422,7 +444,7 @@ def main_loop():
                     regression_wrappers[i]._reset_statistics(states_actions, next_states_and_rewards[:, i:i+1])
                 else:
                     regression_wrappers[i]._update(states_actions, next_states_and_rewards[:, i:i+1])
-            if len(data_buffer) >= 3000: flag = True
+            if len(data_buffer) >= args.max_train_hp_datapoints: flag = True
             if flag: data_buffer = []
 
             #Fit policy network.
@@ -439,6 +461,9 @@ def main_loop():
                 #env.render()
                 action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate, hyperparameters, -1)[0]
                 next_state, reward, done, _ = env.step(action)
+
+                hyperstate = update_hyperstate(agent, hyperstate, hyperparameters, [state, action, reward, next_state, done], agent.state_dim+agent.learn_reward)
+
                 data_buffer.append([state, action, reward, next_state, done])
                 total_rewards += float(reward)
                 state = np.copy(next_state)
