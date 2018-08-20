@@ -197,7 +197,7 @@ class Agent:
             weights.append(w)
         return weights
 
-    def _forward(self, thetas, X, hyperstate, hyperparameters):
+    def _forward(self, thetas, X, hyperstate, hyperparameters, unroll_step):
         w0, w1, w2, w3 = self._unpack(thetas, self.sizes)
         XXtr, Xytr = hyperstate
 
@@ -210,7 +210,7 @@ class Agent:
         noises_tiled = np.tile(noises[np.newaxis, ...], [len(XXtr), 1, 1, 1])
 
         A = noises_tiled + XXtr
-        if (np.linalg.cond(A) >= 1./sys.float_info.epsilon).any(): raise Exception('Matrix(es) is/are ill-conditioned (detected in _forward).')
+        if (np.linalg.cond(A) >= 1./sys.float_info.epsilon).any(): raise Exception('Matrix(es) is/are ill-conditioned (detected in _forward). unroll_step:'+str(unroll_step)+'.')
         wn = np.linalg.solve(A, Xytr)
 
         batch_size, dim, _, _ = A.shape
@@ -262,19 +262,24 @@ class Agent:
 
         import cma
         options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
+        self.F = False
         print 'Before calling cma.fmin'
         res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), np.copy(XXtr), np.copy(Xytr), None, np.copy(hyperparameters), sess), options=options)
         results = np.copy(res[0])
 
     def _loss(self, thetas, X, XXtr, Xytr, A=[], hyperparameters=None, sess=None):
         rng_state = np.random.get_state()
+        X = np.copy(X)
+        XXtr = np.copy(XXtr)
+        Xytr = np.copy(Xytr)
+        hyperparameters = np.copy(hyperparameters)
         try:
             np.random.seed(2)
 
             rewards = []
             state = X
             for unroll_step in xrange(self.unroll_steps):
-                action = self._forward(thetas, state, hyperstate=[XXtr, Xytr], hyperparameters=hyperparameters)
+                action = self._forward(thetas, state, hyperstate=[XXtr, Xytr], hyperparameters=hyperparameters, unroll_step=unroll_step)
                 reward, basis_reward = self._reward(state, action, sess, XXtr[:, -1], Xytr[:, -1], hyperparameters[-1])
                 rewards.append((self.discount_factor**unroll_step)*reward)
                 state_action = np.concatenate([state, action], axis=-1)
@@ -433,7 +438,7 @@ def main_loop():
             state = env.reset()
             while True:
                 #env.render()
-                action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate, hyperparameters)[0]
+                action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate, hyperparameters, -1)[0]
                 next_state, reward, done, _ = env.step(action)
                 data_buffer.append([state, action, reward, next_state, done])
                 total_rewards += float(reward)
