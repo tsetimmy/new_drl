@@ -201,15 +201,7 @@ class Agent:
         w0, w1, w2, w3 = self._unpack(thetas, self.sizes)
         XXtr, Xytr = hyperstate
 
-        noises = []
-        for hp in hyperparameters:
-            _, _, noise_sd, prior_sd = hp
-            noise = (noise_sd/prior_sd)**2*np.eye(self.basis_dim)
-            noises.append(noise)
-        noises = np.stack(noises, axis=0)
-        noises_tiled = np.tile(noises[np.newaxis, ...], [len(XXtr), 1, 1, 1])
-
-        A = noises_tiled + XXtr
+        A = self.noises_tiled + XXtr
 
         #if (np.linalg.cond(A) >= 1./sys.float_info.epsilon).any(): raise Exception('Matrix(es) is/are ill-conditioned (detected in _forward). unroll_step:'+str(unroll_step)+'.')
         #wn = np.linalg.solve(A, Xytr)
@@ -250,7 +242,7 @@ class Agent:
         return np.maximum(X, 0.)
 
     def _fit(self, X, XXtr, Xytr, hyperparameters, sess):
-        warnings.filterwarnings('error')
+        warnings.filterwarnings('ignore', message='.*scipy.linalg.solve\nIll-conditioned matrix detected. Result is not guaranteed to be accurate.\nReciprocal.*')
         assert len(XXtr) == self.state_dim + self.learn_reward
         assert len(Xytr) == self.state_dim + self.learn_reward
         assert len(hyperparameters) == self.state_dim + self.learn_reward
@@ -261,6 +253,9 @@ class Agent:
 
         XXtr = np.tile(XXtr[np.newaxis, ...], [len(X), 1, 1, 1])
         Xytr = np.tile(Xytr[np.newaxis, ...], [len(X), 1, 1, 1])
+
+        noises = np.stack([(hp[2]/hp[3])**2*np.eye(self.basis_dim) for hp in hyperparameters], axis=0)
+        self.noises_tiled = np.tile(noises[np.newaxis, ...], [len(XXtr), 1, 1, 1])
 
         import cma
         options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
@@ -280,7 +275,6 @@ class Agent:
             rewards = []
             state = X
             for unroll_step in xrange(self.unroll_steps):
-                print 'unroll steps:', unroll_step
                 action = self._forward(thetas, state, hyperstate=[XXtr, Xytr], hyperparameters=hyperparameters, unroll_step=unroll_step)
                 reward, basis_reward = self._reward(state, action, sess, XXtr[:, -1], Xytr[:, -1], hyperparameters[-1])
                 rewards.append((self.discount_factor**unroll_step)*reward)
@@ -315,13 +309,29 @@ class Agent:
                 state = np.clip(state, self.observation_space_low, self.observation_space_high)
 
                 bases = np.concatenate((bases + basis_reward)[:self.state_dim + self.learn_reward], axis=1)
-                y = np.concatenate([state, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
-
                 bases = np.expand_dims(bases, axis=2)
-                XXtr += np.matmul(np.transpose(bases, [0, 1, 3, 2]), bases)
-
+                y = np.concatenate([state, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
                 y = y[..., np.newaxis, np.newaxis]
+
+                XXtr_and_noise = self.noises_tiled + XXtr
+                for i in range(len(XXtr_and_noise)):
+                    for j in range(len(XXtr_and_noise[i])):
+                        _XX = XXtr_and_noise[i, j]
+                        _X = bases[i, j]
+                        _Xy = Xytr[i, j]
+                        _y = y[i, j]
+
+                        A = _XX + np.matmul(_X.T, _X)
+                        B = _Xy + np.matmul(_X.T, _y)
+
+                        if np.allclose(np.matmul(A, scipy.linalg.solve(A, B)), B):
+                            XXtr[i, j, :, :] += np.matmul(_X.T, _X)
+                            Xytr[i, j, :, :] += np.matmul(_X.T, _y)
+
+                '''
+                XXtr += np.matmul(np.transpose(bases, [0, 1, 3, 2]), bases)
                 Xytr += np.matmul(np.transpose(bases, [0, 1, 3, 2]), y)
+                '''
 
             rewards = np.concatenate(rewards, axis=-1)
             rewards = np.sum(rewards, axis=-1)
