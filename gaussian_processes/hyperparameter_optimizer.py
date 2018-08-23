@@ -1,5 +1,6 @@
 import numpy as np
-from scipy.optimize import minimize
+import scipy.linalg as la
+import warnings
 
 def squared_distance(a, b):
     sqdist = np.sum(np.square(a), axis=-1, keepdims=True) +\
@@ -37,16 +38,30 @@ def log_marginal_likelihood(thetas, X, y):
     assert len(thetas) == 3
     length_scale, signal_sd, noise_sd = thetas
 
+    K = squared_exponential_kernel(X, X, signal_sd, length_scale) + noise_sd**2*np.eye(len(X))
+
     try:
-        L = np.linalg.cholesky(squared_exponential_kernel(X, X, signal_sd, length_scale) + np.square(noise_sd)*np.eye(len(X)))
-    except:
-        #print 'singular matrix.'
-        return np.inf
-    alpha = np.linalg.solve(L.T, np.linalg.solve(L, y))
-    lml = -.5*(np.matmul(y.T, alpha)[0, 0] + np.sum(np.log(np.diag(L))))
-    loss = -lml
-    #print loss
-    return loss
+        tmp0 = la.solve(K, y)
+    except Exception as e:
+        if 'Ill-conditioned matrix detected.' in str(e):
+            with warnings.catch_warnings():
+                warnings.simplefilter('default')
+                tmp0 = la.solve(K, y)
+            if np.allclose(np.matmul(K, tmp0), y) == False:
+                'np.allclose == False (Ill-conditioned matrix detected). Returning 10e100.'
+                return 10e100
+        else:
+            print('Unhandled exception. Exception: ' + str(e) + ' Returning 10e100.')
+            return 10e100
+
+    sign, logdet = np.linalg.slogdet(K)
+    if sign != 1:
+        print 'Sign of logdet is not 1. Returning 10e100.'
+        return 10e100
+
+    lml = np.matmul(y.T, tmp0)[0, 0] + logdet + np.log(2.*np.pi)*len(X)
+    lml *= -.5
+    return -lml
 
 def batch_sek(a, b, signal_sd, length_scale):
     sqdist = np.sum(np.square(a), axis=-1, keepdims=True) +\
