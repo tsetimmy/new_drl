@@ -536,6 +536,9 @@ def plotting_experiments():
     for i in range(env.observation_space.shape[0]):
         predictors[i]._train_hyperparameters(states_actions, next_states[:, i:i+1])
         predictors[i]._update(states_actions, next_states[:, i:i+1])
+    #TODO: Simply trying hard-coding the hyperparameters (for the reward function)
+    # to get high uncertainty in the unvisted regions of the state space.
+    # Try: length_scale = 1., signal_sd = 10., noise_sd = 1., prior_sd = 3000.
     predictors[-1]._train_hyperparameters(states_actions, rewards)
     predictors[-1]._update(states_actions, rewards)
 
@@ -596,5 +599,5 @@ def plotting_experiments():
         plt.show(block=True)
 
 if __name__ == '__main__':
-    #plotting_experiments()
-    main_loop()
+    plotting_experiments()
+    #main_loop()

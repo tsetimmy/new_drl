@@ -414,6 +414,7 @@ def mcc_get_success_policy(env):
         state = np.copy(seed_state)
         policy = np.random.uniform(env.action_space.low, env.action_space.high, env._max_episode_steps)
         found = False
+        hit_wall = False
         length = 0
 
         for a in policy:
@@ -426,9 +427,12 @@ def mcc_get_success_policy(env):
             state = np.copy(next_state)
             length += 1
 
-            if reward[0] > 50.:
+            if next_state[0, 0] == -1.2 and next_state[0, 1] == 0.:
+                hit_wall = True
+
+            if reward[0] > 50. and hit_wall == False:
                 found = True
-                break
+                #break
 
         if found: break
 
