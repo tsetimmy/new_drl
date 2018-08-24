@@ -2,10 +2,15 @@ import numpy as np
 import scipy
 from scipy.optimize import minimize
 from hyperparameter_optimizer import log_marginal_likelihood, squared_exponential_kernel
+import matplotlib.pyplot as plt
 import warnings
 
+import sys
+sys.path.append('..')
+from utils import gather_data
+
 class RegressionWrappers:
-    def __init__(self, input_dim, length_scale=.0001, signal_sd=1., noise_sd=1.):
+    def __init__(self, input_dim, length_scale=1., signal_sd=1., noise_sd=1.):
         self.input_dim = input_dim
         self.length_scale = length_scale
         self.signal_sd = signal_sd
@@ -14,19 +19,13 @@ class RegressionWrappers:
         self.hyperparameters = np.array([self.length_scale, self.signal_sd, self.noise_sd])
 
     def _train_hyperparameters(self, X, y):
-        '''
         warnings.filterwarnings('error')
         thetas = np.copy(self.hyperparameters)
-        options = {'maxiter': 1, 'disp': True}
+        options = {'maxiter': 1000, 'disp': True}
         _res = minimize(log_marginal_likelihood, thetas, method='powell', args=(X, y), options=options)
         self.hyperparameters = np.copy(_res.x)
         self.length_scale, self.signal_sd, self.noise_sd = self.hyperparameters
         print self.hyperparameters
-        '''
-        self.length_scale = -2.04393657e-02
-        #self.signal_sd = 5.23822283e+00
-        self.signal_sd = 20.
-        self.noise_sd = 1.10004099e-03
 
     def _predict(self, Xt, X, y):
         K = squared_exponential_kernel(X, X, self.signal_sd, self.length_scale) + self.noise_sd**2*np.eye(len(X))
@@ -41,8 +40,37 @@ class RegressionWrappers:
 
         return mu, sigma
 
+def main2():
+    import gym
+    env = gym.make('Pendulum-v0')
+
+    states, actions, rewards, _ = gather_data(env, 5, unpack=True)
+    states_actions = np.concatenate([states, actions], axis=-1)
+
+    regression_wrapper = RegressionWrappers(input_dim=states_actions.shape[-1])
+    regression_wrapper._train_hyperparameters(states_actions, rewards)
+
+    states2, actions2, rewards2, _ = gather_data(env, 1, unpack=True)
+    states_actions2 = np.concatenate([states2, actions2], axis=-1)
+
+    mu, sigma = regression_wrapper._predict(states_actions2, states_actions, rewards)
+
+    mu = np.squeeze(mu, axis=-1)
+    sd = np.sqrt(np.diag(sigma))
+
+    plt.gca().fill_between(np.arange(len(mu)), mu-3*sd, mu+3*sd, color="#dddddd")
+    plt.plot(np.arange(len(mu)), mu, 'r--')
+
+    plt.scatter(np.arange(len(rewards2)), rewards2)
+
+    plt.grid()
+    plt.show()
+
+
+
+
+
 def main():
-    import matplotlib.pyplot as plt
     X = np.random.uniform(-4., 4., size=[10000, 1])
     #X = np.concatenate([X, np.zeros([1, 1])])
     y = f(X)# + np.random.normal(loc=0., scale=.5, size=[len(X), 1])
@@ -66,4 +94,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    #main()
+    main2()
