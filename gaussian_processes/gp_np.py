@@ -10,6 +10,20 @@ from utils import gather_data
 
 from direct_policy_search.blr_regression2 import RegressionWrapper as RWL
 
+import uuid
+import pickle
+
+def matern_kernel(a, b, hyperparameters):
+    signal_sd, length_scale = hyperparameters
+
+    sqdist = squared_distance(a, b)
+
+    #v=3/2
+    kernel = signal_sd**2*(1. + np.sqrt(3.*sqdist)/np.abs(length_scale))*np.exp(-np.sqrt(3.*sqdist)/np.abs(length_scale))
+
+    #v=5/2
+    #kernel = signal_sd**2*(1. + np.sqrt(5.*sqdist)/np.abs(length_scale) + (5.*sqdist)/(3.*length_scale**2))*np.exp(-np.sqrt(5.*sqdist)/np.abs(length_scale))
+    return kernel
 
 def periodic_kernel(a, b, hyperparameters):
     s, p, l = hyperparameters
@@ -30,7 +44,7 @@ def squared_distance(a, b):
     sqdist = np.sum(np.square(a), axis=-1, keepdims=True) +\
              -2. * np.matmul(a, b.T) +\
              np.sum(np.square(b), axis=-1, keepdims=True).T
-    return sqdist
+    return np.maximum(sqdist, 0.)
 
 def squared_exponential_kernel(a, b, hyperparameters, *unused):
     signal_sd, length_scale = hyperparameters
@@ -64,15 +78,17 @@ def log_marginal_likelihood(thetas, X, y, kern):
     lml *= -.5
     return -lml
 
-def kernel(x, y, hyperparameters, kern='rbf'):
+def kernel(x, y, hyperparameters, kern='matern'):
     if kern == 'rbf':
         return squared_exponential_kernel(x, y, hyperparameters)
     elif kern == 'periodic':
         return periodic_kernel(x, y, hyperparameters)
+    elif kern == 'matern':
+        return matern_kernel(x, y, hyperparameters)
 
 class RegressionWrappers:
     def __init__(self, input_dim, kern='rbf'):
-        assert kern in ['rbf', 'periodic']
+        assert kern in ['rbf', 'periodic', 'matern']
         self.input_dim = input_dim
         self.kern = kern
 
@@ -80,9 +96,18 @@ class RegressionWrappers:
             self.hyperparameters = np.ones(3)
         elif self.kern == 'periodic':
             self.hyperparameters = np.ones(4)
+        elif self.kern == 'matern':
+            self.hyperparameters = np.ones(3)
 
     def _train_hyperparameters(self, X, y):
         warnings.filterwarnings('error')
+        '''
+        import cma
+        thetas = np.copy(self.hyperparameters)
+        options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
+        res = cma.fmin(log_marginal_likelihood, thetas, 2., args=(X, y, self.kern), options=options)
+        self.hyperparameters = np.copy(res[0])
+        '''
         thetas = np.copy(self.hyperparameters)
         options = {'maxiter': 1000, 'disp': True}
         _res = minimize(log_marginal_likelihood, thetas, method='powell', args=(X, y, self.kern), options=options)
@@ -103,17 +128,20 @@ class RegressionWrappers:
         return mu, sigma
 
 def main2():
+    uid = str(uuid.uuid4())
     import gym
     env = gym.make('Pendulum-v0')
 
     states, actions, rewards, _ = gather_data(env, 3, unpack=True)
     states_actions = np.concatenate([states, actions], axis=-1)
 
-    regression_wrapper = RegressionWrappers(input_dim=states_actions.shape[-1], kern='periodic')
+    regression_wrapper = RegressionWrappers(input_dim=states_actions.shape[-1], kern='matern')
     regression_wrapper._train_hyperparameters(states_actions, rewards)
 
     states2, actions2, rewards2, _ = gather_data(env, 1, unpack=True)
     states_actions2 = np.concatenate([states2, actions2], axis=-1)
+
+    pickle.dump([states_actions, rewards, states_actions2, rewards2], open(uid+'.p', 'wb'))
 
     mu, sigma = regression_wrapper._predict(states_actions2, states_actions, rewards)
 
@@ -136,12 +164,9 @@ def main2():
 
 
     plt.grid()
-    plt.show()
-
-
-
-
-
+    plt.title(uid)
+    #plt.show()
+    plt.savefig(uid+'.pdf')
 
 def main():
     X = np.random.uniform(-4., 4., size=[10000, 1])
