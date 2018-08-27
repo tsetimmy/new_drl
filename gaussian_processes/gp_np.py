@@ -12,14 +12,29 @@ from direct_policy_search.blr_regression2 import RegressionWrapper as RWL
 
 import uuid
 import pickle
+import gym
+import argparse
+
+def rational_quadratic_kernel(a, b, hyperparameters):
+    signal_sd, length_scale, alpha = hyperparameters
+
+    sqdist = squared_distance(a, b)
+
+    kernel = signal_sd**2*np.power((1. + sqdist/(2.*np.abs(alpha)*length_scale**2)), -np.abs(alpha))
+
+    return kernel
+
 
 def matern_kernel(a, b, hyperparameters):
     signal_sd, length_scale = hyperparameters
 
     sqdist = squared_distance(a, b)
 
+    #v=1/2
+    kernel = signal_sd**2*np.exp(-np.sqrt(sqdist)/np.abs(length_scale))
+
     #v=3/2
-    kernel = signal_sd**2*(1. + np.sqrt(3.*sqdist)/np.abs(length_scale))*np.exp(-np.sqrt(3.*sqdist)/np.abs(length_scale))
+    #kernel = signal_sd**2*(1. + np.sqrt(3.*sqdist)/np.abs(length_scale))*np.exp(-np.sqrt(3.*sqdist)/np.abs(length_scale))
 
     #v=5/2
     #kernel = signal_sd**2*(1. + np.sqrt(5.*sqdist)/np.abs(length_scale) + (5.*sqdist)/(3.*length_scale**2))*np.exp(-np.sqrt(5.*sqdist)/np.abs(length_scale))
@@ -85,10 +100,12 @@ def kernel(x, y, hyperparameters, kern='matern'):
         return periodic_kernel(x, y, hyperparameters)
     elif kern == 'matern':
         return matern_kernel(x, y, hyperparameters)
+    elif kern == 'rq':
+        return rational_quadratic_kernel(x, y, hyperparameters)
 
 class RegressionWrappers:
     def __init__(self, input_dim, kern='rbf'):
-        assert kern in ['rbf', 'periodic', 'matern']
+        assert kern in ['rbf', 'periodic', 'matern', 'rq']
         self.input_dim = input_dim
         self.kern = kern
 
@@ -98,6 +115,8 @@ class RegressionWrappers:
             self.hyperparameters = np.ones(4)
         elif self.kern == 'matern':
             self.hyperparameters = np.ones(3)
+        elif self.kern == 'rq':
+            self.hyperparameters = np.ones(4)
 
     def _train_hyperparameters(self, X, y):
         warnings.filterwarnings('error')
@@ -128,32 +147,56 @@ class RegressionWrappers:
         return mu, sigma
 
 def main2():
-    uid = str(uuid.uuid4())
-    import gym
-    env = gym.make('Pendulum-v0')
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--environment", type=str, default='Pendulum-v0')
+    #parser.add_argument("--path", type=str, default='')
+    args = parser.parse_args()
+
+    print args
+
+    #uid = str(uuid.uuid4())
+    env = gym.make(args.environment)
+
+    #states_actions, rewards, states_actions2, rewards2 = pickle.load(open(args.path, 'rb'))
 
     states, actions, rewards, _ = gather_data(env, 3, unpack=True)
     states_actions = np.concatenate([states, actions], axis=-1)
 
-    regression_wrapper = RegressionWrappers(input_dim=states_actions.shape[-1], kern='matern')
-    regression_wrapper._train_hyperparameters(states_actions, rewards)
+    rbf = RegressionWrappers(input_dim=states_actions.shape[-1], kern='rbf')
+    rbf._train_hyperparameters(states_actions, rewards)
+
+    matern = RegressionWrappers(input_dim=states_actions.shape[-1], kern='matern')
+    matern._train_hyperparameters(states_actions, rewards)
+
+    rq = RegressionWrappers(input_dim=states_actions.shape[-1], kern='rq')
+    rq._train_hyperparameters(states_actions, rewards)
 
     states2, actions2, rewards2, _ = gather_data(env, 1, unpack=True)
     states_actions2 = np.concatenate([states2, actions2], axis=-1)
 
-    pickle.dump([states_actions, rewards, states_actions2, rewards2], open(uid+'.p', 'wb'))
+    #pickle.dump([states_actions, rewards, states_actions2, rewards2], open(uid+'.p', 'wb'))
 
-    mu, sigma = regression_wrapper._predict(states_actions2, states_actions, rewards)
+    mu, sigma = rbf._predict(states_actions2, states_actions, rewards)
 
     mu = np.squeeze(mu, axis=-1)
     sd = np.sqrt(np.diag(sigma))
 
-    #plt.gca().fill_between(np.arange(len(mu)), mu-3*sd, mu+3*sd, color="#dddddd")
-    #plt.plot(np.arange(len(mu)), mu, 'r--')
     plt.errorbar(np.arange(len(mu)), mu, yerr=sd, color='m', ecolor='g')
 
-    plt.scatter(np.arange(len(rewards2)), rewards2)
+    mu, sigma = matern._predict(states_actions2, states_actions, rewards)
 
+    mu = np.squeeze(mu, axis=-1)
+    sd = np.sqrt(np.diag(sigma))
+
+    plt.errorbar(np.arange(len(mu)), mu, yerr=sd, color='y', ecolor='c')
+
+    mu, sigma = rq._predict(states_actions2, states_actions, rewards)
+
+    mu = np.squeeze(mu, axis=-1)
+    sd = np.sqrt(np.diag(sigma))
+
+    plt.errorbar(np.arange(len(mu)), mu, yerr=sd, color='b', ecolor='g')
 
     rwl = RWL(input_dim=states_actions.shape[-1], basis_dim=512)
     rwl._train_hyperparameters(states_actions, rewards)
@@ -162,11 +205,12 @@ def main2():
     mu, sigma = rwl._predict(states_actions2)
     plt.errorbar(np.arange(len(mu)), mu, yerr=np.sqrt(sigma), color='r', ecolor='k')
 
+    plt.scatter(np.arange(len(rewards2)), rewards2)
 
     plt.grid()
-    plt.title(uid)
-    #plt.show()
-    plt.savefig(uid+'.pdf')
+    #plt.title(uid)
+    plt.show()
+    #plt.savefig(uid+'.pdf')
 
 def main():
     X = np.random.uniform(-4., 4., size=[10000, 1])
