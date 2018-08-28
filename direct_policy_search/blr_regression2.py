@@ -492,7 +492,7 @@ def main_loop():
                                                            noise_sd=5e-4,
                                                            prior_sd=1.,
                                                            rffm_seed=args.rffm_seed,
-                                                           train_hp_iterations=args.train_hp_iterations
+                                                           train_hp_iterations=args.train_hp_iterations,
                                                            matern_param=args.matern_param_reward))
 
     flag = False
