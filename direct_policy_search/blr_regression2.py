@@ -448,8 +448,8 @@ def main_loop():
     parser.add_argument("--fit-function", type=str, choices=['_fit', '_fit_cma', '_fit_random_search'], default='_fit')
     parser.add_argument("--learn-reward", type=int, choices=[0, 1], default=1)
     parser.add_argument("--max-train-hp-datapoints", type=int, default=20000)
-    parser.add_argument("--matern-param-reward", type=float, default=0.)
-    parser.add_argument("--basis-dim_reward", type=int, default=1024)
+    parser.add_argument("--matern-param-reward", type=float, default=np.inf)
+    parser.add_argument("--basis-dim-reward", type=int, default=600)
     args = parser.parse_args()
 
     print args
@@ -486,7 +486,7 @@ def main_loop():
     if args.learn_reward == 1:
         regression_wrappers.append(RegressionWrapperReward(environment=args.environment,
                                                            input_dim=env.observation_space.shape[0]+env.action_space.shape[0],
-                                                           basis_dim=args.basis_dim,
+                                                           basis_dim=args.basis_dim_reward,
                                                            length_scale=1.,
                                                            signal_sd=1.,
                                                            noise_sd=5e-4,
@@ -633,5 +633,5 @@ def plotting_experiments():
         plt.show(block=True)
 
 if __name__ == '__main__':
-    plotting_experiments()
-    #main_loop()
+    #plotting_experiments()
+    main_loop()
