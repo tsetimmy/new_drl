@@ -7,10 +7,10 @@ from blr_regression2 import Agent, _basis
 class Agent2(Agent):
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                  action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, rffm_seed=1, basis_dim=256,
-                 learn_reward=0):
+                 hidden_dim=32, learn_reward=0):
         Agent.__init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                        action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, rffm_seed, basis_dim,
-                       learn_reward)
+                       hidden_dim, learn_reward)
         self._init_thetas2()
 
     def _init_thetas2(self):

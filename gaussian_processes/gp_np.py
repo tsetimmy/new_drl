@@ -155,7 +155,7 @@ def main2():
 
     print args
 
-    #uid = str(uuid.uuid4())
+    uid = str(uuid.uuid4())
     env = gym.make(args.environment)
 
     #states_actions, rewards, states_actions2, rewards2 = pickle.load(open(args.path, 'rb'))
@@ -163,54 +163,62 @@ def main2():
     states, actions, rewards, _ = gather_data(env, 3, unpack=True)
     states_actions = np.concatenate([states, actions], axis=-1)
 
-    rbf = RegressionWrappers(input_dim=states_actions.shape[-1], kern='rbf')
-    rbf._train_hyperparameters(states_actions, rewards)
-
+#    rbf = RegressionWrappers(input_dim=states_actions.shape[-1], kern='rbf')
+#    rbf._train_hyperparameters(states_actions, rewards)
+#
     matern = RegressionWrappers(input_dim=states_actions.shape[-1], kern='matern')
     matern._train_hyperparameters(states_actions, rewards)
-
-    rq = RegressionWrappers(input_dim=states_actions.shape[-1], kern='rq')
-    rq._train_hyperparameters(states_actions, rewards)
+#
+#    rq = RegressionWrappers(input_dim=states_actions.shape[-1], kern='rq')
+#    rq._train_hyperparameters(states_actions, rewards)
 
     states2, actions2, rewards2, _ = gather_data(env, 1, unpack=True)
     states_actions2 = np.concatenate([states2, actions2], axis=-1)
 
-    #pickle.dump([states_actions, rewards, states_actions2, rewards2], open(uid+'.p', 'wb'))
+    pickle.dump([states_actions, rewards, states_actions2, rewards2], open(uid+'.p', 'wb'))
 
-    mu, sigma = rbf._predict(states_actions2, states_actions, rewards)
-
-    mu = np.squeeze(mu, axis=-1)
-    sd = np.sqrt(np.diag(sigma))
-
-    plt.errorbar(np.arange(len(mu)), mu, yerr=sd, color='m', ecolor='g')
-
+#    mu, sigma = rbf._predict(states_actions2, states_actions, rewards)
+#
+#    mu = np.squeeze(mu, axis=-1)
+#    sd = np.sqrt(np.diag(sigma))
+#
+#    plt.errorbar(np.arange(len(mu)), mu, yerr=sd, color='m', ecolor='g')
+#
     mu, sigma = matern._predict(states_actions2, states_actions, rewards)
 
     mu = np.squeeze(mu, axis=-1)
     sd = np.sqrt(np.diag(sigma))
 
     plt.errorbar(np.arange(len(mu)), mu, yerr=sd, color='y', ecolor='c')
+#
+#    mu, sigma = rq._predict(states_actions2, states_actions, rewards)
+#
+#    mu = np.squeeze(mu, axis=-1)
+#    sd = np.sqrt(np.diag(sigma))
+#
+#    plt.errorbar(np.arange(len(mu)), mu, yerr=sd, color='b', ecolor='g')
 
-    mu, sigma = rq._predict(states_actions2, states_actions, rewards)
-
-    mu = np.squeeze(mu, axis=-1)
-    sd = np.sqrt(np.diag(sigma))
-
-    plt.errorbar(np.arange(len(mu)), mu, yerr=sd, color='b', ecolor='g')
-
-    rwl = RWL(input_dim=states_actions.shape[-1], basis_dim=512)
+    rwl = RWL(input_dim=states_actions.shape[-1], basis_dim=1024)
     rwl._train_hyperparameters(states_actions, rewards)
     rwl._reset_statistics(states_actions, rewards)
 
     mu, sigma = rwl._predict(states_actions2)
     plt.errorbar(np.arange(len(mu)), mu, yerr=np.sqrt(sigma), color='r', ecolor='k')
 
+
+    rwl2 = RWL(input_dim=states_actions.shape[-1], basis_dim=1024, matern_param=0.)
+    rwl2._train_hyperparameters(states_actions, rewards)
+    rwl2._reset_statistics(states_actions, rewards)
+
+    mu, sigma = rwl2._predict(states_actions2)
+    plt.errorbar(np.arange(len(mu)), mu, yerr=np.sqrt(sigma), color='g', ecolor='b')
+
     plt.scatter(np.arange(len(rewards2)), rewards2)
 
     plt.grid()
-    #plt.title(uid)
-    plt.show()
-    #plt.savefig(uid+'.pdf')
+    plt.title(uid)
+    #plt.show()
+    plt.savefig(uid+'.pdf')
 
 def main():
     X = np.random.uniform(-4., 4., size=[10000, 1])

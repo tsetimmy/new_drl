@@ -24,7 +24,7 @@ def _basis(X, random_matrix, bias, basis_dim, length_scale, signal_sd):
     return z
 
 class RegressionWrapper:
-    def __init__(self, input_dim, basis_dim, length_scale=1., signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=2000):
+    def __init__(self, input_dim, basis_dim, length_scale=1., signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=2000, matern_param=np.inf):
         self.input_dim = input_dim
         self.basis_dim = basis_dim
         self.length_scale = length_scale
@@ -42,6 +42,10 @@ class RegressionWrapper:
         np.random.seed(self.rffm_seed)
 
         self.random_matrix = np.random.normal(size=[self.input_dim, self.basis_dim])
+        if matern_param != np.inf:
+            df = 2. * (matern_param + .5)
+            u = np.random.chisquare(df, size=[self.basis_dim,])
+            self.random_matrix = self.random_matrix * np.sqrt(df / u)
         self.bias = np.random.uniform(low=0., high=2.*np.pi, size=[self.basis_dim])
 
         np.random.set_state(rng_state)
@@ -121,10 +125,25 @@ class RegressionWrapper:
 
         return predict_mu, predict_sigma
 
+class RegressionWrapperReward(RegressionWrapper):
+    def __init__(self, environment, input_dim, basis_dim, length_scale=1., signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=2000, matern_param=np.inf):
+        RegressionWrapper.__init__(self, input_dim, basis_dim, length_scale, signal_sd, noise_sd, prior_sd, rffm_seed, train_hp_iterations0, matern_param)
+        self.environment = environment
+
+    def _train_hyperparameters(self, X, y):
+        if self.environment == 'MountainCarContinuous-v0':
+            self.length_scale = 1.
+            self.signal_sd = 10.
+            self.noise_sd = 1.
+            self.prior_sd = 3000.
+            self.hyperparameters = np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd])
+        else:
+            RegressionWrapper._train_hyperparameters(self, X, y)
+
 class Agent:
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                  action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, rffm_seed=1, basis_dim=256,
-                 learn_reward=0):
+                 hidden_dim=32, learn_reward=0):
         assert environment in ['Pendulum-v0', 'MountainCarContinuous-v0']
         assert x_dim == state_dim + action_dim
         assert len(action_space_low.shape) == 1
@@ -144,6 +163,7 @@ class Agent:
         self.discount_factor = discount_factor
         self.rffm_seed = rffm_seed
         self.basis_dim = basis_dim
+        self.hidden_dim = hidden_dim
         self.learn_reward = learn_reward
 
         #Initialize random matrix
@@ -164,7 +184,6 @@ class Agent:
         elif self.environment == 'MountainCarContinuous-v0' and self.learn_reward == 0:
             self.reward_function = mountain_car_continuous_reward_function()
 
-        self.hidden_dim = 32
         self.hyperstate_dim = (self.state_dim+self.learn_reward)*self.basis_dim*(self.basis_dim+1)/2+(self.state_dim+self.learn_reward)*self.basis_dim
         self.w0 = np.concatenate([np.random.normal(size=[self.hyperstate_dim, self.state_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.state_dim])], axis=0)
         self.w1 = np.concatenate([np.random.normal(size=[2*self.state_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
@@ -423,11 +442,14 @@ def main_loop():
     parser.add_argument("--train-policy-batch-size", type=int, default=30)
     parser.add_argument("--no-samples", type=int, default=1)
     parser.add_argument("--basis-dim", type=int, default=256)
+    parser.add_argument("--hidden-dim", type=int, default=32)
     parser.add_argument("--rffm-seed", type=int, default=1)
     parser.add_argument("--Agent", type=str, choices=['', '2', '3'], default='')
     parser.add_argument("--fit-function", type=str, choices=['_fit', '_fit_cma', '_fit_random_search'], default='_fit')
     parser.add_argument("--learn-reward", type=int, choices=[0, 1], default=1)
     parser.add_argument("--max-train-hp-datapoints", type=int, default=20000)
+    parser.add_argument("--matern-param-reward", type=float, default=0.)
+    parser.add_argument("--basis-dim_reward", type=int, default=1024)
     args = parser.parse_args()
 
     print args
@@ -450,6 +472,7 @@ def main_loop():
                                      discount_factor=args.discount_factor,
                                      rffm_seed=args.rffm_seed,
                                      basis_dim=args.basis_dim,
+                                     hidden_dim=args.hidden_dim,
                                      learn_reward=args.learn_reward)
     regression_wrappers = [RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0],
                                              basis_dim=args.basis_dim,
@@ -459,7 +482,18 @@ def main_loop():
                                              prior_sd=1.,
                                              rffm_seed=args.rffm_seed,
                                              train_hp_iterations=args.train_hp_iterations)
-                           for _ in range(env.observation_space.shape[0]+args.learn_reward)]
+                           for _ in range(env.observation_space.shape[0])]
+    if args.learn_reward == 1:
+        regression_wrappers.append(RegressionWrapperReward(environment=args.environment,
+                                                           input_dim=env.observation_space.shape[0]+env.action_space.shape[0],
+                                                           basis_dim=args.basis_dim,
+                                                           length_scale=1.,
+                                                           signal_sd=1.,
+                                                           noise_sd=5e-4,
+                                                           prior_sd=1.,
+                                                           rffm_seed=args.rffm_seed,
+                                                           train_hp_iterations=args.train_hp_iterations
+                                                           matern_param=args.matern_param_reward))
 
     flag = False
     data_buffer = gather_data(env, args.gather_data_epochs)
