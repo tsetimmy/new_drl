@@ -6,10 +6,10 @@ from blr_regression2 import Agent, _basis
 
 class Agent2(Agent):
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
-                 action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, rffm_seed=1, basis_dim=256,
+                 action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrices, biases, basis_dims,
                  hidden_dim=32, learn_reward=0):
         Agent.__init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
-                       action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, rffm_seed, basis_dim,
+                       action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrices, biases, basis_dims,
                        hidden_dim, learn_reward)
         self._init_thetas2()
 
@@ -47,15 +47,12 @@ class Agent2(Agent):
                 covs = []
                 for i in range(self.state_dim):
                     length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
-                    basis = _basis(state_action, self.random_matrix, self.bias, self.basis_dim, length_scale, signal_sd)
+                    basis = _basis(state_action, self.random_matrices[i], self.biases[i], self.basis_dims[i], length_scale, signal_sd)
 
-                    tmp = (noise_sd/prior_sd)**2*np.eye(self.basis_dim) + XX[i]
+                    tmp = (noise_sd/prior_sd)**2*np.eye(self.basis_dims[i]) + XX[i]
 
                     pred_sigma = noise_sd**2 + np.sum(np.multiply(basis, noise_sd**2*scipy.linalg.solve(tmp, basis.T).T), axis=-1, keepdims=True)
                     pred_mu = np.matmul(basis, scipy.linalg.solve(tmp, Xy[i]))
-
-                    #pred_mu = np.matmul(basis, wn[i])
-                    #pred_sigma = noise_sd**2 + np.sum(np.multiply(np.matmul(basis, Vn[i]), basis), axis=-1, keepdims=True)
 
                     means.append(pred_mu)
                     covs.append(pred_sigma)
@@ -95,11 +92,14 @@ class Agent2(Agent):
         assert len(Xytr) == self.state_dim + self.learn_reward
         assert len(hyperparameters) == self.state_dim + self.learn_reward
 
-        loss = lambda thetas: self._loss(thetas, np.copy(X), np.copy(XXtr), np.copy(Xytr), np.copy(hyperparameters), sess)
+        X = np.copy(X)
+        XXtr = [np.copy(ele) for ele in XXtr]
+        Xytr = [np.copy(ele) for ele in Xytr]
+        hyperparameters = [np.copy(ele) for ele in hyperparameters]
 
         import cma
         options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
-        res = cma.fmin(loss, self.thetas, 2., options=options)
+        res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), [np.copy(ele) for ele in XXtr], [np.copy(ele) for ele in Xytr], [np.copy(ele) for ele in hyperparameters], sess), options=options)
         self.thetas = np.copy(res[0])
 
     def _reward(self, state, action, sess, XX, Xy, hyperparameters):
@@ -110,8 +110,8 @@ class Agent2(Agent):
         else:
             state_action = np.concatenate([state, action], axis=-1)
             length_scale, signal_sd, noise_sd, prior_sd = hyperparameters
-            basis = _basis(state_action, self.random_matrix, self.bias, self.basis_dim, length_scale, signal_sd)
-            tmp = (noise_sd/prior_sd)**2*np.eye(self.basis_dim) + XX
+            basis = _basis(state_action, self.random_matrices[-1], self.biases[-1], self.basis_dims[-1], length_scale, signal_sd)
+            tmp = (noise_sd/prior_sd)**2*np.eye(self.basis_dims[-1]) + XX
             predict_sigma = noise_sd**2 + np.sum(np.multiply(basis, noise_sd**2*scipy.linalg.solve(tmp, basis.T).T), axis=-1, keepdims=True)
             predict_mu = np.matmul(basis, scipy.linalg.solve(tmp, Xy))
             reward = np.stack([np.random.normal(loc=loc, scale=scale) for loc, scale in zip(predict_mu, predict_sigma)], axis=0)

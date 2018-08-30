@@ -142,7 +142,7 @@ class RegressionWrapperReward(RegressionWrapper):
 
 class Agent:
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
-                 action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, rffm_seed=1, basis_dim=256,
+                 action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrices, biases, basis_dims,
                  hidden_dim=32, learn_reward=0):
         assert environment in ['Pendulum-v0', 'MountainCarContinuous-v0']
         assert x_dim == state_dim + action_dim
@@ -161,19 +161,12 @@ class Agent:
         self.unroll_steps = unroll_steps
         self.no_samples = no_samples
         self.discount_factor = discount_factor
-        self.rffm_seed = rffm_seed
-        self.basis_dim = basis_dim
+        self.random_matrices = random_matrices
+        self.biases = biases
+        self.basis_dims = basis_dims
         self.hidden_dim = hidden_dim
         self.learn_reward = learn_reward
 
-        #Initialize random matrix
-        rng_state = np.random.get_state()
-        np.random.seed(self.rffm_seed)
-        self.random_matrix = np.random.normal(size=[self.x_dim, self.basis_dim])
-        self.bias = np.random.uniform(low=0., high=2.*np.pi, size=[self.basis_dim])
-        np.random.set_state(rng_state)
-
-        #Use real reward function
         if self.environment == 'Pendulum-v0' and self.learn_reward == 0:
             #self.reward_function = real_env_pendulum_reward()
             self.reward_function = ANN(self.state_dim+self.action_dim, 1)
@@ -184,7 +177,7 @@ class Agent:
         elif self.environment == 'MountainCarContinuous-v0' and self.learn_reward == 0:
             self.reward_function = mountain_car_continuous_reward_function()
 
-        self.hyperstate_dim = (self.state_dim+self.learn_reward)*self.basis_dim*(self.basis_dim+1)/2+(self.state_dim+self.learn_reward)*self.basis_dim
+        self.hyperstate_dim = sum([(basis_dim*(basis_dim+1))/2 + basis_dim for basis_dim in self.basis_dims])
         self.w0 = np.concatenate([np.random.normal(size=[self.hyperstate_dim, self.state_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.state_dim])], axis=0)
         self.w1 = np.concatenate([np.random.normal(size=[2*self.state_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
         self.w2 = np.concatenate([np.random.normal(size=[self.hidden_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
@@ -216,26 +209,26 @@ class Agent:
             weights.append(w)
         return weights
 
-    def _forward(self, thetas, X, hyperstate, hyperparameters, unroll_step):
+    def _forward(self, thetas, X, hyperstate):
         w0, w1, w2, w3 = self._unpack(thetas, self.sizes)
         XXtr, Xytr = hyperstate
 
-        A = self.noises_tiled + XXtr
+        A = [xx + noise for xx, noise in zip(XXtr, self.noises)]
+        wn = [solve(a, xy) for a, xy in zip(A, Xytr)]
 
-        #if (np.linalg.cond(A) >= 1./sys.float_info.epsilon).any(): raise Exception('Matrix(es) is/are ill-conditioned (detected in _forward). unroll_step:'+str(unroll_step)+'.')
-        #wn = np.linalg.solve(A, Xytr)
-        wn = solve(A, Xytr)
+        indices = [np.triu_indices(basis_dim, 1) for basis_dim in self.basis_dims]
+        hyperstate = []
+        for i in range(len(X)):
+            tmp0 = []
+            for j in range(len(A)):
+                A[j][i][indices[j]] = np.nan
+                tmp1 = A[j][i]
+                tmp0.append(tmp1[~np.isnan(tmp1)])
+                tmp0.append(np.squeeze(wn[j][i]))
+            tmp0 = np.concatenate(tmp0)
+            hyperstate.append(tmp0)
+        hyperstate = np.stack(hyperstate, axis=0)
 
-        batch_size, dim, _, _ = A.shape
-        indices = np.triu_indices(self.basis_dim, 1)
-        for i in range(batch_size):
-            for j in range(dim):
-                A[i, j][indices] = np.nan
-        A = A[~np.isnan(A)]
-        A = np.reshape(A, [batch_size, dim, -1])
-
-        hyperstate = np.concatenate([A, np.squeeze(wn, axis=-1)], axis=-1)
-        hyperstate = np.reshape(hyperstate, [len(hyperstate), -1])
         hyperstate = self._add_bias(hyperstate)
         hyperstate_embedding = np.tanh(np.matmul(hyperstate, w0))
 
@@ -266,36 +259,41 @@ class Agent:
         assert len(Xytr) == self.state_dim + self.learn_reward
         assert len(hyperparameters) == self.state_dim + self.learn_reward
 
+        X = np.copy(X)
+        XXtr = [np.copy(ele) for ele in XXtr]
+        Xytr = [np.copy(ele) for ele in Xytr]
+        hyperparameters = [np.copy(ele) for ele in hyperparameters]
+
         X = np.expand_dims(X, axis=1)
         X = np.tile(X, [1, self.no_samples, 1])
         X = np.reshape(X, [-1, self.state_dim])
 
-        XXtr = np.tile(XXtr[np.newaxis, ...], [len(X), 1, 1, 1])
-        Xytr = np.tile(Xytr[np.newaxis, ...], [len(X), 1, 1, 1])
+        XXtr = [np.tile(ele[np.newaxis, ...], [len(X), 1, 1]) for ele in XXtr]
+        Xytr = [np.tile(ele[np.newaxis, ...], [len(X), 1, 1]) for ele in Xytr]
 
-        noises = np.stack([(hp[2]/hp[3])**2*np.eye(self.basis_dim) for hp in hyperparameters], axis=0)
-        self.noises_tiled = np.tile(noises[np.newaxis, ...], [len(XXtr), 1, 1, 1])
+        self.noises = [(hp[2]/hp[3])**2*np.eye(basis_dim) for hp, basis_dim in zip(hyperparameters, self.basis_dims)]
 
         import cma
         options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
         print 'Before calling cma.fmin'
-        res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), np.copy(XXtr), np.copy(Xytr), None, np.copy(hyperparameters), sess), options=options)
+        res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), [np.copy(ele) for ele in XXtr], [np.copy(ele) for ele in Xytr], None, [np.copy(ele) for ele in hyperparameters], sess), options=options)
+
         results = np.copy(res[0])
 
     def _loss(self, thetas, X, XXtr, Xytr, A=[], hyperparameters=None, sess=None):
         rng_state = np.random.get_state()
         X = np.copy(X)
-        XXtr = np.copy(XXtr)
-        Xytr = np.copy(Xytr)
-        hyperparameters = np.copy(hyperparameters)
+        XXtr = [np.copy(ele) for ele in XXtr]
+        Xytr = [np.copy(ele) for ele in Xytr]
+        hyperparameters = [np.copy(ele) for ele in hyperparameters]
         try:
             np.random.seed(2)
 
             rewards = []
             state = X
             for unroll_step in xrange(self.unroll_steps):
-                action = self._forward(thetas, state, hyperstate=[XXtr, Xytr], hyperparameters=hyperparameters, unroll_step=unroll_step)
-                reward, basis_reward = self._reward(state, action, sess, XXtr[:, -1], Xytr[:, -1], hyperparameters[-1])
+                action = self._forward(thetas, state, hyperstate=[XXtr, Xytr])
+                reward, basis_reward = self._reward(state, action, sess, XXtr[-1], Xytr[-1], hyperparameters[-1])
                 rewards.append((self.discount_factor**unroll_step)*reward)
                 state_action = np.concatenate([state, action], axis=-1)
 
@@ -304,19 +302,18 @@ class Agent:
                 bases = []
                 for i in xrange(self.state_dim):
                     length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
-                    basis = _basis(state_action, self.random_matrix, self.bias, self.basis_dim, length_scale, signal_sd)
+                    basis = _basis(state_action, self.random_matrices[i], self.biases[i], self.basis_dims[i], length_scale, signal_sd)
                     basis = np.expand_dims(basis, axis=1)
                     bases.append(basis)
 
-                    tmp0 = (noise_sd/prior_sd)**2*np.tile(np.eye(self.basis_dim)[np.newaxis, ...], [len(XXtr[:, i]), 1, 1]) + XXtr[:, i]
+                    tmp0 = (noise_sd/prior_sd)**2*np.eye(self.basis_dims[i]) ++ XXtr[i]
                     #if (np.linalg.cond(tmp0) >= 1./sys.float_info.epsilon).any(): raise Exception('Matrix(es) is/are ill-conditioned (detected in _loss).')
                     #tmp1 = noise_sd**2*np.linalg.solve(tmp0, np.transpose(basis, [0, 2, 1]))#scipy.linalg.solve does not support broadcasting; have to use np.linalg.solve.
                     tmp1 = noise_sd**2*solve(tmp0, np.transpose(basis, [0, 2, 1]))
                     pred_sigma = noise_sd**2 + np.matmul(basis, tmp1)
                     pred_sigma = np.squeeze(pred_sigma, axis=-1)
 
-                    #pred_mu = np.matmul(basis, np.linalg.solve(tmp0, Xytr[:, i]))
-                    pred_mu = np.matmul(basis, solve(tmp0, Xytr[:, i]))
+                    pred_mu = np.matmul(basis, solve(tmp0, Xytr[i]))
                     pred_mu = np.squeeze(pred_mu, axis=-1)
 
                     means.append(pred_mu)
@@ -324,33 +321,28 @@ class Agent:
                 means = np.concatenate(means, axis=-1)
                 covs = np.concatenate(covs, axis=-1)
 
+                bases.append(basis_reward)
+
                 state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(means, covs)], axis=0)
                 state = np.clip(state, self.observation_space_low, self.observation_space_high)
 
-                bases = np.concatenate((bases + basis_reward)[:self.state_dim + self.learn_reward], axis=1)
-                bases = np.expand_dims(bases, axis=2)
                 y = np.concatenate([state, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
                 y = y[..., np.newaxis, np.newaxis]
 
-                XXtr_and_noise = self.noises_tiled + XXtr
-                for i in range(len(XXtr_and_noise)):
-                    for j in range(len(XXtr_and_noise[i])):
-                        _XX = XXtr_and_noise[i, j]
-                        _X = bases[i, j]
-                        _Xy = Xytr[i, j]
-                        _y = y[i, j]
+                XXtr_and_noise = [noise + xx for noise, xx in zip(self.noises, XXtr)]
+                for i in range(len(X)):
+                    for j in range(len(XXtr)):
+                        _XX = XXtr_and_noise[j][i]
+                        _X = bases[j][i]
+                        _Xy = Xytr[j][i]
+                        _y = y[i][j]
 
                         A = _XX + np.matmul(_X.T, _X)
                         B = _Xy + np.matmul(_X.T, _y)
 
                         if np.allclose(np.matmul(A, scipy.linalg.solve(A, B)), B):
-                            XXtr[i, j, :, :] += np.matmul(_X.T, _X)
-                            Xytr[i, j, :, :] += np.matmul(_X.T, _y)
-
-                '''
-                XXtr += np.matmul(np.transpose(bases, [0, 1, 3, 2]), bases)
-                Xytr += np.matmul(np.transpose(bases, [0, 1, 3, 2]), y)
-                '''
+                            XXtr[j][i][:, :] += np.matmul(_X.T, _X)
+                            Xytr[j][i][:, :] += np.matmul(_X.T, _y)
 
             rewards = np.concatenate(rewards, axis=-1)
             rewards = np.sum(rewards, axis=-1)
@@ -371,10 +363,9 @@ class Agent:
         else:
             state_action = np.concatenate([state, action], axis=-1)
             length_scale, signal_sd, noise_sd, prior_sd = hyperparameters
-            basis = _basis(state_action, self.random_matrix, self.bias, self.basis_dim, length_scale, signal_sd)
+            basis = _basis(state_action, self.random_matrices[-1], self.biases[-1], self.basis_dims[-1], length_scale, signal_sd)
             basis = np.expand_dims(basis, axis=1)
-
-            tmp0 = (noise_sd/prior_sd)**2*np.tile(np.eye(self.basis_dim)[np.newaxis, ...], [len(XX), 1, 1]) + XX
+            tmp0 = (noise_sd/prior_sd)**2*np.eye(self.basis_dims[-1]) + XX
             #if (np.linalg.cond(tmp0) >= 1./sys.float_info.epsilon).any(): raise Exception('Matrix(es) is/are ill-conditioned (detected in _reward).')
             #tmp1 = noise_sd**2*np.linalg.solve(tmp0, np.transpose(basis, [0, 2, 1]))#scipy.linalg.solve does not support broadcasting; have to use np.linalg.solve.
             tmp1 = noise_sd**2*solve(tmp0, np.transpose(basis, [0, 2, 1]))
@@ -384,7 +375,7 @@ class Agent:
             pred_mu = np.matmul(basis, solve(tmp0, Xy))
             pred_mu = np.squeeze(pred_mu, axis=-1)
             reward = np.stack([np.random.normal(loc=loc, scale=scale) for loc, scale in zip(pred_mu, pred_sigma)], axis=0)
-        return reward, [basis]
+        return reward, basis
 
 def solve(A, b):
     assert len(A.shape) == len(b.shape)
@@ -408,24 +399,21 @@ def solve(A, b):
 
 def update_hyperstate(agent, hyperstate, hyperparameters, datum, dim):
     state, action, reward, next_state, _ = [np.atleast_2d(np.copy(dat)) for dat in datum]
-    XX, Xy = hyperstate
-    assert XX.shape[1] == len(hyperparameters)
-    assert Xy.shape[1] == len(hyperparameters)
+    XX, Xy = [list(ele) for ele in hyperstate]
+    assert len(XX) == len(hyperparameters)
+    assert len(Xy) == len(hyperparameters)
     assert len(hyperparameters) == dim
     state_action = np.concatenate([state, action], axis=-1)
     y = np.concatenate([next_state, reward], axis=-1)[..., :dim]
 
-    xx = []
-    xy = []
     for i, hp in zip(range(dim), hyperparameters):
         length_scale, signal_sd, _, _ = hp
-        basis = _basis(state_action, agent.random_matrix, agent.bias, agent.basis_dim, length_scale, signal_sd)
-        xx.append(np.matmul(basis.T, basis))
-        xy.append(np.matmul(basis.T, y[..., i:i+1]))
-    xx = np.stack(xx, axis=0)[np.newaxis, ...]
-    xy = np.stack(xy, axis=0)[np.newaxis, ...]
+        basis = _basis(state_action, agent.random_matrices[i], agent.biases[i], agent.basis_dims[i], length_scale, signal_sd)
 
-    return [XX + xx, Xy + xy]
+        XX[i] += np.matmul(basis.T, basis)
+        Xy[i] += np.matmul(basis.T, y[..., i:i+1])
+
+    return [XX, Xy]
 
 def unpack(data_buffer):
     states, actions, rewards, next_states = [np.stack(ele, axis=0) for ele in zip(*data_buffer)[:-1]]
@@ -458,22 +446,6 @@ def main_loop():
 
     env = gym.make(args.environment)
 
-    agent = eval('Agent'+args.Agent)(environment=env.spec.id,
-                                     x_dim=env.observation_space.shape[0]+env.action_space.shape[0],
-                                     y_dim=env.observation_space.shape[0],
-                                     state_dim=env.observation_space.shape[0],
-                                     action_dim=env.action_space.shape[0],
-                                     observation_space_low=env.observation_space.low,
-                                     observation_space_high=env.observation_space.high,
-                                     action_space_low=env.action_space.low,
-                                     action_space_high=env.action_space.high,
-                                     unroll_steps=args.unroll_steps,
-                                     no_samples=args.no_samples,
-                                     discount_factor=args.discount_factor,
-                                     rffm_seed=args.rffm_seed,
-                                     basis_dim=args.basis_dim,
-                                     hidden_dim=args.hidden_dim,
-                                     learn_reward=args.learn_reward)
     regression_wrappers = [RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0],
                                              basis_dim=args.basis_dim,
                                              length_scale=1.,
@@ -494,6 +466,23 @@ def main_loop():
                                                            rffm_seed=args.rffm_seed,
                                                            train_hp_iterations=args.train_hp_iterations,
                                                            matern_param=args.matern_param_reward))
+    agent = eval('Agent'+args.Agent)(environment=env.spec.id,
+                                     x_dim=env.observation_space.shape[0]+env.action_space.shape[0],
+                                     y_dim=env.observation_space.shape[0],
+                                     state_dim=env.observation_space.shape[0],
+                                     action_dim=env.action_space.shape[0],
+                                     observation_space_low=env.observation_space.low,
+                                     observation_space_high=env.observation_space.high,
+                                     action_space_low=env.action_space.low,
+                                     action_space_high=env.action_space.high,
+                                     unroll_steps=args.unroll_steps,
+                                     no_samples=args.no_samples,
+                                     discount_factor=args.discount_factor,
+                                     random_matrices=[rw.random_matrix for rw in regression_wrappers],
+                                     biases=[rw.bias for rw in regression_wrappers],
+                                     basis_dims=[rw.basis_dim for rw in regression_wrappers],
+                                     hidden_dim=args.hidden_dim,
+                                     learn_reward=args.learn_reward)
 
     flag = False
     data_buffer = gather_data(env, args.gather_data_epochs)
@@ -519,18 +508,17 @@ def main_loop():
             if flag: data_buffer = []
 
             #Fit policy network.
-            XX, Xy, hyperparameters = [np.stack(ele, axis=0) for ele in zip(*[[rw.XX, rw.Xy, rw.hyperparameters] for rw in regression_wrappers])]
-            eval('agent.'+args.fit_function)(init_states, XX, Xy, hyperparameters, sess)
+            XX, Xy, hyperparameters = zip(*[[rw.XX, rw.Xy, rw.hyperparameters] for rw in regression_wrappers])
+            eval('agent.'+args.fit_function)(np.copy(init_states), [np.copy(ele) for ele in XX], [np.copy(ele) for ele in Xy], [np.copy(ele) for ele in hyperparameters], sess)
 
             #Get hyperstate & hyperparameters
-            hyperstate = [np.stack(ele, axis=0)[np.newaxis, ...] for ele in zip(*[[rw.XX, rw.Xy] for rw in regression_wrappers])]
-            hyperparameters = np.stack([rw.hyperparameters for rw in regression_wrappers], axis=0)
+            hyperstate = zip(*[[np.copy(rw.XX)[np.newaxis, ...], np.copy(rw.Xy)[np.newaxis, ...]] for rw in regression_wrappers])
 
             total_rewards = 0.
             state = env.reset()
             while True:
                 #env.render()
-                action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate, hyperparameters, -1)[0]
+                action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate)[0]
                 next_state, reward, done, _ = env.step(action)
 
                 hyperstate = update_hyperstate(agent, hyperstate, hyperparameters, [state, action, reward, next_state, done], agent.state_dim+agent.learn_reward)
