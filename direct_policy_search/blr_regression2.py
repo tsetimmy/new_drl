@@ -96,7 +96,7 @@ class RegressionWrapper:
             Xy = np.matmul(basis.T, y)
 
             tmp0 = (noise_sd_abs/prior_sd)**2*np.eye(self.basis_dim) + XX
-            tmp = np.matmul(Xy.T, scipy.linalg.solve(tmp0.T, Xy))
+            tmp = np.matmul(Xy.T, scipy.linalg.solve(tmp0.T, Xy, sym_pos=True))
 
             s, logdet = np.linalg.slogdet(np.eye(self.basis_dim) + (prior_sd/noise_sd_abs)**2*XX)
             if s != 1:
@@ -120,8 +120,8 @@ class RegressionWrapper:
     def _predict(self, X):
         basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, self.length_scale, self.signal_sd)
         tmp = (self.noise_sd/self.prior_sd)**2*np.eye(self.basis_dim) + self.XX
-        predict_sigma = self.noise_sd**2 + np.sum(np.multiply(basis, self.noise_sd**2*scipy.linalg.solve(tmp, basis.T).T), axis=-1, keepdims=True)
-        predict_mu = np.matmul(basis, scipy.linalg.solve(tmp, self.Xy))
+        predict_sigma = self.noise_sd**2 + np.sum(np.multiply(basis, self.noise_sd**2*scipy.linalg.solve(tmp, basis.T, sym_pos=True).T), axis=-1, keepdims=True)
+        predict_mu = np.matmul(basis, scipy.linalg.solve(tmp, self.Xy, sym_pos=True))
 
         return predict_mu, predict_sigma
 
@@ -340,7 +340,7 @@ class Agent:
                         A = _XX + np.matmul(_X.T, _X)
                         B = _Xy + np.matmul(_X.T, _y)
 
-                        if np.allclose(np.matmul(A, scipy.linalg.solve(A, B)), B):
+                        if np.allclose(np.matmul(A, scipy.linalg.solve(A, B, sym_pos=True)), B):
                             XXtr[j][i][:, :] += np.matmul(_X.T, _X)
                             Xytr[j][i][:, :] += np.matmul(_X.T, _y)
 
@@ -391,7 +391,7 @@ def solve(A, b):
     A = np.reshape(A, [-1]+dimA)
     b = np.reshape(b, [-1]+dimb)
 
-    results = [scipy.linalg.solve(_A, _b) for _A, _b in zip(A, b)]
+    results = [scipy.linalg.solve(_A, _b, sym_pos=True) for _A, _b in zip(A, b)]
     results = np.stack(results, axis=0)
     results = np.reshape(results, bs+dimb)
 
@@ -545,9 +545,11 @@ def plotting_experiments():
     env = gym.make(args.environment)
 
     predictors = []
-    for i in range(env.observation_space.shape[0] + 1):
+    for i in range(env.observation_space.shape[0]):
         predictors.append(RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=256, length_scale=1.,
                                           signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations))
+    predictors.append(RegressionWrapperReward(args.environment, input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=600, length_scale=1.,
+                                              signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations))
 
     states, actions, rewards, next_states = gather_data(env, train_set_size, unpack=True)
     states_actions = np.concatenate([states, actions], axis=-1)
@@ -621,5 +623,5 @@ def plotting_experiments():
         plt.show(block=True)
 
 if __name__ == '__main__':
-    #plotting_experiments()
-    main_loop()
+    plotting_experiments()
+    #main_loop()
