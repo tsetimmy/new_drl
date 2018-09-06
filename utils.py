@@ -396,7 +396,7 @@ def gather_data2(env, no_samples=1000):
 
     return states, actions, next_states
 
-def mcc_get_success_policy(env):
+def get_mcc_policy(env, hit_wall=True, reach_goal=True, train=True):
     from custom_environments.environment_state_functions import mountain_car_continuous_state_function
     from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
 
@@ -413,8 +413,9 @@ def mcc_get_success_policy(env):
         next_states = []
         state = np.copy(seed_state)
         policy = np.random.uniform(env.action_space.low, env.action_space.high, env._max_episode_steps)
-        found = False
-        hit_wall = False
+        has_hit_wall = 0
+        has_reach_goal = 0
+        found_length = 0
         length = 0
 
         for a in policy:
@@ -427,18 +428,20 @@ def mcc_get_success_policy(env):
             state = np.copy(next_state)
             length += 1
 
-            if next_state[0, 0] == -1.2 and next_state[0, 1] == 0.:
-                hit_wall = True
+            if next_state[0, 0] == -1.2 and next_state[0, 1] == 0.: has_hit_wall = length
+            if reward[0] > 50.: has_reach_goal = length
+            if hit_wall == bool(has_hit_wall) and reach_goal == bool(has_reach_goal) and found_length == 0:
+                if hit_wall and reach_goal: assert has_reach_goal > hit_wall
+                found_length = length
 
-            if reward[0] > 50. and hit_wall == False:
-                found = True
-                #break
+        if found_length > 0: break
 
-        if found: break
+    if not(train == True and reach_goal == True): found_length = None
+    print 'Found! Length:', found_length
 
-    states = np.concatenate(states, axis=0)
-    actions = np.copy(policy[..., np.newaxis])[:length, ...]
-    rewards = np.stack(rewards, axis=0)
-    next_states = np.concatenate(next_states, axis=0)
+    states = np.concatenate(states, axis=0)[:found_length, ...]
+    actions = np.copy(policy[..., np.newaxis])[:found_length, ...]
+    rewards = np.stack(rewards, axis=0)[:found_length, ...]
+    next_states = np.concatenate(next_states, axis=0)[:found_length, ...]
 
     return states, actions, rewards, next_states

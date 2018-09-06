@@ -135,7 +135,7 @@ class RegressionWrapperReward(RegressionWrapper):
             self.length_scale = 1.
             self.signal_sd = 10.
             self.noise_sd = 1.
-            self.prior_sd = 3000.
+            self.prior_sd = 1000.
             self.hyperparameters = np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd])
         else:
             RegressionWrapper._train_hyperparameters(self, X, y)
@@ -534,8 +534,17 @@ def plotting_experiments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", type=str, default='Pendulum-v0')
     parser.add_argument("--train-hp-iterations", type=int, default=2000)
+
+    parser.add_argument("--train-hit-wall", type=int, default=0)#Only used when --environment=MountainCarContinuous-v0
+    parser.add_argument("--train-reach-goal", type=int, default=0)#Only used when --environment=MountainCarContinuous-v0
+    parser.add_argument("--test-hit-wall", type=int, default=0)#Only used when --environment=MountainCarContinuous-v0
+    parser.add_argument("--test-reach-goal", type=int, default=0)#Only used when --environment=MountainCarContinuous-v0
+
     args = parser.parse_args()
     print args
+
+    import matplotlib.pyplot as plt
+    from utils import get_mcc_policy
 
     if args.environment == 'MountainCarContinuous-v0':
         train_set_size = 1
@@ -551,24 +560,21 @@ def plotting_experiments():
     predictors.append(RegressionWrapperReward(args.environment, input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=600, length_scale=1.,
                                               signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations))
 
-    states, actions, rewards, next_states = gather_data(env, train_set_size, unpack=True)
+    if args.environment == 'MountainCarContinuous-v0':
+        states, actions, rewards, next_states= get_mcc_policy(env, hit_wall=bool(args.train_hit_wall), reach_goal=bool(args.train_reach_goal), train=True)
+    else:
+        states, actions, rewards, next_states = gather_data(env, train_set_size, unpack=True)
     states_actions = np.concatenate([states, actions], axis=-1)
 
-    # Quick plotting experiment (for sanity check).
-    import matplotlib.pyplot as plt
-    from utils import mcc_get_success_policy
     for i in range(env.observation_space.shape[0]):
         predictors[i]._train_hyperparameters(states_actions, next_states[:, i:i+1])
         predictors[i]._update(states_actions, next_states[:, i:i+1])
-    #TODO: Simply trying hard-coding the hyperparameters (for the reward function)
-    # to get high uncertainty in the unvisted regions of the state space.
-    # Try: length_scale = 1., signal_sd = 10., noise_sd = 1., prior_sd = 3000.
     predictors[-1]._train_hyperparameters(states_actions, rewards)
     predictors[-1]._update(states_actions, rewards)
 
     while True:
         if args.environment == 'MountainCarContinuous-v0':
-            states2, actions2, rewards2, next_states2 = mcc_get_success_policy(env)
+            states2, actions2, rewards2, next_states2 = get_mcc_policy(env, hit_wall=bool(args.test_hit_wall), reach_goal=bool(args.test_reach_goal), train=False)
         else:
             states2, actions2, rewards2, next_states2 = gather_data(env, 1, unpack=True)
         states_actions2 = np.concatenate([states2, actions2], axis=-1)
