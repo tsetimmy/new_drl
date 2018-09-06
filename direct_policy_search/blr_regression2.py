@@ -420,6 +420,21 @@ def unpack(data_buffer):
     states_actions = np.concatenate([states, actions], axis=-1)
     return states_actions, rewards[..., np.newaxis], next_states
 
+def scrub_data(environment, data_buffer, warn):
+    if environment == 'MountainCarContinuous-v0':
+        states, actions, rewards, next_states, dones = [np.stack(ele, axis=0) for ele in zip(*data_buffer)]
+        for i in range(len(next_states)):
+            if next_states[i, 0] == -1.2 and next_states[i, 1] == 0.:
+                states = states[:i, ...]
+                actions = actions[:i, ...]
+                rewards = rewards[:i, ...]
+                next_states = next_states[:i, ...]
+                dones = dones[:i, ...]
+                if warn: 'Warning: training data is cut short because the cart hit the left wall!'
+                break
+        data_buffer = zip(states, actions, rewards, next_states, dones)
+    return data_buffer
+
 def main_loop():
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", type=str, default='Pendulum-v0')
@@ -486,6 +501,7 @@ def main_loop():
 
     flag = False
     data_buffer = gather_data(env, args.gather_data_epochs)
+    data_buffer = scrub_data(args.environment, data_buffer, True)
 
     init_states = np.stack([env.reset() for _ in range(args.train_policy_batch_size)], axis=0)
 
@@ -506,6 +522,7 @@ def main_loop():
                     regression_wrappers[i]._update(states_actions, next_states_and_rewards[:, i:i+1])
             if len(data_buffer) >= args.max_train_hp_datapoints: flag = True
             if flag: data_buffer = []
+            tmp_data_buffer = []
 
             #Fit policy network.
             XX, Xy, hyperparameters = zip(*[[rw.XX, rw.Xy, rw.hyperparameters] for rw in regression_wrappers])
@@ -523,11 +540,12 @@ def main_loop():
 
                 hyperstate = update_hyperstate(agent, hyperstate, hyperparameters, [state, action, reward, next_state, done], agent.state_dim+agent.learn_reward)
 
-                data_buffer.append([state, action, reward, next_state, done])
+                tmp_data_buffer.append([state, action, reward, next_state, done])
                 total_rewards += float(reward)
                 state = np.copy(next_state)
                 if done:
                     print 'epoch:', epoch, 'total_rewards:', total_rewards
+                    data_buffer.extend(scrub_data(args.environment, tmp_data_buffer, False))
                     break
 
 def plotting_experiments():
@@ -629,5 +647,5 @@ def plotting_experiments():
         plt.show(block=True)
 
 if __name__ == '__main__':
-    plotting_experiments()
-    #main_loop()
+    #plotting_experiments()
+    main_loop()
