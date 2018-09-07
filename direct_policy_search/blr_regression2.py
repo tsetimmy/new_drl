@@ -143,7 +143,7 @@ class RegressionWrapperReward(RegressionWrapper):
 class Agent:
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                  action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrices, biases, basis_dims,
-                 hidden_dim=32, learn_reward=0):
+                 hidden_dim=32, learn_reward=0, use_mean_reward=0):
         assert environment in ['Pendulum-v0', 'MountainCarContinuous-v0']
         assert x_dim == state_dim + action_dim
         assert len(action_space_low.shape) == 1
@@ -166,6 +166,7 @@ class Agent:
         self.basis_dims = basis_dims
         self.hidden_dim = hidden_dim
         self.learn_reward = learn_reward
+        self.use_mean_reward = use_mean_reward
 
         if self.environment == 'Pendulum-v0' and self.learn_reward == 0:
             #self.reward_function = real_env_pendulum_reward()
@@ -258,6 +259,8 @@ class Agent:
         assert len(XXtr) == self.state_dim + self.learn_reward
         assert len(Xytr) == self.state_dim + self.learn_reward
         assert len(hyperparameters) == self.state_dim + self.learn_reward
+
+        if self.use_mean_reward >= 0.: print 'Warning: use_mean_reward is set to True but this flag is not used by this function.'
 
         X = np.copy(X)
         XXtr = [np.copy(ele) for ele in XXtr]
@@ -453,6 +456,7 @@ def main_loop():
     parser.add_argument("--max-train-hp-datapoints", type=int, default=20000)
     parser.add_argument("--matern-param-reward", type=float, default=np.inf)
     parser.add_argument("--basis-dim-reward", type=int, default=600)
+    parser.add_argument("--use-mean-reward", type=int, default=0)
     args = parser.parse_args()
 
     print args
@@ -497,7 +501,8 @@ def main_loop():
                                      biases=[rw.bias for rw in regression_wrappers],
                                      basis_dims=[rw.basis_dim for rw in regression_wrappers],
                                      hidden_dim=args.hidden_dim,
-                                     learn_reward=args.learn_reward)
+                                     learn_reward=args.learn_reward,
+                                     use_mean_reward=args.use_mean_reward)
 
     flag = False
     data_buffer = gather_data(env, args.gather_data_epochs)
@@ -552,6 +557,8 @@ def plotting_experiments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", type=str, default='Pendulum-v0')
     parser.add_argument("--train-hp-iterations", type=int, default=2000)
+    parser.add_argument("--basis-dim", type=int, default=256)
+    parser.add_argument("--basis-dim-reward", type=int, default=600)
 
     parser.add_argument("--train-hit-wall", type=int, default=0)#Only used when --environment=MountainCarContinuous-v0
     parser.add_argument("--train-reach-goal", type=int, default=0)#Only used when --environment=MountainCarContinuous-v0
@@ -573,9 +580,9 @@ def plotting_experiments():
 
     predictors = []
     for i in range(env.observation_space.shape[0]):
-        predictors.append(RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=256, length_scale=1.,
+        predictors.append(RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=args.basis_dim, length_scale=1.,
                                           signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations))
-    predictors.append(RegressionWrapperReward(args.environment, input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=600, length_scale=1.,
+    predictors.append(RegressionWrapperReward(args.environment, input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=args.basis_dim_reward, length_scale=1.,
                                               signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations))
 
     if args.environment == 'MountainCarContinuous-v0':

@@ -7,10 +7,10 @@ from blr_regression2 import Agent, _basis
 class Agent2(Agent):
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                  action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrices, biases, basis_dims,
-                 hidden_dim=32, learn_reward=0):
+                 hidden_dim=32, learn_reward=0, use_mean_reward=0):
         Agent.__init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                        action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrices, biases, basis_dims,
-                       hidden_dim, learn_reward)
+                       hidden_dim, learn_reward, use_mean_reward)
         self._init_thetas2()
 
     def _init_thetas2(self):
@@ -29,6 +29,9 @@ class Agent2(Agent):
         np.testing.assert_equal(w1, self.w1)
         np.testing.assert_equal(w2, self.w2)
         np.testing.assert_equal(w3, self.w3)
+
+        if self.learn_reward == 0 and self.use_mean_reward == 1:
+            print 'Warning: flags learn_reward is False but use_mean_reward is True.'
 
     def _loss(self, thetas, X, XX, Xy, hyperparameters, sess):
         rng_state = np.random.get_state()
@@ -112,7 +115,10 @@ class Agent2(Agent):
             length_scale, signal_sd, noise_sd, prior_sd = hyperparameters
             basis = _basis(state_action, self.random_matrices[-1], self.biases[-1], self.basis_dims[-1], length_scale, signal_sd)
             tmp = (noise_sd/prior_sd)**2*np.eye(self.basis_dims[-1]) + XX
-            predict_sigma = noise_sd**2 + np.sum(np.multiply(basis, noise_sd**2*scipy.linalg.solve(tmp, basis.T, sym_pos=True).T), axis=-1, keepdims=True)
+            if self.use_mean_reward == 1:
+                predict_sigma = np.zeros([len(basis), 1])
+            else:
+                predict_sigma = noise_sd**2 + np.sum(np.multiply(basis, noise_sd**2*scipy.linalg.solve(tmp, basis.T, sym_pos=True).T), axis=-1, keepdims=True)
             predict_mu = np.matmul(basis, scipy.linalg.solve(tmp, Xy, sym_pos=True))
             reward = np.stack([np.random.normal(loc=loc, scale=scale) for loc, scale in zip(predict_mu, predict_sigma)], axis=0)
         return reward
