@@ -178,21 +178,22 @@ class Agent:
         elif self.environment == 'MountainCarContinuous-v0' and self.learn_reward == 0:
             self.reward_function = mountain_car_continuous_reward_function()
 
-        self.hyperstate_dim = sum([(basis_dim*(basis_dim+1))/2 + basis_dim for basis_dim in self.basis_dims])
-        self.w0 = np.concatenate([np.random.normal(size=[self.hyperstate_dim, self.state_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.state_dim])], axis=0)
+        #self.hyperstate_dim = sum([(basis_dim*(basis_dim+1))/2 + basis_dim for basis_dim in self.basis_dims])
+        self.hyperstate_dim = sum([basis_dim*(basis_dim+1) for basis_dim in self.basis_dims])
+
+        self.random_projection_matrix = np.random.normal(loc=0., scale=1./np.sqrt(self.state_dim), size=[self.hyperstate_dim, self.state_dim])
+
         self.w1 = np.concatenate([np.random.normal(size=[2*self.state_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
         self.w2 = np.concatenate([np.random.normal(size=[self.hidden_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
         self.w3 = np.concatenate([np.random.normal(size=[self.hidden_dim, self.action_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.action_dim])], axis=0)
 
-        self.thetas = self._pack([self.w0, self.w1, self.w2, self.w3])
+        self.thetas = self._pack([self.w1, self.w2, self.w3])
 
-        self.sizes = [[self.hyperstate_dim + 1, self.state_dim],
-                      [2*self.state_dim + 1, self.hidden_dim],
+        self.sizes = [[2*self.state_dim + 1, self.hidden_dim],
                       [self.hidden_dim + 1, self.hidden_dim],
                       [self.hidden_dim + 1, self.action_dim]]
 
-        w0, w1, w2, w3 = self._unpack(self.thetas, self.sizes)
-        np.testing.assert_equal(w0, self.w0)
+        w1, w2, w3 = self._unpack(self.thetas, self.sizes)
         np.testing.assert_equal(w1, self.w1)
         np.testing.assert_equal(w2, self.w2)
         np.testing.assert_equal(w3, self.w3)
@@ -211,6 +212,8 @@ class Agent:
         return weights
 
     def _forward(self, thetas, X, hyperstate):
+        #"Old" method of including hyperstate into policy network.
+        '''
         w0, w1, w2, w3 = self._unpack(thetas, self.sizes)
         XXtr, Xytr = hyperstate
 
@@ -232,7 +235,13 @@ class Agent:
 
         hyperstate = self._add_bias(hyperstate)
         hyperstate_embedding = np.tanh(np.matmul(hyperstate, w0))
+        '''
 
+        w1, w2, w3 = self._unpack(thetas, self.sizes)
+
+        #Perform a simple random projection on the hyperstate.
+        hyperstate = np.concatenate([np.concatenate([np.reshape(XXtr, [len(XXtr), -1]), np.reshape(Xytr, [len(Xytr), -1])], axis=-1) for XXtr, Xytr in zip(*hyperstate)], axis=-1)
+        hyperstate_embedding = np.matmul(hyperstate, self.random_projection_matrix)
         state_hyperstate = np.concatenate([X, hyperstate_embedding], axis=-1)
         state_hyperstate = self._add_bias(state_hyperstate)
 
