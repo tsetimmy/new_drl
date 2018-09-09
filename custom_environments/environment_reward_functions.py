@@ -42,7 +42,7 @@ class mountain_car_continuous_reward_function:
                 done[i] = 1.
 
         reward = 100. * done - (action[:, 0]**2) / 10.
-        return reward
+        return reward[..., np.newaxis]
 
     def step_tf(self, state, action):
         assert state.shape.as_list() == [None, 2]
