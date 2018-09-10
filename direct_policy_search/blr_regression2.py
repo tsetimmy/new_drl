@@ -143,7 +143,7 @@ class RegressionWrapperReward(RegressionWrapper):
 class Agent:
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                  action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrices, biases, basis_dims,
-                 hidden_dim=32, learn_reward=0, use_mean_reward=0):
+                 hidden_dim=32, learn_reward=0, use_mean_reward=0, update_hyperstate=1):
         assert environment in ['Pendulum-v0', 'MountainCarContinuous-v0']
         assert x_dim == state_dim + action_dim
         assert len(action_space_low.shape) == 1
@@ -167,6 +167,7 @@ class Agent:
         self.hidden_dim = hidden_dim
         self.learn_reward = learn_reward
         self.use_mean_reward = use_mean_reward
+        self.update_hyperstate = update_hyperstate
 
         if self.environment == 'Pendulum-v0' and self.learn_reward == 0:
             #self.reward_function = real_env_pendulum_reward()
@@ -338,23 +339,24 @@ class Agent:
                 state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(means, covs)], axis=0)
                 state = np.clip(state, self.observation_space_low, self.observation_space_high)
 
-                y = np.concatenate([state, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
-                y = y[..., np.newaxis, np.newaxis]
+                if self.update_hyperstate == 1:
+                    y = np.concatenate([state, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
+                    y = y[..., np.newaxis, np.newaxis]
 
-                XXtr_and_noise = [noise + xx for noise, xx in zip(self.noises, XXtr)]
-                for i in range(len(X)):
-                    for j in range(len(XXtr)):
-                        _XX = XXtr_and_noise[j][i]
-                        _X = bases[j][i]
-                        _Xy = Xytr[j][i]
-                        _y = y[i][j]
+                    XXtr_and_noise = [noise + xx for noise, xx in zip(self.noises, XXtr)]
+                    for i in range(len(X)):
+                        for j in range(len(XXtr)):
+                            _XX = XXtr_and_noise[j][i]
+                            _X = bases[j][i]
+                            _Xy = Xytr[j][i]
+                            _y = y[i][j]
 
-                        A = _XX + np.matmul(_X.T, _X)
-                        B = _Xy + np.matmul(_X.T, _y)
+                            A = _XX + np.matmul(_X.T, _X)
+                            B = _Xy + np.matmul(_X.T, _y)
 
-                        if np.allclose(np.matmul(A, scipy.linalg.solve(A, B, sym_pos=True)), B):
-                            XXtr[j][i][:, :] += np.matmul(_X.T, _X)
-                            Xytr[j][i][:, :] += np.matmul(_X.T, _y)
+                            if np.allclose(np.matmul(A, scipy.linalg.solve(A, B, sym_pos=True)), B):
+                                XXtr[j][i][:, :] += np.matmul(_X.T, _X)
+                                Xytr[j][i][:, :] += np.matmul(_X.T, _y)
 
             rewards = np.concatenate(rewards, axis=-1)
             rewards = np.sum(rewards, axis=-1)
@@ -466,6 +468,7 @@ def main_loop():
     parser.add_argument("--matern-param-reward", type=float, default=np.inf)
     parser.add_argument("--basis-dim-reward", type=int, default=600)
     parser.add_argument("--use-mean-reward", type=int, default=0)
+    parser.add_argument("--update-hyperstate", type=int, default=1)
     args = parser.parse_args()
 
     print args
@@ -511,7 +514,8 @@ def main_loop():
                                      basis_dims=[rw.basis_dim for rw in regression_wrappers],
                                      hidden_dim=args.hidden_dim,
                                      learn_reward=args.learn_reward,
-                                     use_mean_reward=args.use_mean_reward)
+                                     use_mean_reward=args.use_mean_reward,
+                                     update_hyperstate=args.update_hyperstate)
 
     flag = False
     data_buffer = gather_data(env, args.gather_data_epochs)
