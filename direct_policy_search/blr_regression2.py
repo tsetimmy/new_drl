@@ -269,7 +269,7 @@ class Agent:
         assert len(Xytr) == self.state_dim + self.learn_reward
         assert len(hyperparameters) == self.state_dim + self.learn_reward
 
-        if self.use_mean_reward >= 0.: print 'Warning: use_mean_reward is set to True but this flag is not used by this function.'
+        if self.use_mean_reward == 1: print 'Warning: use_mean_reward is set to True but this flag is not used by this function.'
 
         X = np.copy(X)
         XXtr = [np.copy(ele) for ele in XXtr]
