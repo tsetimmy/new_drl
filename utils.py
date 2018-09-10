@@ -441,7 +441,7 @@ def get_mcc_policy(env, hit_wall=True, reach_goal=True, train=True):
 
     states = np.concatenate(states, axis=0)[:found_length, ...]
     actions = np.copy(policy[..., np.newaxis])[:found_length, ...]
-    rewards = np.stack(rewards, axis=0)[:found_length, ...]
+    rewards = np.concatenate(rewards, axis=0)[:found_length, ...]
     next_states = np.concatenate(next_states, axis=0)[:found_length, ...]
 
     return states, actions, rewards, next_states
