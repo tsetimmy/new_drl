@@ -319,7 +319,7 @@ class Agent:
                     basis = np.expand_dims(basis, axis=1)
                     bases.append(basis)
 
-                    tmp0 = (noise_sd/prior_sd)**2*np.eye(self.basis_dims[i]) ++ XXtr[i]
+                    tmp0 = (noise_sd/prior_sd)**2*np.eye(self.basis_dims[i]) + XXtr[i]
                     #if (np.linalg.cond(tmp0) >= 1./sys.float_info.epsilon).any(): raise Exception('Matrix(es) is/are ill-conditioned (detected in _loss).')
                     #tmp1 = noise_sd**2*np.linalg.solve(tmp0, np.transpose(basis, [0, 2, 1]))#scipy.linalg.solve does not support broadcasting; have to use np.linalg.solve.
                     tmp1 = noise_sd**2*solve(tmp0, np.transpose(basis, [0, 2, 1]))
