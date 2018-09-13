@@ -18,6 +18,18 @@ import gym
 import pickle
 import warnings
 
+'''
+def sherman_morrison(Ainv, u, vT):
+    Ainv_u = np.matmul(Ainv, u)
+    denominator = 1. + np.matmul(vT, Ainv_u)[0, 0]
+    assert denominator != 0.
+    print denominator
+    vT_Ainv = np.matmul(vT, Ainv)
+    numerator = np.matmul(Ainv_u, vT_Ainv)
+    ret = Ainv - numerator / denominator
+    return ret
+'''
+
 def _basis(X, random_matrix, bias, basis_dim, length_scale, signal_sd):
     x_omega_plus_bias = np.matmul(X, (1./length_scale)*random_matrix) + bias
     z = signal_sd * np.sqrt(2./basis_dim) * np.cos(x_omega_plus_bias)
@@ -32,6 +44,7 @@ class RegressionWrapper:
         self.noise_sd = noise_sd
         self.prior_sd = prior_sd
         self.hyperparameters = np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd])
+        self.c = 1e-6
 
         self.rffm_seed = rffm_seed
         self.train_hp_iterations = train_hp_iterations
@@ -63,12 +76,14 @@ class RegressionWrapper:
         self.XX += np.matmul(basis.T, basis)
         self.Xy += np.matmul(basis.T, y)
 
+        self.Llower = scipy.linalg.cholesky((self.noise_sd/self.prior_sd)**2*np.eye(self.basis_dim) + self.XX, lower=True)
+
     def _train_hyperparameters(self, X, y):
         warnings.filterwarnings('error')
         '''
         import cma
         thetas = np.copy(np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd]))
-        options = {'maxiter': 1000, 'verb_disp': 0, 'verb_log': 0}
+        options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
         res = cma.fmin(self._log_marginal_likelihood, thetas, 2., args=(X, y), options=options)
         results = np.copy(res[0])
         '''
@@ -79,31 +94,37 @@ class RegressionWrapper:
         results = np.copy(_res.x)
 
         self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd = results
-        self.noise_sd = np.abs(self.noise_sd)
         self.length_scale = np.abs(self.length_scale)
         self.signal_sd = np.abs(self.signal_sd)
+        #self.noise_sd = np.abs(self.noise_sd)
+        self.noise_sd = np.sqrt(self.noise_sd**2 + self.c*self.prior_sd**2)
+        self.prior_sd = np.abs(self.prior_sd)
         self.hyperparameters = np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd])
         print self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd
 
     def _log_marginal_likelihood(self, thetas, X, y):
         try:
             length_scale, signal_sd, noise_sd, prior_sd = thetas
-            noise_sd_abs = np.abs(noise_sd)
+
+            noise_sd2 = np.sqrt(noise_sd**2 + self.c*prior_sd**2)
 
             basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, np.abs(length_scale), np.abs(signal_sd))
             N = len(basis.T)
             XX = np.matmul(basis.T, basis)
             Xy = np.matmul(basis.T, y)
 
-            tmp0 = (noise_sd_abs/prior_sd)**2*np.eye(self.basis_dim) + XX
-            tmp = np.matmul(Xy.T, scipy.linalg.solve(tmp0.T, Xy, sym_pos=True))
+            tmp0 = (noise_sd2/prior_sd)**2*np.eye(self.basis_dim) + XX
+            #tmp = np.matmul(Xy.T, scipy.linalg.solve(tmp0.T, Xy, sym_pos=True))
 
-            s, logdet = np.linalg.slogdet(np.eye(self.basis_dim) + (prior_sd/noise_sd_abs)**2*XX)
+            cho_factor = scipy.linalg.cho_factor(tmp0)
+            tmp = np.matmul(scipy.linalg.cho_solve(cho_factor, Xy).T, Xy)
+
+            s, logdet = np.linalg.slogdet(np.eye(self.basis_dim) + (prior_sd/noise_sd2)**2*XX)
             if s != 1:
                 print 'logdet is <= 0. Returning 10e100.'
                 return 10e100
 
-            lml = .5*(-N*np.log(noise_sd_abs**2) - logdet + (-np.matmul(y.T, y)[0, 0] + tmp[0, 0])/noise_sd_abs**2)
+            lml = .5*(-N*np.log(noise_sd2**2) - logdet + (-np.matmul(y.T, y)[0, 0] + tmp[0, 0])/noise_sd2**2)
             #loss = -lml + (length_scale**2 + signal_sd**2 + noise_sd_abs**2 + prior_sd**2)*1.5
             loss = -lml
             return loss
@@ -119,9 +140,15 @@ class RegressionWrapper:
 
     def _predict(self, X):
         basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, self.length_scale, self.signal_sd)
-        tmp = (self.noise_sd/self.prior_sd)**2*np.eye(self.basis_dim) + self.XX
-        predict_sigma = self.noise_sd**2 + np.sum(np.multiply(basis, self.noise_sd**2*scipy.linalg.solve(tmp, basis.T, sym_pos=True).T), axis=-1, keepdims=True)
-        predict_mu = np.matmul(basis, scipy.linalg.solve(tmp, self.Xy, sym_pos=True))
+
+        predict_sigma = np.sum(np.square(scipy.linalg.solve_triangular(self.Llower, basis.T, lower=True)), axis=0) * self.noise_sd**2 + self.noise_sd**2
+        predict_sigma = predict_sigma[..., np.newaxis]
+        tmp0 = scipy.linalg.solve_triangular(self.Llower, basis.T, lower=True).T
+        tmp1 = scipy.linalg.solve_triangular(self.Llower, self.Xy, lower=True)
+        predict_mu = np.matmul(tmp0, tmp1)
+        #tmp = (self.noise_sd/self.prior_sd)**2*np.eye(self.basis_dim) + self.XX
+        #predict_sigma = self.noise_sd**2 + np.sum(np.multiply(basis, self.noise_sd**2*scipy.linalg.solve(tmp, basis.T, sym_pos=True).T), axis=-1, keepdims=True)
+        #predict_mu = np.matmul(basis, scipy.linalg.solve(tmp, self.Xy, sym_pos=True))
 
         return predict_mu, predict_sigma
 
@@ -606,9 +633,9 @@ def plotting_experiments():
 
     for i in range(env.observation_space.shape[0]):
         predictors[i]._train_hyperparameters(states_actions, next_states[:, i:i+1])
-        predictors[i]._update(states_actions, next_states[:, i:i+1])
+        predictors[i]._reset_statistics(states_actions, next_states[:, i:i+1])
     predictors[-1]._train_hyperparameters(states_actions, rewards)
-    predictors[-1]._update(states_actions, rewards)
+    predictors[-1]._reset_statistics(states_actions, rewards)
 
     while True:
         if args.environment == 'MountainCarContinuous-v0':
@@ -667,5 +694,5 @@ def plotting_experiments():
         plt.show(block=True)
 
 if __name__ == '__main__':
-    #plotting_experiments()
-    main_loop()
+    plotting_experiments()
+    #main_loop()
