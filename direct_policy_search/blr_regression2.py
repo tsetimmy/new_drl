@@ -159,11 +159,19 @@ class RegressionWrapperReward(RegressionWrapper):
 
     def _train_hyperparameters(self, X, y):
         if self.environment == 'MountainCarContinuous-v0':
+            '''
             self.length_scale = 1.
             self.signal_sd = 10.
             self.noise_sd = 1.
             self.prior_sd = 1000.
             self.hyperparameters = np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd])
+            '''
+            self.length_scale = 1.
+            self.signal_sd = 2.3
+            self.noise_sd = 1.
+            self.prior_sd = 500.
+            self.hyperparameters = np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd])
+
         else:
             RegressionWrapper._train_hyperparameters(self, X, y)
 
@@ -471,7 +479,7 @@ def scrub_data(environment, data_buffer, warn):
                 rewards = rewards[:i, ...]
                 next_states = next_states[:i, ...]
                 dones = dones[:i, ...]
-                if warn: 'Warning: training data is cut short because the cart hit the left wall!'
+                if warn: print 'Warning: training data is cut short because the cart hit the left wall!'
                 break
         data_buffer = zip(states, actions, rewards, next_states, dones)
     return data_buffer
@@ -599,6 +607,7 @@ def plotting_experiments():
     parser.add_argument("--train-hp-iterations", type=int, default=2000)
     parser.add_argument("--basis-dim", type=int, default=256)
     parser.add_argument("--basis-dim-reward", type=int, default=600)
+    parser.add_argument("--matern-param-reward", type=float, default=np.inf)
 
     parser.add_argument("--train-hit-wall", type=int, default=0)#Only used when --environment=MountainCarContinuous-v0
     parser.add_argument("--train-reach-goal", type=int, default=0)#Only used when --environment=MountainCarContinuous-v0
@@ -623,7 +632,7 @@ def plotting_experiments():
         predictors.append(RegressionWrapper(input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=args.basis_dim, length_scale=1.,
                                           signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations))
     predictors.append(RegressionWrapperReward(args.environment, input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=args.basis_dim_reward, length_scale=1.,
-                                              signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations))
+                                              signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations, matern_param=args.matern_param_reward))
 
     if args.environment == 'MountainCarContinuous-v0':
         states, actions, rewards, next_states= get_mcc_policy(env, hit_wall=bool(args.train_hit_wall), reach_goal=bool(args.train_reach_goal), train=True)
