@@ -11,6 +11,8 @@ import gym
 #from matplotlib import pyplot as plt
 #import pylab
 import uuid
+import os
+import pickle
 
 def process_frame2(frame):
     s = np.dot(frame, np.array([.299, .587, .114])).astype(np.uint8)
@@ -402,6 +404,25 @@ def get_mcc_policy(env, hit_wall=True, reach_goal=True, train=True):
 
     state_function = mountain_car_continuous_state_function()
     reward_function = mountain_car_continuous_reward_function()
+
+    if hit_wall == False and reach_goal == True:
+        filedir = os.path.expanduser('~')+'/new_drl/success_policies'
+        filepath = random.choice(os.listdir(filedir))
+        states_actions, rewards, next_states = pickle.load(open(filedir+'/'+filepath, 'rb'))
+        states = states_actions[..., :2]
+        actions = states_actions[..., 2:3]
+
+        idx = None
+        if train == True:
+            for i in range(len(next_states)):
+                if next_states[i, 0] >= .45:
+                    idx = i + 1
+                    break
+        states = states[:idx, ...]
+        actions = actions[:idx, ...]
+        rewards = rewards[:idx, ...]
+        next_states = next_states[:idx, ...]
+        return states, actions, rewards, next_states
 
     seed_state = np.concatenate([np.random.uniform(low=-.6, high=-.4, size=1), np.zeros(1)])[np.newaxis, ...]
     i = 0
