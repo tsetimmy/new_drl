@@ -126,8 +126,11 @@ class RegressionWrapper:
             tmp0 = (noise_sd2/prior_sd)**2*np.eye(self.basis_dim) + XX
             #tmp = np.matmul(Xy.T, scipy.linalg.solve(tmp0.T, Xy, sym_pos=True))
 
-            cho_factor = scipy.linalg.cho_factor(tmp0)
-            tmp = np.matmul(scipy.linalg.cho_solve(cho_factor, Xy).T, Xy)
+            #cho_factor = scipy.linalg.cho_factor(tmp0)
+            #tmp = np.matmul(scipy.linalg.cho_solve(cho_factor, Xy).T, Xy)
+            Llower = scipy.linalg.cholesky(tmp0, lower=True)
+            LinvXy = scipy.linalg.solve_triangular(Llower, Xy, lower=True)
+            tmp = np.matmul(LinvXy.T, LinvXy)
 
             s, logdet = np.linalg.slogdet(np.eye(self.basis_dim) + (prior_sd/noise_sd2)**2*XX)
             if s != 1:
