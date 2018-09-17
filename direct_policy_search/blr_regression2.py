@@ -18,6 +18,16 @@ import gym
 import pickle
 import warnings
 
+def relu(X):
+    return np.maximum(X, 0.)
+
+def sigmoid(X):
+    return 1. / (1. + np.exp(-X))
+
+def add_bias(X):
+    assert len(X.shape) == 2
+    return np.concatenate([X, np.ones([len(X), 1])], axis=-1)
+
 '''
 def sherman_morrison(Ainv, u, vT):
     Ainv_u = np.matmul(Ainv, u)
@@ -154,8 +164,17 @@ class RegressionWrapper:
 
 class RegressionWrapperReward(RegressionWrapper):
     def __init__(self, environment, input_dim, basis_dim, length_scale=1., signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=2000, matern_param=np.inf):
-        RegressionWrapper.__init__(self, input_dim, basis_dim, length_scale, signal_sd, noise_sd, prior_sd, rffm_seed, train_hp_iterations, matern_param)
+        #self.input_dim2 = input_dim
+        #self.feature_dim0 = 512
+        #self.feature_dim1 = 512
+        #self.environment = environment
+        #self.random_projection_matrix0 = np.random.normal(loc=0., scale=1./np.sqrt(self.feature_dim0), size=[self.input_dim2 + 1, self.feature_dim0])
+        #self.random_projection_matrix1 = np.random.normal(loc=0., scale=1./np.sqrt(self.feature_dim1), size=[self.feature_dim0 + 1, self.feature_dim1])
+        #RegressionWrapper.__init__(self, self.feature_dim1, basis_dim, length_scale, signal_sd, noise_sd, prior_sd, rffm_seed, train_hp_iterations, matern_param)
+
+
         self.environment = environment
+        RegressionWrapper.__init__(self, input_dim, basis_dim, length_scale, signal_sd, noise_sd, prior_sd, rffm_seed, train_hp_iterations, matern_param)
 
     def _train_hyperparameters(self, X, y):
         if self.environment == 'MountainCarContinuous-v0':
@@ -174,6 +193,22 @@ class RegressionWrapperReward(RegressionWrapper):
 
         else:
             RegressionWrapper._train_hyperparameters(self, X, y)
+
+    '''
+    def _train_hyperparameters(self, X, y):
+        X_features = np.matmul(add_bias(np.matmul(add_bias(X), self.random_projection_matrix0)), self.random_projection_matrix1)
+        RegressionWrapper._train_hyperparameters(self, X_features, y)
+    '''
+
+    '''
+    def _reset_statistics(self, X, y):
+        X_features = np.matmul(add_bias(np.matmul(add_bias(X), self.random_projection_matrix0)), self.random_projection_matrix1)
+        RegressionWrapper._reset_statistics(self, X_features, y)
+
+    def _predict(self, X):
+        X_features = np.matmul(add_bias(np.matmul(add_bias(X), self.random_projection_matrix0)), self.random_projection_matrix1)
+        return RegressionWrapper._predict(self, X_features)
+    '''
 
 class Agent:
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
@@ -655,7 +690,7 @@ def plotting_experiments():
 
         plt.figure()
         for i in range(env.observation_space.shape[0]):
-            plt.subplot(3, env.observation_space.shape[0], i+1)
+            plt.subplot(4, env.observation_space.shape[0], i+1)
 
             predict_mu, predict_sigma = predictors[i]._predict(states_actions2)
 
@@ -663,12 +698,16 @@ def plotting_experiments():
             plt.errorbar(np.arange(len(predict_mu)), predict_mu, yerr=np.sqrt(predict_sigma), color='m', ecolor='g')
             plt.grid()
 
+        traj_reward = []
         traj = []
         no_lines = 50
         state = np.tile(np.copy(states2[0:1, ...]), [no_lines, 1])
         for a in actions2:
             action = np.tile(a[np.newaxis, ...], [no_lines, 1])
             state_action = np.concatenate([state, action], axis=-1)
+
+            mu_reward, sigma_reward = predictors[-1]._predict(state_action)
+            traj_reward.append(np.stack([np.random.normal(loc=mu, scale=sigma) for mu, sigma in zip(mu_reward, sigma_reward)], axis=0))
 
             mu_vec = []
             sigma_vec = []
@@ -681,12 +720,21 @@ def plotting_experiments():
             sigma_vec = np.concatenate(sigma_vec, axis=-1)
 
             state = np.stack([np.random.multivariate_normal(mu, np.diag(sigma)) for mu, sigma in zip(mu_vec, sigma_vec)], axis=0)
+            state = np.clip(state, env.observation_space.low, env.observation_space.high)
             traj.append(np.copy(state))
 
+        traj_reward = np.stack(traj_reward, axis=-1)
         traj = np.stack(traj, axis=-1)
+        
+        plt.subplot(4, 1, 4)
+        for j in range(no_lines):
+            y = traj_reward[j, 0, :]
+            plt.plot(np.arange(len(y)), y, color='r')
+        plt.plot(np.arange(len(rewards2)), rewards2)
+        plt.grid()
 
         for i in range(env.observation_space.shape[0]):
-            plt.subplot(3, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
+            plt.subplot(4, env.observation_space.shape[0], env.observation_space.shape[0]+i+1)
             for j in range(no_lines):
                 y = traj[j, i, :]
                 plt.plot(np.arange(len(y)), y, color='r')
@@ -694,7 +742,7 @@ def plotting_experiments():
             plt.plot(np.arange(len(next_states2[..., i])), next_states2[..., i])
             plt.grid()
 
-        plt.subplot(3, 1, 3)
+        plt.subplot(4, 1, 3)
         predict_mu, predict_sigma = predictors[-1]._predict(states_actions2)
         plt.plot(np.arange(len(rewards2)), rewards2)
         plt.errorbar(np.arange(len(predict_mu)), predict_mu, yerr=np.sqrt(predict_sigma), color='m', ecolor='g')

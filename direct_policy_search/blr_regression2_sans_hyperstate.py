@@ -63,6 +63,7 @@ class Agent2(Agent):
                 covs = np.concatenate(covs, axis=-1)
 
                 state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(means, covs)], axis=0)
+                state = np.clip(state, self.observation_space_low, self.observation_space_high)
             rewards = np.concatenate(rewards, axis=-1)
             rewards = np.sum(rewards, axis=-1)
             loss = -np.mean(rewards)
