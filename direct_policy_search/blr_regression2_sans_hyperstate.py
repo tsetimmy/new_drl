@@ -33,7 +33,7 @@ class Agent2(Agent):
         if self.learn_reward == 0 and self.use_mean_reward == 1:
             print 'Warning: flags learn_reward is False but use_mean_reward is True.'
 
-    def _loss(self, thetas, X, XX, Xy, hyperparameters, sess):
+    def _loss(self, thetas, X, Llowers, Xy, hyperparameters, sess):
         rng_state = np.random.get_state()
         try:
             np.random.seed(2)
@@ -42,7 +42,7 @@ class Agent2(Agent):
             state = X
             for unroll_step in xrange(self.unroll_steps):
                 action = self._forward(thetas, state)
-                reward = self._reward(state, action, sess, XX[-1], Xy[-1], hyperparameters[-1])
+                reward = self._reward(state, action, sess, Llowers[-1], Xy[-1], hyperparameters[-1])
                 rewards.append((self.discount_factor**unroll_step)*reward)
                 state_action = np.concatenate([state, action], axis=-1)
 
@@ -52,10 +52,15 @@ class Agent2(Agent):
                     length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
                     basis = _basis(state_action, self.random_matrices[i], self.biases[i], self.basis_dims[i], length_scale, signal_sd)
 
-                    tmp = (noise_sd/prior_sd)**2*np.eye(self.basis_dims[i]) + XX[i]
-
-                    pred_sigma = noise_sd**2 + np.sum(np.multiply(basis, noise_sd**2*scipy.linalg.solve(tmp, basis.T, sym_pos=True).T), axis=-1, keepdims=True)
-                    pred_mu = np.matmul(basis, scipy.linalg.solve(tmp, Xy[i], sym_pos=True))
+                    #tmp = (noise_sd/prior_sd)**2*np.eye(self.basis_dims[i]) + XX[i]
+                    #pred_sigma = noise_sd**2 + np.sum(np.multiply(basis, noise_sd**2*scipy.linalg.solve(tmp, basis.T, sym_pos=True).T), axis=-1, keepdims=True)
+                    #pred_mu = np.matmul(basis, scipy.linalg.solve(tmp, Xy[i], sym_pos=True))
+                    LinvXT = scipy.linalg.solve_triangular(Llowers[i], basis.T, lower=True)
+                    pred_sigma = np.sum(np.square(LinvXT), axis=0)*noise_sd**2+noise_sd**2
+                    pred_sigma = pred_sigma[..., np.newaxis]
+                    tmp0 = scipy.linalg.solve_triangular(Llowers[i], basis.T, lower=True).T
+                    tmp1 = scipy.linalg.solve_triangular(Llowers[i], Xy[i], lower=True)
+                    pred_mu = np.matmul(tmp0, tmp1)
 
                     means.append(pred_mu)
                     covs.append(pred_sigma)
@@ -101,12 +106,14 @@ class Agent2(Agent):
         Xytr = [np.copy(ele) for ele in Xytr]
         hyperparameters = [np.copy(ele) for ele in hyperparameters]
 
+        Llowers = [scipy.linalg.cholesky((hp[-2]/hp[-1])**2*np.eye(len(XX)) + XX, lower=True) for XX, hp in zip(XXtr, hyperparameters)]
+
         import cma
         options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
-        res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), [np.copy(ele) for ele in XXtr], [np.copy(ele) for ele in Xytr], [np.copy(ele) for ele in hyperparameters], sess), options=options)
+        res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), [np.copy(ele) for ele in Llowers], [np.copy(ele) for ele in Xytr], [np.copy(ele) for ele in hyperparameters], sess), options=options)
         self.thetas = np.copy(res[0])
 
-    def _reward(self, state, action, sess, XX, Xy, hyperparameters):
+    def _reward(self, state, action, sess, Llower, Xy, hyperparameters):
         if self.environment == 'Pendulum-v0' and self.learn_reward == 0:
             reward = self.reward_function.build_np(sess, state, action)
         elif self.environment == 'MountainCarContinuous-v0' and self.learn_reward == 0:
@@ -115,12 +122,18 @@ class Agent2(Agent):
             state_action = np.concatenate([state, action], axis=-1)
             length_scale, signal_sd, noise_sd, prior_sd = hyperparameters
             basis = _basis(state_action, self.random_matrices[-1], self.biases[-1], self.basis_dims[-1], length_scale, signal_sd)
-            tmp = (noise_sd/prior_sd)**2*np.eye(self.basis_dims[-1]) + XX
+            #tmp = (noise_sd/prior_sd)**2*np.eye(self.basis_dims[-1]) + XX
             if self.use_mean_reward == 1:
-                predict_sigma = np.zeros([len(basis), 1])
+                pred_sigma = np.zeros([len(basis), 1])
             else:
-                predict_sigma = noise_sd**2 + np.sum(np.multiply(basis, noise_sd**2*scipy.linalg.solve(tmp, basis.T, sym_pos=True).T), axis=-1, keepdims=True)
-            predict_mu = np.matmul(basis, scipy.linalg.solve(tmp, Xy, sym_pos=True))
-            reward = np.stack([np.random.normal(loc=loc, scale=scale) for loc, scale in zip(predict_mu, predict_sigma)], axis=0)
-        return reward
+                #pred_sigma = noise_sd**2 + np.sum(np.multiply(basis, noise_sd**2*scipy.linalg.solve(tmp, basis.T, sym_pos=True).T), axis=-1, keepdims=True)
+                LinvXT = scipy.linalg.solve_triangular(Llower, basis.T, lower=True)
+                pred_sigma = np.sum(np.square(LinvXT), axis=0)*noise_sd**2+noise_sd**2
+                pred_sigma = pred_sigma[..., np.newaxis]
+            #pred_mu = np.matmul(basis, scipy.linalg.solve(tmp, Xy, sym_pos=True))
+            tmp0 = scipy.linalg.solve_triangular(Llower, basis.T, lower=True).T
+            tmp1 = scipy.linalg.solve_triangular(Llower, Xy, lower=True)
+            pred_mu = np.matmul(tmp0, tmp1)
 
+            reward = np.stack([np.random.normal(loc=loc, scale=scale) for loc, scale in zip(pred_mu, pred_sigma)], axis=0)
+        return reward
