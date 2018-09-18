@@ -159,9 +159,6 @@ class RegressionWrapper:
         tmp0 = scipy.linalg.solve_triangular(self.Llower, basis.T, lower=True).T
         tmp1 = scipy.linalg.solve_triangular(self.Llower, self.Xy, lower=True)
         predict_mu = np.matmul(tmp0, tmp1)
-        #tmp = (self.noise_sd/self.prior_sd)**2*np.eye(self.basis_dim) + self.XX
-        #predict_sigma = self.noise_sd**2 + np.sum(np.multiply(basis, self.noise_sd**2*scipy.linalg.solve(tmp, basis.T, sym_pos=True).T), axis=-1, keepdims=True)
-        #predict_mu = np.matmul(basis, scipy.linalg.solve(tmp, self.Xy, sym_pos=True))
 
         return predict_mu, predict_sigma
 
@@ -174,7 +171,6 @@ class RegressionWrapperReward(RegressionWrapper):
         #self.random_projection_matrix0 = np.random.normal(loc=0., scale=1./np.sqrt(self.feature_dim0), size=[self.input_dim2 + 1, self.feature_dim0])
         #self.random_projection_matrix1 = np.random.normal(loc=0., scale=1./np.sqrt(self.feature_dim1), size=[self.feature_dim0 + 1, self.feature_dim1])
         #RegressionWrapper.__init__(self, self.feature_dim1, basis_dim, length_scale, signal_sd, noise_sd, prior_sd, rffm_seed, train_hp_iterations, matern_param)
-
 
         self.environment = environment
         RegressionWrapper.__init__(self, input_dim, basis_dim, length_scale, signal_sd, noise_sd, prior_sd, rffm_seed, train_hp_iterations, matern_param)
@@ -354,7 +350,10 @@ class Agent:
         X = np.tile(X, [1, self.no_samples, 1])
         X = np.reshape(X, [-1, self.state_dim])
 
-        XXtr = [np.tile(ele[np.newaxis, ...], [len(X), 1, 1]) for ele in XXtr]
+
+        Llowers = [scipy.linalg.cholesky((hp[-2]/hp[-1])**2*np.eye(basis_dim) + XX, lower=True) for hp, basis_dim, XX in zip(hyperparameters, self.basis_dims, XXtr)]
+        Llowers = [np.tile(ele[np.newaxis, ...], [len(X), 1, 1]) for ele in Llowers]
+        #XXtr = [np.tile(ele[np.newaxis, ...], [len(X), 1, 1]) for ele in XXtr]
         Xytr = [np.tile(ele[np.newaxis, ...], [len(X), 1, 1]) for ele in Xytr]
 
         self.noises = [(hp[2]/hp[3])**2*np.eye(basis_dim) for hp, basis_dim in zip(hyperparameters, self.basis_dims)]
@@ -362,14 +361,37 @@ class Agent:
         import cma
         options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
         print 'Before calling cma.fmin'
-        res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), [np.copy(ele) for ele in XXtr], [np.copy(ele) for ele in Xytr], None, [np.copy(ele) for ele in hyperparameters], sess), options=options)
+        res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), [np.copy(ele) for ele in Llowers], [np.copy(ele) for ele in Xytr], None, [np.copy(ele) for ele in hyperparameters], sess), options=options)
 
         results = np.copy(res[0])
 
-    def _loss(self, thetas, X, XXtr, Xytr, A=[], hyperparameters=None, sess=None):
+    def _predict(self, Llower, Xytr, basis, noise_sd):
+        Llower = Llower[0]
+        Xytr = Xytr[0]
+        basis = np.squeeze(basis, axis=1)
+        LinvXT = scipy.linalg.solve_triangular(Llower, basis.T, lower=True)
+        pred_sigma = np.sum(np.square(LinvXT), axis=0)*noise_sd**2+noise_sd**2
+        pred_sigma = pred_sigma[..., np.newaxis]
+        tmp0 = scipy.linalg.solve_triangular(Llower, basis.T, lower=True).T
+        tmp1 = scipy.linalg.solve_triangular(Llower, Xytr, lower=True)
+        pred_mu = np.matmul(tmp0, tmp1)
+        return pred_mu, pred_sigma
+
+        #TODO: restore this.
+        '''
+        LinvXT = solve_triangular(Llower, np.transpose(basis, [0, 2, 1]))
+        pred_sigma = np.sum(np.square(LinvXT), axis=1)*noise_sd**2+noise_sd**2
+        tmp0 = np.transpose(solve_triangular(Llower, np.transpose(basis, [0, 2, 1])), [0, 2, 1])
+        tmp1 = solve_triangular(Llower, Xytr)
+        pred_mu = np.matmul(tmp0, tmp1)
+        pred_mu = np.squeeze(pred_mu, axis=-1)
+        return pred_mu, pred_sigma
+        '''
+
+    def _loss(self, thetas, X, Llowers, Xytr, A=[], hyperparameters=None, sess=None):
         rng_state = np.random.get_state()
         X = np.copy(X)
-        XXtr = [np.copy(ele) for ele in XXtr]
+        Llowers = [np.copy(ele) for ele in Llowers]
         Xytr = [np.copy(ele) for ele in Xytr]
         hyperparameters = [np.copy(ele) for ele in hyperparameters]
         try:
@@ -378,8 +400,8 @@ class Agent:
             rewards = []
             state = X
             for unroll_step in xrange(self.unroll_steps):
-                action = self._forward(thetas, state, hyperstate=[XXtr, Xytr])
-                reward, basis_reward = self._reward(state, action, sess, XXtr[-1], Xytr[-1], hyperparameters[-1])
+                action = self._forward(thetas, state, hyperstate=[Llowers, Xytr])
+                reward, basis_reward = self._reward(state, action, sess, Llowers[-1], Xytr[-1], hyperparameters[-1])
                 rewards.append((self.discount_factor**unroll_step)*reward)
                 state_action = np.concatenate([state, action], axis=-1)
 
@@ -391,17 +413,7 @@ class Agent:
                     basis = _basis(state_action, self.random_matrices[i], self.biases[i], self.basis_dims[i], length_scale, signal_sd)
                     basis = np.expand_dims(basis, axis=1)
                     bases.append(basis)
-
-                    tmp0 = (noise_sd/prior_sd)**2*np.eye(self.basis_dims[i]) + XXtr[i]
-                    #if (np.linalg.cond(tmp0) >= 1./sys.float_info.epsilon).any(): raise Exception('Matrix(es) is/are ill-conditioned (detected in _loss).')
-                    #tmp1 = noise_sd**2*np.linalg.solve(tmp0, np.transpose(basis, [0, 2, 1]))#scipy.linalg.solve does not support broadcasting; have to use np.linalg.solve.
-                    tmp1 = noise_sd**2*solve(tmp0, np.transpose(basis, [0, 2, 1]))
-                    pred_sigma = noise_sd**2 + np.matmul(basis, tmp1)
-                    pred_sigma = np.squeeze(pred_sigma, axis=-1)
-
-                    pred_mu = np.matmul(basis, solve(tmp0, Xytr[i]))
-                    pred_mu = np.squeeze(pred_mu, axis=-1)
-
+                    pred_mu, pred_sigma = self._predict(Llowers[i], Xytr[i], basis, noise_sd)
                     means.append(pred_mu)
                     covs.append(pred_sigma)
                 means = np.concatenate(means, axis=-1)
@@ -413,6 +425,8 @@ class Agent:
                 state = np.clip(state, self.observation_space_low, self.observation_space_high)
 
                 if self.update_hyperstate == 1:
+                    assert False
+                    '''
                     y = np.concatenate([state, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
                     y = y[..., np.newaxis, np.newaxis]
 
@@ -430,7 +444,7 @@ class Agent:
                             if np.allclose(np.matmul(A, scipy.linalg.solve(A, B, sym_pos=True)), B):
                                 XXtr[j][i][:, :] += np.matmul(_X.T, _X)
                                 Xytr[j][i][:, :] += np.matmul(_X.T, _y)
-
+                    '''
             rewards = np.concatenate(rewards, axis=-1)
             rewards = np.sum(rewards, axis=-1)
             loss = -np.mean(rewards)
@@ -441,7 +455,7 @@ class Agent:
             print e, 'Returning 10e100'
             return 10e100
 
-    def _reward(self, state, action, sess, XX, Xy, hyperparameters):
+    def _reward(self, state, action, sess, Llower, Xy, hyperparameters):
         basis = None
         if self.environment == 'Pendulum-v0' and self.learn_reward == 0:
             reward = self.reward_function.build_np(sess, state, action)
@@ -452,15 +466,7 @@ class Agent:
             length_scale, signal_sd, noise_sd, prior_sd = hyperparameters
             basis = _basis(state_action, self.random_matrices[-1], self.biases[-1], self.basis_dims[-1], length_scale, signal_sd)
             basis = np.expand_dims(basis, axis=1)
-            tmp0 = (noise_sd/prior_sd)**2*np.eye(self.basis_dims[-1]) + XX
-            #if (np.linalg.cond(tmp0) >= 1./sys.float_info.epsilon).any(): raise Exception('Matrix(es) is/are ill-conditioned (detected in _reward).')
-            #tmp1 = noise_sd**2*np.linalg.solve(tmp0, np.transpose(basis, [0, 2, 1]))#scipy.linalg.solve does not support broadcasting; have to use np.linalg.solve.
-            tmp1 = noise_sd**2*solve(tmp0, np.transpose(basis, [0, 2, 1]))
-            pred_sigma = noise_sd**2 + np.matmul(basis, tmp1)
-            pred_sigma = np.squeeze(pred_sigma, axis=-1)
-            #pred_mu = np.matmul(basis, np.linalg.solve(tmp0, Xy))
-            pred_mu = np.matmul(basis, solve(tmp0, Xy))
-            pred_mu = np.squeeze(pred_mu, axis=-1)
+            pred_mu, pred_sigma = self._predict(Llower, Xy, basis, noise_sd)
             reward = np.stack([np.random.normal(loc=loc, scale=scale) for loc, scale in zip(pred_mu, pred_sigma)], axis=0)
         return reward, basis
 
@@ -479,6 +485,26 @@ def solve(A, b):
     b = np.reshape(b, [-1]+dimb)
 
     results = [scipy.linalg.solve(_A, _b, sym_pos=True) for _A, _b in zip(A, b)]
+    results = np.stack(results, axis=0)
+    results = np.reshape(results, bs+dimb)
+
+    return results
+
+def solve_triangular(A, b):
+    assert len(A.shape) == len(b.shape)
+    assert len(A.shape) >= 3
+    assert A.shape[:-1] == b.shape[:-1]
+    A = np.copy(A)
+    b = np.copy(b)
+
+    bs = list(A.shape[:-2])
+    dimA = list(A.shape[-2:])
+    dimb = list(b.shape[-2:])
+
+    A = np.reshape(A, [-1]+dimA)
+    b = np.reshape(b, [-1]+dimb)
+
+    results = [scipy.linalg.solve_triangular(_A, _b, lower=True) for _A, _b in zip(A, b)]
     results = np.stack(results, axis=0)
     results = np.reshape(results, bs+dimb)
 
@@ -754,5 +780,5 @@ def plotting_experiments():
         plt.show(block=True)
 
 if __name__ == '__main__':
-    plotting_experiments()
-    #main_loop()
+    #plotting_experiments()
+    main_loop()
