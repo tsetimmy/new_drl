@@ -253,13 +253,16 @@ class Agent:
 
         self.random_projection_matrix = np.random.normal(loc=0., scale=1./np.sqrt(self.state_dim), size=[self.hyperstate_dim, self.state_dim])
 
-        self.w1 = np.concatenate([np.random.normal(size=[2*self.state_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
+        #TODO: Remove the hyperstate for now.
+        #self.w1 = np.concatenate([np.random.normal(size=[2*self.state_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
+        self.w1 = np.concatenate([np.random.normal(size=[self.state_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
         self.w2 = np.concatenate([np.random.normal(size=[self.hidden_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
         self.w3 = np.concatenate([np.random.normal(size=[self.hidden_dim, self.action_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.action_dim])], axis=0)
 
         self.thetas = self._pack([self.w1, self.w2, self.w3])
 
-        self.sizes = [[2*self.state_dim + 1, self.hidden_dim],
+        #TODO: Remove the hyperstate for now
+        self.sizes = [[self.state_dim + 1, self.hidden_dim],
                       [self.hidden_dim + 1, self.hidden_dim],
                       [self.hidden_dim + 1, self.action_dim]]
 
@@ -309,11 +312,16 @@ class Agent:
 
         w1, w2, w3 = self._unpack(thetas, self.sizes)
 
+        #TODO: Restore this later?
+        '''
         #Perform a simple random projection on the hyperstate.
         hyperstate = np.concatenate([np.concatenate([np.reshape(XXtr, [len(XXtr), -1]), np.reshape(Xytr, [len(Xytr), -1])], axis=-1) for XXtr, Xytr in zip(*hyperstate)], axis=-1)
         hyperstate_embedding = np.matmul(hyperstate, self.random_projection_matrix)
         state_hyperstate = np.concatenate([X, hyperstate_embedding], axis=-1)
         state_hyperstate = self._add_bias(state_hyperstate)
+        '''
+        #TODO: This is temporary.
+        state_hyperstate = self._add_bias(X)
 
         h1 = np.tanh(np.matmul(state_hyperstate, w1))
         h1 = self._add_bias(h1)
@@ -362,8 +370,7 @@ class Agent:
         options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
         print 'Before calling cma.fmin'
         res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), [np.copy(ele) for ele in Llowers], [np.copy(ele) for ele in Xytr], None, [np.copy(ele) for ele in hyperparameters], sess), options=options)
-
-        results = np.copy(res[0])
+        self.thetas = np.copy(res[0])
 
     def _predict(self, Llower, Xytr, basis, noise_sd):
         Llower = Llower[0]
