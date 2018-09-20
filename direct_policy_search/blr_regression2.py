@@ -212,7 +212,7 @@ class RegressionWrapperReward(RegressionWrapper):
 class Agent:
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                  action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrices, biases, basis_dims,
-                 hidden_dim=32, learn_reward=0, use_mean_reward=0, update_hyperstate=1):
+                 hidden_dim=32, learn_reward=0, use_mean_reward=0, update_hyperstate=1, policy_use_hyperstate=1):
         assert environment in ['Pendulum-v0', 'MountainCarContinuous-v0']
         assert x_dim == state_dim + action_dim
         assert len(action_space_low.shape) == 1
@@ -237,6 +237,7 @@ class Agent:
         self.learn_reward = learn_reward
         self.use_mean_reward = use_mean_reward
         self.update_hyperstate = update_hyperstate
+        self.policy_use_hyperstate = policy_use_hyperstate
 
         if self.environment == 'Pendulum-v0' and self.learn_reward == 0:
             #self.reward_function = real_env_pendulum_reward()
@@ -253,13 +254,17 @@ class Agent:
 
         self.random_projection_matrix = np.random.normal(loc=0., scale=1./np.sqrt(self.state_dim), size=[self.hyperstate_dim, self.state_dim])
 
-        self.w1 = np.concatenate([np.random.normal(size=[2*self.state_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
+        input_dim = self.state_dim
+        if self.policy_use_hyperstate == 1:
+            input_dim *= 2
+
+        self.w1 = np.concatenate([np.random.normal(size=[input_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
         self.w2 = np.concatenate([np.random.normal(size=[self.hidden_dim, self.hidden_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.hidden_dim])], axis=0)
         self.w3 = np.concatenate([np.random.normal(size=[self.hidden_dim, self.action_dim]), np.random.uniform(-3e-3, 3e-3, size=[1, self.action_dim])], axis=0)
 
         self.thetas = self._pack([self.w1, self.w2, self.w3])
 
-        self.sizes = [[2*self.state_dim + 1, self.hidden_dim],
+        self.sizes = [[input_dim + 1, self.hidden_dim],
                       [self.hidden_dim + 1, self.hidden_dim],
                       [self.hidden_dim + 1, self.action_dim]]
 
@@ -310,15 +315,18 @@ class Agent:
         w1, w2, w3 = self._unpack(thetas, self.sizes)
 
         #Perform a simple random projection on the hyperstate.
-        hyperstate = np.concatenate([np.concatenate([np.reshape(XXtr, [len(XXtr), -1]), np.reshape(Xytr, [len(Xytr), -1])], axis=-1) for XXtr, Xytr in zip(*hyperstate)], axis=-1)
-        hyperstate = np.tanh(hyperstate/50000.)
-        hyperstate_embedding = np.matmul(hyperstate, self.random_projection_matrix)
-        hyperstate_embedding = np.tanh(hyperstate_embedding)
+        if self.policy_use_hyperstate == 1:
+            hyperstate = np.concatenate([np.concatenate([np.reshape(XXtr, [len(XXtr), -1]), np.reshape(Xytr, [len(Xytr), -1])], axis=-1) for XXtr, Xytr in zip(*hyperstate)], axis=-1)
+            hyperstate = np.tanh(hyperstate/50000.)
+            hyperstate_embedding = np.matmul(hyperstate, self.random_projection_matrix)
+            hyperstate_embedding = np.tanh(hyperstate_embedding)
 
-        state_hyperstate = np.concatenate([X, hyperstate_embedding], axis=-1)
-        state_hyperstate = self._add_bias(state_hyperstate)
+            state_hyperstate = np.concatenate([X, hyperstate_embedding], axis=-1)
+            policy_net_input = self._add_bias(state_hyperstate)
+        else:
+            policy_net_input = self._add_bias(X)
 
-        h1 = np.tanh(np.matmul(state_hyperstate, w1))
+        h1 = np.tanh(np.matmul(policy_net_input, w1))
         h1 = self._add_bias(h1)
 
         h2 = np.tanh(np.matmul(h1, w2))
@@ -425,7 +433,7 @@ class Agent:
                 state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(means, covs)], axis=0)
                 state = np.clip(state, self.observation_space_low, self.observation_space_high)
 
-                if self.update_hyperstate == 1:
+                if self.update_hyperstate == 1 and self.policy_use_hyperstate == 1:
                     y = np.concatenate([state, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
                     y = y[..., np.newaxis, np.newaxis]
                     for i in xrange(self.state_dim + self.learn_reward):
@@ -454,6 +462,7 @@ class Agent:
             basis = _basis(state_action, self.random_matrices[-1], self.biases[-1], self.basis_dims[-1], length_scale, signal_sd)
             basis = np.expand_dims(basis, axis=1)
             pred_mu, pred_sigma = self._predict(Llower, Xy, basis, noise_sd)
+            if self.use_mean_reward == 1: pred_sigma = np.zeros_like(pred_sigma)
             reward = np.stack([np.random.normal(loc=loc, scale=scale) for loc, scale in zip(pred_mu, pred_sigma)], axis=0)
         return reward, basis
 
@@ -555,6 +564,7 @@ def main_loop():
     parser.add_argument("--basis-dim-reward", type=int, default=600)
     parser.add_argument("--use-mean-reward", type=int, default=0)
     parser.add_argument("--update-hyperstate", type=int, default=1)
+    parser.add_argument("--policy-use-hyperstate", type=int, default=1)
     args = parser.parse_args()
 
     print args
@@ -601,7 +611,8 @@ def main_loop():
                                      hidden_dim=args.hidden_dim,
                                      learn_reward=args.learn_reward,
                                      use_mean_reward=args.use_mean_reward,
-                                     update_hyperstate=args.update_hyperstate)
+                                     update_hyperstate=args.update_hyperstate,
+                                     policy_use_hyperstate=args.policy_use_hyperstate)
 
     flag = False
     data_buffer = gather_data(env, args.gather_data_epochs)
