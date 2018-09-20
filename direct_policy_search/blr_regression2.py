@@ -12,7 +12,7 @@ from custom_environments.generateANN_env import ANN
 from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
 from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
 
-from utils import gather_data
+from utils import gather_data, cholupdate2
 
 import gym
 import pickle
@@ -426,26 +426,12 @@ class Agent:
                 state = np.clip(state, self.observation_space_low, self.observation_space_high)
 
                 if self.update_hyperstate == 1:
-                    assert False
-                    '''
                     y = np.concatenate([state, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
                     y = y[..., np.newaxis, np.newaxis]
+                    for i in xrange(self.state_dim + self.learn_reward):
+                        Llowers[i] = cholupdate2(Llowers[i], np.squeeze(bases[i], axis=1))
+                        Xytr[i] += np.matmul(np.transpose(bases[i], [0, 2, 1]), y[:, i, ...])
 
-                    XXtr_and_noise = [noise + xx for noise, xx in zip(self.noises, XXtr)]
-                    for i in range(len(X)):
-                        for j in range(len(XXtr)):
-                            _XX = XXtr_and_noise[j][i]
-                            _X = bases[j][i]
-                            _Xy = Xytr[j][i]
-                            _y = y[i][j]
-
-                            A = _XX + np.matmul(_X.T, _X)
-                            B = _Xy + np.matmul(_X.T, _y)
-
-                            if np.allclose(np.matmul(A, scipy.linalg.solve(A, B, sym_pos=True)), B):
-                                XXtr[j][i][:, :] += np.matmul(_X.T, _X)
-                                Xytr[j][i][:, :] += np.matmul(_X.T, _y)
-                    '''
             rewards = np.concatenate(rewards, axis=-1)
             rewards = np.sum(rewards, axis=-1)
             loss = -np.mean(rewards)

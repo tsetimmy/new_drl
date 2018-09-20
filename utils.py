@@ -466,3 +466,27 @@ def get_mcc_policy(env, hit_wall=True, reach_goal=True, train=True):
     next_states = np.concatenate(next_states, axis=0)[:found_length, ...]
 
     return states, actions, rewards, next_states
+
+def cholupdate(R, x):
+      p = np.size(x)
+      x = x.T
+      for k in range(p):
+        r = np.sqrt(R[k, k]**2 + x[k]**2)
+        c = r / R[k, k]
+        s = x[k] / R[k, k]
+        R[k, k] = r
+        R[k, k+1:p] = (R[k, k+1:p] + s * x[k+1:p]) / c
+        x[k+1:p] = c * x[k+1:p] - s * R[k, k+1:p]
+      return R
+
+def cholupdate2(R, x):
+      p = np.size(x[0])
+      #x = x.T
+      for k in range(p):
+        r = np.sqrt(R[..., k, k]**2 + x[..., k]**2)
+        c = r / R[..., k, k]
+        s = x[..., k] / R[..., k, k]
+        R[..., k, k] = r
+        R[..., k, k+1:p] = (R[..., k, k+1:p] + s[..., np.newaxis] * x[..., k+1:p]) / c[..., np.newaxis]
+        x[..., k+1:p] = c[..., np.newaxis] * x[..., k+1:p] - s[..., np.newaxis] * R[..., k, k+1:p]
+      return R
