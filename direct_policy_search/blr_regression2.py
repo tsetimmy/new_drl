@@ -429,7 +429,7 @@ class Agent:
                     y = np.concatenate([state, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
                     y = y[..., np.newaxis, np.newaxis]
                     for i in xrange(self.state_dim + self.learn_reward):
-                        Llowers[i] = cholupdate2(Llowers[i], np.squeeze(bases[i], axis=1))
+                        Llowers[i] = np.transpose(cholupdate2(np.transpose(Llowers[i], [0, 2, 1]), np.squeeze(bases[i], axis=1)), [0, 2, 1])
                         Xytr[i] += np.matmul(np.transpose(bases[i], [0, 2, 1]), y[:, i, ...])
 
             rewards = np.concatenate(rewards, axis=-1)
