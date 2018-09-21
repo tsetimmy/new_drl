@@ -508,8 +508,8 @@ def solve_triangular(A, b):
 
 def update_hyperstate(agent, hyperstate, hyperparameters, datum, dim):
     state, action, reward, next_state, _ = [np.atleast_2d(np.copy(dat)) for dat in datum]
-    XX, Xy = [list(ele) for ele in hyperstate]
-    assert len(XX) == len(hyperparameters)
+    Llowers, Xy = [list(ele) for ele in hyperstate]
+    assert len(Llowers) == len(hyperparameters)
     assert len(Xy) == len(hyperparameters)
     assert len(hyperparameters) == dim
     state_action = np.concatenate([state, action], axis=-1)
@@ -519,10 +519,11 @@ def update_hyperstate(agent, hyperstate, hyperparameters, datum, dim):
         length_scale, signal_sd, _, _ = hp
         basis = _basis(state_action, agent.random_matrices[i], agent.biases[i], agent.basis_dims[i], length_scale, signal_sd)
 
-        XX[i] += np.matmul(basis.T, basis)
+        #XX[i] += np.matmul(basis.T, basis)
+        Llowers[i] = np.transpose(cholupdate2(np.transpose(Llowers[i], [0, 2, 1]), basis), [0, 2, 1,])
         Xy[i] += np.matmul(basis.T, y[..., i:i+1])
 
-    return [XX, Xy]
+    return [Llowers, Xy]
 
 def unpack(data_buffer):
     states, actions, rewards, next_states = [np.stack(ele, axis=0) for ele in zip(*data_buffer)[:-1]]
@@ -644,7 +645,7 @@ def main_loop():
             eval('agent.'+args.fit_function)(np.copy(init_states), [np.copy(ele) for ele in XX], [np.copy(ele) for ele in Xy], [np.copy(ele) for ele in hyperparameters], sess)
 
             #Get hyperstate & hyperparameters
-            hyperstate = zip(*[[np.copy(rw.XX)[np.newaxis, ...], np.copy(rw.Xy)[np.newaxis, ...]] for rw in regression_wrappers])
+            hyperstate = zip(*[[scipy.linalg.cholesky(np.copy(rw.XX)+(rw.noise_sd/rw.prior_sd)**2*np.eye(rw.basis_dim), lower=True)[np.newaxis, ...], np.copy(rw.Xy)[np.newaxis, ...]] for rw in regression_wrappers])
 
             total_rewards = 0.
             state = env.reset()
