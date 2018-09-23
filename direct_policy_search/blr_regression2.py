@@ -364,7 +364,7 @@ class Agent:
 
         Llowers = [scipy.linalg.cholesky((hp[-2]/hp[-1])**2*np.eye(basis_dim) + XX, lower=True) for hp, basis_dim, XX in zip(hyperparameters, self.basis_dims, XXtr)]
         Llowers = [np.tile(ele[np.newaxis, ...], [len(X), 1, 1]) for ele in Llowers]
-        #XXtr = [np.tile(ele[np.newaxis, ...], [len(X), 1, 1]) for ele in XXtr]
+        XXtr = [np.tile(ele[np.newaxis, ...], [len(X), 1, 1]) for ele in XXtr]
         Xytr = [np.tile(ele[np.newaxis, ...], [len(X), 1, 1]) for ele in Xytr]
 
         self.noises = [(hp[2]/hp[3])**2*np.eye(basis_dim) for hp, basis_dim in zip(hyperparameters, self.basis_dims)]
@@ -372,7 +372,7 @@ class Agent:
         import cma
         options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
         print 'Before calling cma.fmin'
-        res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), [np.copy(ele) for ele in Llowers], [np.copy(ele) for ele in Xytr], None, [np.copy(ele) for ele in hyperparameters], sess), options=options)
+        res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), [np.copy(ele) for ele in Llowers], [np.copy(ele) for ele in XXtr], [np.copy(ele) for ele in Xytr], None, [np.copy(ele) for ele in hyperparameters], sess), options=options)
         self.thetas = np.copy(res[0])
 
     def _predict(self, Llower, Xytr, basis, noise_sd):
@@ -397,10 +397,11 @@ class Agent:
         pred_mu = np.squeeze(pred_mu, axis=-1)
         return pred_mu, pred_sigma
 
-    def _loss(self, thetas, X, Llowers, Xytr, A=[], hyperparameters=None, sess=None):
+    def _loss(self, thetas, X, Llowers, XXtr, Xytr, A=[], hyperparameters=None, sess=None):
         rng_state = np.random.get_state()
         X = np.copy(X)
         Llowers = [np.copy(ele) for ele in Llowers]
+        XXtr = [np.copy(ele) for ele in XXtr]
         Xytr = [np.copy(ele) for ele in Xytr]
         hyperparameters = [np.copy(ele) for ele in hyperparameters]
         try:
@@ -437,8 +438,10 @@ class Agent:
                     y = np.concatenate([state, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
                     y = y[..., np.newaxis, np.newaxis]
                     for i in xrange(self.state_dim + self.learn_reward):
-                        Llowers[i] = np.transpose(cholupdate2(np.transpose(Llowers[i], [0, 2, 1]), np.squeeze(bases[i], axis=1)), [0, 2, 1])
-                        Xytr[i] += np.matmul(np.transpose(bases[i], [0, 2, 1]), y[:, i, ...])
+                        #Llowers[i] = np.transpose(cholupdate2(np.transpose(Llowers[i], [0, 2, 1]), np.squeeze(bases[i], axis=1)), [0, 2, 1])
+                        #Xytr[i] += np.matmul(np.transpose(bases[i], [0, 2, 1]), y[:, i, ...])
+                        _, _, noise_sd, prior_sd = hyperparameters[i]
+                        XXtr[i], Xytr[i], Llowers[i] = self._update_hyperstate(XXtr[i], XXtr[i] + np.matmul(np.transpose(bases[i], [0, 2, 1]), bases[i]), Xytr[i], Xytr[i] + np.matmul(np.transpose(bases[i], [0, 2, 1]), y[:, i, ...]), Llowers[i], (noise_sd/prior_sd)**2)
 
             rewards = np.concatenate(rewards, axis=-1)
             rewards = np.sum(rewards, axis=-1)
@@ -449,6 +452,26 @@ class Agent:
             np.random.set_state(rng_state)
             print e, 'Returning 10e100'
             return 10e100
+
+    def _update_hyperstate(self, XXold, XXnew, Xyold, Xynew, Llowerold, var_ratio):
+        var_diag = var_ratio*np.eye(XXnew.shape[-1])
+        XX = []
+        Xy = []
+        Llower = []
+        for i in range(len(XXnew)):
+            try:
+                tmp = scipy.linalg.cholesky(XXnew[i] + var_diag, lower=True)
+                XX.append(XXnew[i].copy())
+                Xy.append(Xynew[i].copy())
+                Llower.append(tmp.copy())
+            except Exception as e:
+                XX.append(XXold[i].copy())
+                Xy.append(Xyold[i].copy())
+                Llower.append(Llowerold[i].copy())
+        XX = np.stack(XX, axis=0)
+        Xy = np.stack(Xy, axis=0)
+        Llower = np.stack(Llower, axis=0)
+        return XX, Xy, Llower
 
     def _reward(self, state, action, sess, Llower, Xy, hyperparameters):
         basis = None
@@ -506,24 +529,30 @@ def solve_triangular(A, b):
 
     return results
 
-def update_hyperstate(agent, hyperstate, hyperparameters, datum, dim):
+def update_hyperstate(agent, XX, hyperstate, hyperparameters, datum, dim):
     state, action, reward, next_state, _ = [np.atleast_2d(np.copy(dat)) for dat in datum]
     Llowers, Xy = [list(ele) for ele in hyperstate]
+    assert len(XX) == len(hyperparameters)
     assert len(Llowers) == len(hyperparameters)
     assert len(Xy) == len(hyperparameters)
     assert len(hyperparameters) == dim
     state_action = np.concatenate([state, action], axis=-1)
     y = np.concatenate([next_state, reward], axis=-1)[..., :dim]
+    XX = list(XX)
 
     for i, hp in zip(range(dim), hyperparameters):
-        length_scale, signal_sd, _, _ = hp
+        length_scale, signal_sd, noise_sd, prior_sd = hp
         basis = _basis(state_action, agent.random_matrices[i], agent.biases[i], agent.basis_dims[i], length_scale, signal_sd)
+        try:
+            tmp = scipy.linalg.cholesky(XX[i] + np.matmul(basis.T, basis) + (noise_sd/prior_sd)**2*np.eye(agent.basis_dims[i]), lower=True)
+            XX[i] += np.matmul(basis.T, basis)
+            Xy[i] += np.matmul(basis.T, y[..., i:i+1])
+            Llowers[i][:, :, :] = np.copy(tmp)
+        except Exception as e:
+            pass
+        #Llowers[i] = np.transpose(cholupdate2(np.transpose(Llowers[i], [0, 2, 1]), basis), [0, 2, 1,])
 
-        #XX[i] += np.matmul(basis.T, basis)
-        Llowers[i] = np.transpose(cholupdate2(np.transpose(Llowers[i], [0, 2, 1]), basis), [0, 2, 1,])
-        Xy[i] += np.matmul(basis.T, y[..., i:i+1])
-
-    return [Llowers, Xy]
+    return XX, [Llowers, Xy]
 
 def unpack(data_buffer):
     states, actions, rewards, next_states = [np.stack(ele, axis=0) for ele in zip(*data_buffer)[:-1]]
@@ -654,7 +683,7 @@ def main_loop():
                 action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate)[0]
                 next_state, reward, done, _ = env.step(action)
 
-                hyperstate = update_hyperstate(agent, hyperstate, hyperparameters, [state, action, reward, next_state, done], agent.state_dim+agent.learn_reward)
+                XX, hyperstate = update_hyperstate(agent, XX, hyperstate, hyperparameters, [state, action, reward, next_state, done], agent.state_dim+agent.learn_reward)
 
                 tmp_data_buffer.append([state, action, reward, next_state, done])
                 total_rewards += float(reward)
