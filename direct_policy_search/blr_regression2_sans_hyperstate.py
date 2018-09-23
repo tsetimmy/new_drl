@@ -95,7 +95,7 @@ class Agent2(Agent):
 
         return out
 
-    def _fit_cma(self, X, XXtr, Xytr, hyperparameters, sess):
+    def _fit_cma(self, cma_maxiter, X, XXtr, Xytr, hyperparameters, sess):
         warnings.filterwarnings('error')
         assert len(XXtr) == self.state_dim + self.learn_reward
         assert len(Xytr) == self.state_dim + self.learn_reward
@@ -109,7 +109,7 @@ class Agent2(Agent):
         Llowers = [scipy.linalg.cholesky((hp[-2]/hp[-1])**2*np.eye(len(XX)) + XX, lower=True) for XX, hp in zip(XXtr, hyperparameters)]
 
         import cma
-        options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
+        options = {'maxiter': cma_maxiter, 'verb_disp': 1, 'verb_log': 0}
         res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), [np.copy(ele) for ele in Llowers], [np.copy(ele) for ele in Xytr], [np.copy(ele) for ele in hyperparameters], sess), options=options)
         self.thetas = np.copy(res[0])
 

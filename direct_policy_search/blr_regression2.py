@@ -344,7 +344,7 @@ class Agent:
     def _relu(self, X):
         return np.maximum(X, 0.)
 
-    def _fit(self, X, XXtr, Xytr, hyperparameters, sess):
+    def _fit(self, cma_maxiter, X, XXtr, Xytr, hyperparameters, sess):
         warnings.filterwarnings('ignore', message='.*scipy.linalg.solve\nIll-conditioned matrix detected. Result is not guaranteed to be accurate.\nReciprocal.*')
         assert len(XXtr) == self.state_dim + self.learn_reward
         assert len(Xytr) == self.state_dim + self.learn_reward
@@ -370,7 +370,7 @@ class Agent:
         self.noises = [(hp[2]/hp[3])**2*np.eye(basis_dim) for hp, basis_dim in zip(hyperparameters, self.basis_dims)]
 
         import cma
-        options = {'maxiter': 1000, 'verb_disp': 1, 'verb_log': 0}
+        options = {'maxiter': cma_maxiter, 'verb_disp': 1, 'verb_log': 0}
         print 'Before calling cma.fmin'
         res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), [np.copy(ele) for ele in Llowers], [np.copy(ele) for ele in XXtr], [np.copy(ele) for ele in Xytr], None, [np.copy(ele) for ele in hyperparameters], sess), options=options)
         self.thetas = np.copy(res[0])
@@ -595,6 +595,7 @@ def main_loop():
     parser.add_argument("--use-mean-reward", type=int, default=0)
     parser.add_argument("--update-hyperstate", type=int, default=1)
     parser.add_argument("--policy-use-hyperstate", type=int, default=1)
+    parser.add_argument("--cma-maxiter", type=int, default=1000)
     args = parser.parse_args()
 
     print args
@@ -671,7 +672,7 @@ def main_loop():
 
             #Fit policy network.
             XX, Xy, hyperparameters = zip(*[[rw.XX, rw.Xy, rw.hyperparameters] for rw in regression_wrappers])
-            eval('agent.'+args.fit_function)(np.copy(init_states), [np.copy(ele) for ele in XX], [np.copy(ele) for ele in Xy], [np.copy(ele) for ele in hyperparameters], sess)
+            eval('agent.'+args.fit_function)(args.cma_maxiter, np.copy(init_states), [np.copy(ele) for ele in XX], [np.copy(ele) for ele in Xy], [np.copy(ele) for ele in hyperparameters], sess)
 
             #Get hyperstate & hyperparameters
             hyperstate = zip(*[[scipy.linalg.cholesky(np.copy(rw.XX)+(rw.noise_sd/rw.prior_sd)**2*np.eye(rw.basis_dim), lower=True)[np.newaxis, ...], np.copy(rw.Xy)[np.newaxis, ...]] for rw in regression_wrappers])
