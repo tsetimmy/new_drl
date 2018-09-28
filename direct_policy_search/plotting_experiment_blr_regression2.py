@@ -1,6 +1,7 @@
 import numpy as np
 import scipy
 import argparse
+import pybullet_envs
 import gym
 
 from blr_regression2 import RegressionWrapper, RegressionWrapperReward, _basis, solve_triangular
@@ -120,10 +121,22 @@ class RegressionWrapperReward2(RegressionWrapperReward):
 
 def plotting_experiments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--environment", type=str, default='Pendulum-v0')
+    parser.add_argument("--environment", type=str, choices=['Pendulum-v0',
+                                                            'MountainCarContinuous-v0',
+                                                            'MinitaurBulletEnv-v0',
+                                                            'CartPoleBulletEnv-v0',
+                                                            'HumanoidBulletEnv-v0',
+                                                            'AntBulletEnv-v0',
+                                                            'HopperBulletEnv-v0',
+                                                            'HalfCheetahBulletEnv-v0',
+                                                            'Walker2DBulletEnv-v0',
+                                                            'InvertedPendulumBulletEnv-v0',
+                                                            'InvertedDoublePendulumBulletEnv-v0',
+                                                            'InvertedPendulumSwingupBulletEnv-v0'], default='Pendulum-v0')
     parser.add_argument("--train-hp-iterations", type=int, default=2000)
     parser.add_argument("--basis-dim", type=int, default=256)
     parser.add_argument("--basis-dim-reward", type=int, default=600)
+    parser.add_argument("--matern-param", type=float, default=np.inf)
     parser.add_argument("--matern-param-reward", type=float, default=np.inf)
 
     parser.add_argument("--train-hit-wall", type=int, default=0)#Only used when --environment=MountainCarContinuous-v0
@@ -149,7 +162,7 @@ def plotting_experiments():
     predictors = []
     for i in range(env.observation_space.shape[0]):
         predictors.append(RegressionWrapper2(input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=args.basis_dim, length_scale=1.,
-                                          signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations))
+                                          signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations, matern_param=args.matern_param))
     predictors.append(RegressionWrapperReward2(args.environment, input_dim=env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=args.basis_dim_reward, length_scale=1.,
                                               signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=args.train_hp_iterations, matern_param=args.matern_param_reward))
 
@@ -238,7 +251,6 @@ def plotting_experiments():
         plt.grid()
 
         plt.show(block=True)
-
 
 if __name__ == '__main__':
     plotting_experiments()
