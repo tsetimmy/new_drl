@@ -71,52 +71,34 @@ def log_marginal_likelihood(thetas, X, y, kern):
     K = kernel(X, X, thetas[:-1], kern) + thetas[-1]**2*np.eye(len(X))
 
     try:
-        tmp0 = scipy.linalg.solve(K, y)
+        Llower = scipy.linalg.cholesky(K, lower=True)
     except Exception as e:
-        if 'Ill-conditioned matrix detected.' in str(e):
-            with warnings.catch_warnings():
-                warnings.simplefilter('default')
-                tmp0 = scipy.linalg.solve(K, y)
-            if np.allclose(np.matmul(K, tmp0), y) == False:
-                'np.allclose == False (Ill-conditioned matrix detected). Returning 10e100.'
-                return 10e100
-        else:
-            print('Unhandled exception. Exception: ' + str(e) + ' Returning 10e100.')
-            return 10e100
+        print e, 'Returning 10e100.'
+        return 10e100
 
+    tmp = np.sum(np.square(scipy.linalg.solve_triangular(Llower, y, lower=True)))
     sign, logdet = np.linalg.slogdet(K)
+
     if sign != 1:
         print 'Sign of logdet is not 1. Returning 10e100.'
         return 10e100
 
-    lml = np.matmul(y.T, tmp0)[0, 0] + logdet + np.log(2.*np.pi)*len(X)
+    lml =  tmp + logdet + np.log(2.*np.pi)*len(X)
     lml *= -.5
     return -lml
 
 def kernel(x, y, hyperparameters, kern='matern'):
-    if kern == 'rbf':
-        return squared_exponential_kernel(x, y, hyperparameters)
-    elif kern == 'periodic':
-        return periodic_kernel(x, y, hyperparameters)
-    elif kern == 'matern':
-        return matern_kernel(x, y, hyperparameters)
-    elif kern == 'rq':
-        return rational_quadratic_kernel(x, y, hyperparameters)
+    dictionary = {'rbf': 'squared_exponential', 'periodic': 'periodic', 'matern': 'matern', 'rq': 'rational_quadratic'}
+    kern = dictionary[kern] + '_kernel'
+    return eval(kern)(x, y, hyperparameters)
 
 class RegressionWrappers:
     def __init__(self, input_dim, kern='rbf'):
         assert kern in ['rbf', 'periodic', 'matern', 'rq']
+        self.HP = {'rbf': np.ones(3), 'periodic': np.ones(4), 'matern': np.ones(3), 'rq': np.ones(4)}
         self.input_dim = input_dim
         self.kern = kern
-
-        if self.kern == 'rbf':
-            self.hyperparameters = np.ones(3)
-        elif self.kern == 'periodic':
-            self.hyperparameters = np.ones(4)
-        elif self.kern == 'matern':
-            self.hyperparameters = np.ones(3)
-        elif self.kern == 'rq':
-            self.hyperparameters = np.ones(4)
+        self.hyperparameters = self.HP[self.kern]
 
     def _train_hyperparameters(self, X, y):
         warnings.filterwarnings('error')
@@ -137,12 +119,18 @@ class RegressionWrappers:
         K = kernel(X, X, self.hyperparameters[:-1], self.kern) + self.hyperparameters[-1]**2*np.eye(len(X))
         k = kernel(X, Xt, self.hyperparameters[:-1], self.kern)
 
-        with warnings.catch_warnings():
-            warnings.simplefilter('default')
-            tmp = scipy.linalg.solve(K.T, k).T
+        Llower = scipy.linalg.cholesky(K, lower=True)
+        Llower_k = scipy.linalg.solve_triangular(Llower, k, lower=True)
 
-        mu = np.matmul(tmp, y)
-        sigma = kernel(Xt, Xt, self.hyperparameters[:-1], self.kern) - np.matmul(tmp, k)
+        mu = np.matmul(Llower_k.T, scipy.linalg.solve_triangular(Llower, y, lower=True))
+        sigma = kernel(Xt, Xt, self.hyperparameters[:-1], self.kern) - np.matmul(Llower_k.T, Llower_k)
+
+#        with warnings.catch_warnings():
+#            warnings.simplefilter('default')
+#            tmp = scipy.linalg.solve(K.T, k).T
+#
+#        mu = np.matmul(tmp, y)
+#        sigma = kernel(Xt, Xt, self.hyperparameters[:-1], self.kern) - np.matmul(tmp, k)
 
         return mu, sigma
 
