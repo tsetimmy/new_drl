@@ -6,14 +6,41 @@ import warnings
 
 import sys
 sys.path.append('..')
-from utils import gather_data
+from utils import gather_data, gather_data3
 
 from direct_policy_search.blr_regression2 import RegressionWrapper as RWL
 
 import uuid
 import pickle
 import gym
+import pybullet_envs
 import argparse
+
+def gather_data4(env, epochs, data_points, train=True, unpack=False):
+    if env.spec.id in ['Pendulum-v0', 'MountainCarContinuous-v0']:
+        return gather_data(env, epochs=epochs, unpack=unpack)
+    elif train == True:
+        return gather_data3(env, data_points=data_points, unpack=unpack)
+    else:
+        data = []
+        count = 0
+        while True:
+            state = env.reset()
+            while True:
+                action = np.random.uniform(low=env.action_space.low, high=env.action_space.high)
+                next_state, reward, done, _ = env.step(action)
+                data.append([state, action, reward, next_state, done])
+                state = np.copy(next_state)
+                if done:
+                    count += 1
+                    break
+            if count == epochs:
+                break
+        if unpack == False:
+            return data
+        else:
+            states, actions, rewards, next_states = [np.stack(ele, axis=0) for ele in zip(*data)[:-1]]
+            return states, actions, rewards[..., np.newaxis], next_states
 
 def rational_quadratic_kernel(a, b, hyperparameters):
     signal_sd, length_scale, alpha = hyperparameters
@@ -134,6 +161,41 @@ class RegressionWrappers:
 
         return mu, sigma
 
+def main3():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--environment", type=str, default='Pendulum-v0')
+    parser.add_argument("--matern-param", type=float, default=np.inf)
+    args = parser.parse_args()
+
+    print args
+
+    env = gym.make(args.environment)
+
+    states, actions, _, next_states = gather_data4(env, epochs=3, data_points=400, train=True, unpack=True)
+    states_actions = np.concatenate([states, actions], axis=-1)
+
+    regression_wrappers = [RegressionWrappers(env.observation_space.shape[0], kern='matern')  for _ in range(env.observation_space.shape[0])]
+
+    for i in range(len(regression_wrappers)):
+        print 'Training hyperparameters of '+str(i)+'th dimension.'
+        regression_wrappers[i]._train_hyperparameters(states_actions, next_states[:, i:i+1])
+
+    states2, actions2, _, next_states2 = gather_data4(env, epochs=1, data_points=None, train=False, unpack=True)
+    states_actions2 = np.concatenate([states2, actions2], axis=-1)
+
+    for i in range(len(regression_wrappers)):
+        print i
+        mu, sigma = regression_wrappers[i]._predict(states_actions2, states_actions, next_states[:, i:i+1])
+        mu = np.squeeze(mu, axis=-1)
+        sd = np.sqrt(np.abs(np.diag(sigma)))
+        plt.figure()
+        plt.errorbar(np.arange(len(mu)), mu, yerr=sd, color='m', ecolor='g')
+        plt.plot(np.arange(len(next_states2)), next_states2[:, i])
+        plt.grid()
+        plt.savefig(str(i)+'.pdf')
+        #plt.show()
+
+
 def main2():
 
     parser = argparse.ArgumentParser()
@@ -233,4 +295,5 @@ def main():
 
 if __name__ == '__main__':
     #main()
-    main2()
+    #main2()
+    main3()
