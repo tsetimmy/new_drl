@@ -17,3 +17,4 @@
 !/custom_environments/weights/*.p
 !/continuous_policy_gradients/
 !/more_gradfree_experiments.py
+!/.scratch
