@@ -2,13 +2,23 @@ import numpy as np
 from lwpr import LWPR
 from gd import gather_data, gather_data_epoch
 import matplotlib.pyplot as plt
+import pickle
 
 def main():
-    no_data = 1000*10
+    no_data = 1000*9
     environment = 'AntBulletEnv-v0'
     state_action, state, reward, next_state = gather_data(no_data, environment)
     assert len(state_action) == len(next_state)
     assert len(state_action) == len(reward)
+
+
+    data = pickle.load(open('data.p'))
+    state2, action2, reward2, next_state2 = data[0]
+
+    state_action2 = np.concatenate([state2, action2], axis=-1)
+    state_action = np.concatenate([state_action, state_action2], axis=0)
+    reward = np.concatenate([reward, reward2], axis=0)
+    next_state = np.concatenate([next_state, next_state2], axis=0)
     no_data = len(state_action)
 
 #    model_state = LWPR(state_action.shape[-1], next_state.shape[-1])
@@ -32,9 +42,14 @@ def main():
             model_reward.update(state_action[ind[i]], reward[ind[i]])
 
     for k in range(10):
-        state_action_test, state_test, reward_test, next_state_test = gather_data_epoch(1, environment)
-#        Y = []
-#        confs = []
+        if k % 2 == 0:
+            state_action_test, state_test, reward_test, next_state_test = gather_data_epoch(1, environment)
+        else:
+            idx = np.random.randint(1, len(data))
+            state_test, action_test, reward_test, next_state_next = data[idx]
+            state_action_test = np.concatenate([state_test, action_test], axis=-1)
+        Y = []
+        confs = []
         Y_r = []
         confs_r = []
         for i in range(len(state_action_test)):
@@ -51,17 +66,17 @@ def main():
 
 #        for i in range(next_state.shape[-1]):
 #            plt.figure()
+#            assert len(next_state_test[:, i:i+1]) == len(Y[:, i:i+1])
 #            plt.plot(np.arange(len(next_state_test[:, i:i+1])), next_state_test[:, i:i+1])
-#            plt.errorbar(np.arange(len(Y[:, i:i+1])), Y[:, i:i+1] + state_test[:, i:i+1], yerr=confs[:, i:i+1], color='m', ecolor='g')
+#            plt.errorbar(np.arange(len(Y[:, i:i+1])), Y[:, i:i+1] + state_test[:, i:i+1], yerr=confs[:, i:i+1], color='r', ecolor='y')
 #            plt.grid()
 
         plt.figure()
         plt.plot(np.arange(len(reward_test)), reward_test)
-        plt.errorbar(np.arange(len(Y_r)), Y_r, yerr=confs_r, color='r', ecolor='y')
+        plt.errorbar(np.arange(len(Y_r)), Y_r, yerr=confs_r, color='r', ecolor='g')
 
         plt.grid()
         plt.show()
-
 
 if __name__ == '__main__':
     main()

@@ -15,6 +15,98 @@ import pickle
 import gym
 import pybullet_envs
 import argparse
+plt.rcParams.update({'figure.max_open_warning': 0})
+
+import sklearn.preprocessing as pp
+
+
+
+class POLY:
+    def __init__(self, input_dim, noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=2000, poly_deg=3):
+        self.input_dim = input_dim
+        self.noise_sd = noise_sd
+        self.prior_sd = prior_sd
+        self.hyperparameters = np.array([self.noise_sd, self.prior_sd])
+        self.train_hp_iterations = train_hp_iterations
+        self.poly_deg = poly_deg
+        self.pf = pp.PolynomialFeatures(self.poly_deg)
+
+        self._init_statistics()
+
+    def _init_statistics(self):
+        self.XX = None
+        self.Xy = None
+
+    def _update(self, X, y):
+        basis = self.pf.fit_transform(X)
+        if self.XX is None:
+            self.XX = np.matmul(basis.T, basis)
+        else:
+            self.XX += np.matmul(basis.T, basis)
+        if self.Xy is None:
+            self.Xy = np.matmul(basis.T, y)
+        else:
+            self.Xy += np.matmul(basis.T, y)
+
+        self.Llower = scipy.linalg.cholesky((self.noise_sd/self.prior_sd)**2*np.eye(self.XX.shape[0]) + self.XX, lower=True)
+
+    def _train_hyperparameters(self, X, y):
+        warnings.filterwarnings('error')
+        basis = self.pf.fit_transform(X)
+        XX = np.matmul(basis.T, basis)
+        Xy = np.matmul(basis.T, y)
+        thetas = np.copy(np.array([self.noise_sd, self.prior_sd]))
+        options = {'maxiter': self.train_hp_iterations, 'disp': True}
+        _res = minimize(self._log_marginal_likelihood, thetas, method='powell', args=(XX, Xy, y), options=options)
+        results = np.copy(_res.x)
+
+        self.noise_sd, self.prior_sd = results
+        self.noise_sd = np.abs(self.noise_sd)
+        self.prior_sd = np.abs(self.prior_sd)
+        self.hyperparameters = np.array([self.noise_sd, self.prior_sd])
+        print self.noise_sd, self.prior_sd
+
+    def _log_marginal_likelihood(self, thetas, XX, Xy, y):
+        try:
+            noise_sd, prior_sd = thetas
+
+            N = XX.shape[0]
+
+            tmp0 = (noise_sd/prior_sd)**2*np.eye(N) + XX
+            Llower = scipy.linalg.cholesky(tmp0, lower=True)
+            LinvXy = scipy.linalg.solve_triangular(Llower, Xy, lower=True)
+            tmp = np.matmul(LinvXy.T, LinvXy)
+
+            s, logdet = np.linalg.slogdet(np.eye(N) + (prior_sd/noise_sd)**2*XX)
+            if s != 1:
+                print 'logdet is <= 0. Returning 10e100.'
+                return 10e100
+
+            lml = .5*(-N*np.log(noise_sd**2) - logdet + (-np.matmul(y.T, y)[0, 0] + tmp[0, 0])/noise_sd**2)
+            loss = -lml
+            print loss
+            return loss
+        except Exception as e:
+            print '------------'
+            print e, 'Returning 10e100.'
+            print '************'
+            return 10e100
+
+    def _reset_statistics(self, X, y):
+        self._init_statistics()
+        self._update(X, y)
+
+    def _predict(self, X):
+        basis = self.pf.fit_transform(X)
+
+        predict_sigma = np.sum(np.square(scipy.linalg.solve_triangular(self.Llower, basis.T, lower=True)), axis=0) * self.noise_sd**2 + self.noise_sd**2
+        predict_sigma = predict_sigma[..., np.newaxis]
+        tmp0 = scipy.linalg.solve_triangular(self.Llower, basis.T, lower=True).T
+        tmp1 = scipy.linalg.solve_triangular(self.Llower, self.Xy, lower=True)
+        predict_mu = np.matmul(tmp0, tmp1)
+
+        return predict_mu, predict_sigma
+
 
 def gather_data4(env, epochs, data_points, train=True, unpack=False):
     if env.spec.id in ['Pendulum-v0', 'MountainCarContinuous-v0']:
@@ -42,6 +134,45 @@ def gather_data4(env, epochs, data_points, train=True, unpack=False):
             states, actions, rewards, next_states = [np.stack(ele, axis=0) for ele in zip(*data)[:-1]]
             return states, actions, rewards[..., np.newaxis], next_states
 
+def nn_kernel(a, b, hyperparameters):
+    signal_sd = hyperparameters[0]
+    P = hyperparameters[1:]
+    sqrt_lenP = int(np.sqrt(float(len(P))))
+    assert sqrt_lenP**2 == len(P)
+    a = np.concatenate([a, np.ones([len(a), 1])], axis=-1)
+    b = np.concatenate([b, np.ones([len(b), 1])], axis=-1)
+
+    P = P.reshape([sqrt_lenP, sqrt_lenP])
+
+    aP = np.matmul(a, P)
+    aPb = np.matmul(aP, b.T)
+    aPa = np.sum(np.multiply(aP, a), axis=-1, keepdims=True)
+
+    bP = np.matmul(b, P)
+    bPb = np.sum(np.multiply(bP, b), axis=-1, keepdims=True)
+
+    denominator = np.sqrt(np.matmul(1. + 2.*aPa, (1. + 2.*bPb).T))
+
+    arg = np.clip(np.divide(2.*aPb, denominator), -1., 1.)
+    K = signal_sd**2*np.arcsin(arg)
+    return K
+
+def ard_kernel(a, b, hyperparameters):
+    signal_sd = hyperparameters[0]
+    Gamma = np.diag(np.square(hyperparameters[1:]))
+
+    a_tiled = np.tile(a[:, np.newaxis, :], [1, len(b), 1])
+    b_tiled = np.tile(b[np.newaxis, :, :], [len(a), 1, 1])
+
+    ab = a_tiled - b_tiled
+
+    ab = np.expand_dims(ab, axis=2)
+
+    K = np.matmul(np.matmul(ab, Gamma[np.newaxis, np.newaxis, ...]), np.transpose(ab, [0, 1, 3, 2]))
+    K = np.squeeze(K)
+    K = signal_sd**2*np.exp(-.5*K)
+    return K
+
 def rational_quadratic_kernel(a, b, hyperparameters):
     signal_sd, length_scale, alpha = hyperparameters
 
@@ -50,7 +181,6 @@ def rational_quadratic_kernel(a, b, hyperparameters):
     kernel = signal_sd**2*np.power((1. + sqdist/(2.*np.abs(alpha)*length_scale**2)), -np.abs(alpha))
 
     return kernel
-
 
 def matern_kernel(a, b, hyperparameters):
     signal_sd, length_scale = hyperparameters
@@ -95,7 +225,11 @@ def squared_exponential_kernel(a, b, hyperparameters, *unused):
     return kernel
 
 def log_marginal_likelihood(thetas, X, y, kern):
-    K = kernel(X, X, thetas[:-1], kern) + thetas[-1]**2*np.eye(len(X))
+    try:
+        K = kernel(X, X, thetas[:-1], kern) + thetas[-1]**2*np.eye(len(X))
+    except Exception as e:
+        print e, 'Returning 10e100.'
+        return 10e100
 
     try:
         Llower = scipy.linalg.cholesky(K, lower=True)
@@ -115,16 +249,16 @@ def log_marginal_likelihood(thetas, X, y, kern):
     return -lml
 
 def kernel(x, y, hyperparameters, kern='matern'):
-    dictionary = {'rbf': 'squared_exponential', 'periodic': 'periodic', 'matern': 'matern', 'rq': 'rational_quadratic'}
+    dictionary = {'rbf': 'squared_exponential', 'periodic': 'periodic', 'matern': 'matern', 'rq': 'rational_quadratic', 'ard': 'ard', 'nn': 'nn'}
     kern = dictionary[kern] + '_kernel'
     return eval(kern)(x, y, hyperparameters)
 
 class RegressionWrappers:
     def __init__(self, input_dim, kern='rbf'):
-        assert kern in ['rbf', 'periodic', 'matern', 'rq']
-        self.HP = {'rbf': np.ones(3), 'periodic': np.ones(4), 'matern': np.ones(3), 'rq': np.ones(4)}
+        assert kern in ['rbf', 'periodic', 'matern', 'rq', 'ard', 'nn']
         self.input_dim = input_dim
         self.kern = kern
+        self.HP = {'rbf': np.ones(3), 'periodic': np.ones(4), 'matern': np.ones(3), 'rq': np.ones(4), 'ard': np.ones(self.input_dim+2), 'nn': np.ones((self.input_dim+1)**2+2)}
         self.hyperparameters = self.HP[self.kern]
 
     def _train_hyperparameters(self, X, y):
@@ -161,39 +295,85 @@ class RegressionWrappers:
 
         return mu, sigma
 
-def main3():
+def main4():
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", type=str, default='Pendulum-v0')
+    parser.add_argument("--kernel", type=str, choices=['rbf', 'periodic', 'matern', 'rq', 'ard', 'nn'], default='rbf')
     parser.add_argument("--matern-param", type=float, default=np.inf)
     args = parser.parse_args()
 
     print args
 
+    import uuid
+    uid = str(uuid.uuid4())
+
+    env = gym.make(args.environment)
+
+    states, actions, rewards, _ = gather_data4(env, epochs=3, data_points=400, train=True, unpack=True)
+    states_actions = np.concatenate([states, actions], axis=-1)
+
+    regression_wrappers = [POLY(input_dim=states_actions.shape[-1])  for _ in range(1)]
+
+    for i in range(len(regression_wrappers)):
+        regression_wrappers[i]._train_hyperparameters(states_actions, rewards)
+        regression_wrappers[i]._reset_statistics(states_actions, rewards)
+
+    states2, actions2, rewards2, _ = gather_data4(env, epochs=1, data_points=None, train=False, unpack=True)
+    states_actions2 = np.concatenate([states2, actions2], axis=-1)
+
+    for i in range(len(regression_wrappers)):
+        mu, sigma = regression_wrappers[i]._predict(states_actions2)
+        mu = np.squeeze(mu, axis=-1)
+        sd = np.sqrt(np.abs(sigma))
+        plt.figure()
+        plt.errorbar(np.arange(len(mu)), mu, yerr=sd, color='m', ecolor='g')
+        plt.plot(np.arange(len(rewards2)), rewards2[:, i])
+        plt.grid()
+    plt.show()
+
+def main3():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--environment", type=str, default='Pendulum-v0')
+    parser.add_argument("--kernel", type=str, choices=['rbf', 'periodic', 'matern', 'rq', 'ard', 'nn'], default='rbf')
+    parser.add_argument("--matern-param", type=float, default=np.inf)
+    args = parser.parse_args()
+
+    print args
+
+    import uuid
+    uid = str(uuid.uuid4())
+
     env = gym.make(args.environment)
 
     states, actions, _, next_states = gather_data4(env, epochs=3, data_points=400, train=True, unpack=True)
     states_actions = np.concatenate([states, actions], axis=-1)
+    print len(states_actions)
 
-    regression_wrappers = [RegressionWrappers(env.observation_space.shape[0], kern='matern')  for _ in range(env.observation_space.shape[0])]
+    regression_wrappers = [RWL(input_dim=states_actions.shape[-1], basis_dim=256)  for _ in range(env.observation_space.shape[0])]
 
     for i in range(len(regression_wrappers)):
         print 'Training hyperparameters of '+str(i)+'th dimension.'
-        regression_wrappers[i]._train_hyperparameters(states_actions, next_states[:, i:i+1])
+        regression_wrappers[i]._train_hyperparameters(states_actions, next_states[:, i:i+1] - states[:, i:i+1])
+        regression_wrappers[i]._reset_statistics(states_actions, next_states[:, i:i+1] - states[:, i:i+1])
+#        regression_wrappers[i]._train_hyperparameters(states_actions, next_states[:, i:i+1])
+#        regression_wrappers[i]._reset_statistics(states_actions, next_states[:, i:i+1])
 
     states2, actions2, _, next_states2 = gather_data4(env, epochs=1, data_points=None, train=False, unpack=True)
     states_actions2 = np.concatenate([states2, actions2], axis=-1)
 
     for i in range(len(regression_wrappers)):
         print i
-        mu, sigma = regression_wrappers[i]._predict(states_actions2, states_actions, next_states[:, i:i+1])
+        mu, sigma = regression_wrappers[i]._predict(states_actions2)
         mu = np.squeeze(mu, axis=-1)
-        sd = np.sqrt(np.abs(np.diag(sigma)))
+        sd = np.sqrt(np.abs(sigma))
         plt.figure()
-        plt.errorbar(np.arange(len(mu)), mu, yerr=sd, color='m', ecolor='g')
+        plt.errorbar(np.arange(len(mu)), mu + states2[:, i], yerr=sd, color='m', ecolor='g')
+#        plt.errorbar(np.arange(len(mu)), mu, yerr=sd, color='m', ecolor='g')
         plt.plot(np.arange(len(next_states2)), next_states2[:, i])
         plt.grid()
-        plt.savefig(str(i)+'.pdf')
-        #plt.show()
+        #filename = args.environment+'_'+args.kernel+'_'+uid+'_dim'+str(i)+'.pdf'
+        #plt.savefig(filename)
+    plt.show()
 
 
 def main2():
@@ -216,7 +396,7 @@ def main2():
 #    rbf = RegressionWrappers(input_dim=states_actions.shape[-1], kern='rbf')
 #    rbf._train_hyperparameters(states_actions, rewards)
 #
-    matern = RegressionWrappers(input_dim=states_actions.shape[-1], kern='matern')
+    matern = RegressionWrappers(input_dim=states_actions.shape[-1], kern=args.kernel)
     matern._train_hyperparameters(states_actions, rewards)
 #
 #    rq = RegressionWrappers(input_dim=states_actions.shape[-1], kern='rq')
@@ -296,4 +476,5 @@ def main():
 if __name__ == '__main__':
     #main()
     #main2()
-    main3()
+    #main3()
+    main4()
