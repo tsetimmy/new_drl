@@ -31,19 +31,20 @@ def main():
     model_state.init_D = 1. * np.eye(state_action.shape[-1])
     model_state.update_D = True
     model_state.init_alpha = 20. * np.eye(state_action.shape[-1])
-    model_state.meta = False
+    model_state.meta = True
 
     model_reward = LWPR(state_action.shape[-1], reward.shape[-1])
     model_reward.init_D = 1. * np.eye(state_action.shape[-1])
     model_reward.update_D = True
     model_reward.init_alpha = 20. * np.eye(state_action.shape[-1])
-    model_reward.meta = False
+    model_reward.meta = True
 
     #for k in range(20):
     for k in range(1):
         ind = np.random.permutation(no_data)
         for i in range(no_data):
-            print (k, i)
+            #print (k, i)
+            #print next_state[ind[i]] - state[ind[i]]
             model_state.update(state_action[ind[i]], next_state[ind[i]] - state[ind[i]])
             model_reward.update(state_action[ind[i]], reward[ind[i]])
 
@@ -64,7 +65,8 @@ def main():
         confs_r = []
         for i in range(len(state_action_test)):
             y, conf = model_state.predict_conf(state_action_test[i])
-            Y.append(y + state_test[i])
+            #Y.append(y + state_test[i])
+            Y.append(y)
             confs.append(conf)
             y_r, conf_r = model_reward.predict_conf(state_action_test[i])
             Y_r.append(y_r)
@@ -77,17 +79,17 @@ def main():
         for i in range(next_state.shape[-1]):
             plt.figure()
             assert len(next_state_test[:, i:i+1]) == len(Y[:, i:i+1])
-            plt.plot(np.arange(len(next_state_test[:, i:i+1])), next_state_test[:, i:i+1])
+            plt.plot(np.arange(len(next_state_test[:, i:i+1])), next_state_test[:, i:i+1] - state_test[:, i:i+1])
             plt.errorbar(np.arange(len(Y[:, i:i+1])), Y[:, i:i+1], yerr=confs[:, i:i+1], color='r', ecolor='y')
             plt.grid()
-            plt.savefig(args.environment+'_'+'k:'+str(k)+'_'+'dim:'+str(i)+'_'+uid+'.pdf')
+            #plt.savefig(args.environment+'_'+'k:'+str(k)+'_'+'dim:'+str(i)+'_'+uid+'.pdf')
 
         plt.figure()
         plt.plot(np.arange(len(reward_test)), reward_test)
         plt.errorbar(np.arange(len(Y_r)), Y_r, yerr=confs_r, color='r', ecolor='g')
         plt.grid()
-        #plt.show()
-        plt.savefig(args.environment+'_'+'k:'+str(k)+'_'+'dim:'+'reward'+'_'+uid+'.pdf')
+        plt.show()
+        #plt.savefig(args.environment+'_'+'k:'+str(k)+'_'+'dim:'+'reward'+'_'+uid+'.pdf')
 
 if __name__ == '__main__':
     main()
