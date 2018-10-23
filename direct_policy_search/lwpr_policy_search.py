@@ -12,18 +12,66 @@ import cma
 
 class AGENT:
     def __init__(self, observation_space_dim, action_space_dim, action_space_low, action_space_high, unroll_steps):
+        np.testing.assert_equal(-action_space_low, action_space_high)
         self.observation_space_dim = observation_space_dim
         self.action_space_dim = action_space_dim
         self.action_space_low = action_space_low
         self.action_space_high = action_space_high
         self.unroll_steps = unroll_steps
 
-        #TODO: change this.
-        self.thetas = np.random.normal(size=[10])
+        self.hidden_dim = 10
+
+        self.w1 = np.random.normal(size=[self.observation_space_dim, self.hidden_dim])
+        self.b1 = np.random.uniform(-3e-3, 3e-3, size=[self.hidden_dim])
+
+        self.w2 = np.random.normal(size=[self.hidden_dim, self.hidden_dim])
+        self.b2 = np.random.uniform(-3e-3, 3e-3, size=[self.hidden_dim])
+
+        self.w3 = np.random.normal(size=[self.hidden_dim, self.action_space_dim])
+        self.b3 = np.random.uniform(-3e-3, 3e-3, size=[self.action_space_dim])
+
+        self.thetas = self._pack([self.w1, self.b1, self.w2, self.b2, self.w3, self.b3])
+
+        self.sizes = [[self.observation_space_dim, self.hidden_dim], [self.hidden_dim],
+                      [self.hidden_dim, self.hidden_dim], [self.hidden_dim],
+                      [self.hidden_dim, self.action_space_dim], [self.action_space_dim]]
+
+        w1, b1, w2, b2, w3, b3 = self._unpack(self.thetas, self.sizes)
+        np.testing.assert_equal(w1, self.w1)
+        np.testing.assert_equal(b1, self.b1)
+        np.testing.assert_equal(w2, self.w2)
+        np.testing.assert_equal(b2, self.b2)
+        np.testing.assert_equal(w3, self.w3)
+        np.testing.assert_equal(b3, self.b3)
+
+    def _pack(self, thetas):
+        return np.concatenate([theta.flatten() for theta in thetas])
+
+    def _unpack(self, thetas, sizes):
+        sidx = 0
+        weights = []
+        for size in sizes:
+            if len(size) == 2:
+                i, j = size
+                w = thetas[sidx:sidx+i*j].reshape([i, j])
+                sidx += i*j
+            else:
+                i = size[0]
+                w = thetas[sidx:sidx+i]
+                sidx += i
+            weights.append(w)
+        return weights
 
     def _forward(self, thetas, X):
-        #TODO: implment this.
-        return np.random.normal(size=[len(X), self.action_space_dim])
+        w1, b1, w2, b2, w3, b3 = self._unpack(thetas, self.sizes)
+
+        h1 = np.tanh(np.matmul(X, w1) + b1)
+        h2 = np.tanh(np.matmul(h1, w2) + b2)
+        out = np.tanh(np.matmul(h2, w3) + b3)
+
+        out *= self.action_space_high#action bounds.
+
+        return out
 
     def _loss(self, thetas, model, X):
         rng_state = np.random.get_state()
@@ -35,10 +83,7 @@ class AGENT:
             action = self._forward(thetas, state)
             state_action = np.concatenate([state, action], axis=-1)
             mu, sd = [np.stack(ele, axis=0) for ele in zip(*[model.predict_conf(sa) for sa in state_action])]
-            print mu
-            print '----------'
-            print sd
-            exit()
+            sd = np.minimum(sd, 100.)
             state_reward = np.stack([np.random.multivariate_normal(MU, np.diag(np.square(SD))) for MU, SD in zip(mu, sd)], axis=0)
             state += state_reward[:, :-1]
             reward = state_reward[:, -1:].copy()
@@ -47,9 +92,8 @@ class AGENT:
         rewards = np.concatenate(rewards, axis=-1)
         rewards = np.sum(rewards, axis=-1)
         loss = -np.mean(rewards)
-        print loss
-        exit()
         np.random.set_state(rng_state)
+        print loss
         return loss
 
     def _fit(self, model, init_states, cma_maxiter):

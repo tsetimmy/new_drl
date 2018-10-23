@@ -56,7 +56,7 @@ def main():
             state_action_test, state_test, reward_test, next_state_test = gather_data_epoch(1, args.environment)
         else:
             idx = np.random.randint(1, len(data))
-            state_test, action_test, reward_test, next_state_next = data[idx]
+            state_test, action_test, reward_test, next_state_test = data[idx]
             state_action_test = np.concatenate([state_test, action_test], axis=-1)
         '''
         Y = []

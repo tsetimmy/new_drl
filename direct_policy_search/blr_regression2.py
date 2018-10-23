@@ -15,6 +15,7 @@ from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
 from utils import gather_data, cholupdate2
 
 import gym
+import pybullet_envs
 import pickle
 import warnings
 
@@ -190,7 +191,7 @@ class RegressionWrapperReward(RegressionWrapper):
 class Agent:
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                  action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrices, biases, basis_dims,
-                 hidden_dim=32, learn_reward=0, use_mean_reward=0, update_hyperstate=1, policy_use_hyperstate=1):
+                 hidden_dim=32, learn_reward=0, use_mean_reward=0, update_hyperstate=1, policy_use_hyperstate=1, learn_diff=0):
         assert environment in ['Pendulum-v0', 'MountainCarContinuous-v0']
         assert x_dim == state_dim + action_dim
         assert len(action_space_low.shape) == 1
@@ -216,6 +217,7 @@ class Agent:
         self.use_mean_reward = use_mean_reward
         self.update_hyperstate = update_hyperstate
         self.policy_use_hyperstate = policy_use_hyperstate
+        self.learn_diff = learn_diff
 
         if self.environment == 'Pendulum-v0' and self.learn_reward == 0:
             #self.reward_function = real_env_pendulum_reward()
@@ -339,7 +341,6 @@ class Agent:
         X = np.tile(X, [1, self.no_samples, 1])
         X = np.reshape(X, [-1, self.state_dim])
 
-
         Llowers = [scipy.linalg.cholesky((hp[-2]/hp[-1])**2*np.eye(basis_dim) + XX, lower=True) for hp, basis_dim, XX in zip(hyperparameters, self.basis_dims, XXtr)]
         Llowers = [np.tile(ele[np.newaxis, ...], [len(X), 1, 1]) for ele in Llowers]
         XXtr = [np.tile(ele[np.newaxis, ...], [len(X), 1, 1]) for ele in XXtr]
@@ -409,11 +410,13 @@ class Agent:
 
                 bases.append(basis_reward)
 
-                state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(means, covs)], axis=0)
+                state_ = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(means, covs)], axis=0)
+                state = state + state_ if self.learn_diff else state_
+                if self.learn_diff == 0: state_ = np.clip(state_, self.observation_space_low, self.observation_space_high)
                 state = np.clip(state, self.observation_space_low, self.observation_space_high)
 
                 if self.update_hyperstate == 1 and self.policy_use_hyperstate == 1:
-                    y = np.concatenate([state, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
+                    y = np.concatenate([state_, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
                     y = y[..., np.newaxis, np.newaxis]
                     for i in xrange(self.state_dim + self.learn_reward):
                         #Llowers[i] = np.transpose(cholupdate2(np.transpose(Llowers[i], [0, 2, 1]), np.squeeze(bases[i], axis=1)), [0, 2, 1])
@@ -507,7 +510,7 @@ def solve_triangular(A, b):
 
     return results
 
-def update_hyperstate(agent, XX, hyperstate, hyperparameters, datum, dim):
+def update_hyperstate(agent, XX, hyperstate, hyperparameters, datum, dim, learn_diff):
     state, action, reward, next_state, _ = [np.atleast_2d(np.copy(dat)) for dat in datum]
     Llowers, Xy = [list(ele) for ele in hyperstate]
     assert len(XX) == len(hyperparameters)
@@ -515,7 +518,7 @@ def update_hyperstate(agent, XX, hyperstate, hyperparameters, datum, dim):
     assert len(Xy) == len(hyperparameters)
     assert len(hyperparameters) == dim
     state_action = np.concatenate([state, action], axis=-1)
-    y = np.concatenate([next_state, reward], axis=-1)[..., :dim]
+    y = np.concatenate([next_state - state if learn_diff else next_state, reward], axis=-1)[..., :dim]
     XX = list(XX)
 
     for i, hp in zip(range(dim), hyperparameters):
@@ -535,7 +538,7 @@ def update_hyperstate(agent, XX, hyperstate, hyperparameters, datum, dim):
 def unpack(data_buffer):
     states, actions, rewards, next_states = [np.stack(ele, axis=0) for ele in zip(*data_buffer)[:-1]]
     states_actions = np.concatenate([states, actions], axis=-1)
-    return states_actions, rewards[..., np.newaxis], next_states
+    return states_actions, states, rewards[..., np.newaxis], next_states
 
 def scrub_data(environment, data_buffer, warn):
     if environment == 'MountainCarContinuous-v0':
@@ -574,6 +577,7 @@ def main_loop():
     parser.add_argument("--update-hyperstate", type=int, default=1)
     parser.add_argument("--policy-use-hyperstate", type=int, default=1)
     parser.add_argument("--cma-maxiter", type=int, default=1000)
+    parser.add_argument("--learn-diff", type=int, choices=[0, 1], default=0)
     args = parser.parse_args()
 
     print args
@@ -621,7 +625,8 @@ def main_loop():
                                      learn_reward=args.learn_reward,
                                      use_mean_reward=args.use_mean_reward,
                                      update_hyperstate=args.update_hyperstate,
-                                     policy_use_hyperstate=args.policy_use_hyperstate)
+                                     policy_use_hyperstate=args.policy_use_hyperstate,
+                                     learn_diff=args.learn_diff)
 
     flag = False
     data_buffer = gather_data(env, args.gather_data_epochs)
@@ -636,14 +641,14 @@ def main_loop():
             sess.run(agent.assign_ops0, feed_dict=dict(zip(agent.placeholders_reward, weights)))
         for epoch in range(1000):
             #Train hyperparameters and update systems model.
-            states_actions, rewards, next_states = unpack(data_buffer)
-            next_states_and_rewards = np.concatenate([next_states, rewards], axis=-1)
+            states_actions, states, rewards, next_states = unpack(data_buffer)
+            targets = np.concatenate([next_states - states if args.learn_diff else next_states, rewards], axis=-1) 
             for i in range(env.observation_space.shape[0]+args.learn_reward):
                 if flag == False:
-                    regression_wrappers[i]._train_hyperparameters(states_actions, next_states_and_rewards[:, i:i+1])
-                    regression_wrappers[i]._reset_statistics(states_actions, next_states_and_rewards[:, i:i+1])
+                    regression_wrappers[i]._train_hyperparameters(states_actions, targets[:, i:i+1])
+                    regression_wrappers[i]._reset_statistics(states_actions, targets[:, i:i+1])
                 else:
-                    regression_wrappers[i]._update(states_actions, next_states_and_rewards[:, i:i+1])
+                    regression_wrappers[i]._update(states_actions, targets[:, i:i+1])
             if len(data_buffer) >= args.max_train_hp_datapoints: flag = True
             if flag: data_buffer = []
             tmp_data_buffer = []
@@ -662,7 +667,7 @@ def main_loop():
                 action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate)[0]
                 next_state, reward, done, _ = env.step(action)
 
-                XX, hyperstate = update_hyperstate(agent, XX, hyperstate, hyperparameters, [state, action, reward, next_state, done], agent.state_dim+agent.learn_reward)
+                XX, hyperstate = update_hyperstate(agent, XX, hyperstate, hyperparameters, [state, action, reward, next_state, done], agent.state_dim+agent.learn_reward, args.learn_diff)
 
                 tmp_data_buffer.append([state, action, reward, next_state, done])
                 total_rewards += float(reward)

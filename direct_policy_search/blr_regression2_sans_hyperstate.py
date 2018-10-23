@@ -7,10 +7,10 @@ from blr_regression2 import Agent, _basis
 class Agent2(Agent):
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                  action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrices, biases, basis_dims,
-                 hidden_dim=32, learn_reward=0, use_mean_reward=0, update_hyperstate=1, policy_use_hyperstate=1):
+                 hidden_dim=32, learn_reward=0, use_mean_reward=0, update_hyperstate=1, policy_use_hyperstate=1, learn_diff=0):
         Agent.__init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                        action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrices, biases, basis_dims,
-                       hidden_dim, learn_reward, use_mean_reward, update_hyperstate, policy_use_hyperstate)
+                       hidden_dim, learn_reward, use_mean_reward, update_hyperstate, policy_use_hyperstate, learn_diff)
         self._init_thetas2()
 
     def _init_thetas2(self):
@@ -67,7 +67,8 @@ class Agent2(Agent):
                 means = np.concatenate(means, axis=-1)
                 covs = np.concatenate(covs, axis=-1)
 
-                state = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(means, covs)], axis=0)
+                state_ = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(means, covs)], axis=0)
+                state = state + state_ if self.learn_diff else state_
                 state = np.clip(state, self.observation_space_low, self.observation_space_high)
             rewards = np.concatenate(rewards, axis=-1)
             rewards = np.sum(rewards, axis=-1)
