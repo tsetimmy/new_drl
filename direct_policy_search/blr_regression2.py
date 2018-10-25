@@ -192,7 +192,7 @@ class Agent:
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                  action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrices, biases, basis_dims,
                  hidden_dim=32, learn_reward=0, use_mean_reward=0, update_hyperstate=1, policy_use_hyperstate=1, learn_diff=0):
-        assert environment in ['Pendulum-v0', 'MountainCarContinuous-v0']
+        #assert environment in ['Pendulum-v0', 'MountainCarContinuous-v0']
         assert x_dim == state_dim + action_dim
         assert len(action_space_low.shape) == 1
         np.testing.assert_equal(-action_space_low, action_space_high)

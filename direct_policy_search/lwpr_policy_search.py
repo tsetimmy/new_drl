@@ -93,7 +93,6 @@ class AGENT:
         rewards = np.sum(rewards, axis=-1)
         loss = -np.mean(rewards)
         np.random.set_state(rng_state)
-        print loss
         return loss
 
     def _fit(self, model, init_states, cma_maxiter):
@@ -149,18 +148,24 @@ def main():
 
     for epoch in range(1000):
         agent._fit(model, init_states, args.cma_maxiter)
-        
 
+        total_rewards = 0.
+        state = env.reset()
+        while True:
+            action = agent._forward(agent.thetas, state[np.newaxis, ...])[0]
+            next_state, reward, done, _ = env.step(action)
+            state_action = np.concatenate([state, action])
+            state_diff = next_state - state
+            target = np.append(state_diff, reward)
+            model.update(state_action, target)
 
-        exit()
+            total_rewards += float(reward)
 
+            state = next_state.copy()
 
-
-
-
-
-
-
+            if done:
+                print 'epoch:', epoch, 'total_rewards:', total_rewards
+                break
 
 if __name__ == '__main__':
     main()

@@ -377,7 +377,7 @@ def gather_data(env, epochs, unpack=False):
             states, actions, rewards, next_states = [np.stack(ele, axis=0) for ele in zip(*data)[:-1]]
             return states, actions, rewards[..., np.newaxis], next_states
     else:
-        return gather_data3(env, 2000, unpack)
+        return gather_data3(env, 10000, unpack)
 
 def gather_data3(env, data_points, unpack=False):
     data = []
