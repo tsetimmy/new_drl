@@ -28,10 +28,12 @@ def main():
     no_data = len(state_action)
 
     model_state = LWPR(state_action.shape[-1], next_state.shape[-1])
-    model_state.init_D = 1. * np.eye(state_action.shape[-1])
+    model_state.init_D = 5. * np.eye(state_action.shape[-1])
     model_state.update_D = True
-    model_state.init_alpha = 20. * np.eye(state_action.shape[-1])
+    model_state.init_alpha = 1. * np.eye(state_action.shape[-1])
     model_state.meta = True
+    action_shape = state_action.shape[-1] - next_state.shape[-1]
+    model_state.norm_in = np.array(([10.] * state.shape[-1]) + [2.] * action_shape)
 
     model_reward = LWPR(state_action.shape[-1], reward.shape[-1])
     model_reward.init_D = 1. * np.eye(state_action.shape[-1])
@@ -43,9 +45,9 @@ def main():
     for k in range(1):
         ind = np.random.permutation(no_data)
         for i in range(no_data):
-            #print (k, i)
-            #print next_state[ind[i]] - state[ind[i]]
-            model_state.update(state_action[ind[i]], next_state[ind[i]] - state[ind[i]])
+            print (k, i)
+            model_state.update(state_action[ind[i]], next_state[ind[i]])
+            #model_state.update(state_action[ind[i]], next_state[ind[i]] - state[ind[i]])
             model_reward.update(state_action[ind[i]], reward[ind[i]])
 
     uid = str(uuid.uuid4())
@@ -78,8 +80,10 @@ def main():
 
         for i in range(next_state.shape[-1]):
             plt.figure()
+            print ('Here is the length of the trajectory:', len(next_state_test))
             assert len(next_state_test[:, i:i+1]) == len(Y[:, i:i+1])
-            plt.plot(np.arange(len(next_state_test[:, i:i+1])), next_state_test[:, i:i+1] - state_test[:, i:i+1])
+            #plt.plot(np.arange(len(next_state_test[:, i:i+1])), next_state_test[:, i:i+1] - state_test[:, i:i+1])
+            plt.plot(np.arange(len(next_state_test[:, i:i+1])), next_state_test[:, i:i+1])
             plt.errorbar(np.arange(len(Y[:, i:i+1])), Y[:, i:i+1], yerr=confs[:, i:i+1], color='r', ecolor='y')
             plt.grid()
             #plt.savefig(args.environment+'_'+'k:'+str(k)+'_'+'dim:'+str(i)+'_'+uid+'.pdf')
