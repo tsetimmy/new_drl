@@ -472,9 +472,33 @@ def main():
     plt.grid()
     plt.show()
 
+def main0():
+    X = np.random.uniform(-4., 4., size=[100, 1])
+    #X = np.concatenate([X, np.zeros([1, 1])])
+    y = f(X)# + np.random.normal(loc=0., scale=.5, size=[len(X), 1])
+    X_test = np.linspace(-10., 10., 1000)[..., np.newaxis]
+
+    regression_wrapper = RWL(input_dim=1, basis_dim=256)
+    regression_wrapper._train_hyperparameters(X, y)
+    regression_wrapper._reset_statistics(X, y)
+    mu, sigma = regression_wrapper._predict(X_test)
+    mu = np.squeeze(mu, axis=-1)
+    sd = np.sqrt(sigma)
+    sd = np.squeeze(sd, axis=-1)
+
+
+    plt.gca().fill_between(X_test.flat, mu-3*sd, mu+3*sd, color="#dddddd")
+    plt.plot(X_test, mu, 'r--')
+
+    plt.scatter(X, y)
+    plt.plot(X_test, f(X_test))
+
+    plt.grid()
+    plt.show()
 
 if __name__ == '__main__':
+    main0()
     #main()
     #main2()
     #main3()
-    main4()
+    #main4()
