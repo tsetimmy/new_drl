@@ -89,55 +89,73 @@ class MultiOutputRegressionWrapper(RegressionWrapper):
 
         return predict_mu, predict_sigma
 
+def f0(X):
+    return np.cos(X)
+
+def f1(X):
+    return np.sin(X)
+
+def f2(X):
+    return np.sin(X) / X
+
+def f3(X):
+    return np.abs(np.cos(X))
+
+def f4(X):
+    return np.abs(np.sin(X))
+
+def f5(X):
+    return np.abs(np.sin(X) / X)
+
 def main():
 
     X = np.random.uniform(-20., 20., size=[100, 1])
-    y0 = np.cos(X)
-    '''
-    y1 = np.sin(X)
-    y2 = np.sin(X) / X
-    y3 = np.abs(np.cos(X))
-    y4 = np.abs(np.sin(X))
-    y5 = np.abs(np.sin(X) / X)
-    '''
+    y0 = f0(X)
+    y1 = f1(X)
+    y2 = f2(X)
+    y3 = f3(X)
+    y4 = f4(X)
+    y5 = f5(X)
 
-    #Y = np.concatenate([y0, y1, y2, y3, y4, y5], axis=-1)
-    Y = np.concatenate([y0], axis=-1)
-    Y += np.random.normal(loc=0., scale=0.5, size=Y.shape)
+    Y = np.concatenate([y0, y1, y2, y3, y4, y5], axis=-1)
+    #Y = np.concatenate([y0], axis=-1)
+    Y += np.random.normal(loc=0., scale=0.1, size=Y.shape)
 
-    rw = RegressionWrapper(1, 256)
+    '''
+    rw = RegressionWrapper(1, 256, noise_sd=1.)
     rw._train_hyperparameters(X, Y)
     rw._reset_statistics(X, Y)
+    '''
 
-    morw = MultiOutputRegressionWrapper(X.shape[-1], Y.shape[-1], 256)
+    morw = MultiOutputRegressionWrapper(X.shape[-1], Y.shape[-1], 256, noise_sd=1.)
     morw._train_hyperparameters(X, Y)
     morw._reset_statistics(X, Y)
 
     X_test = np.linspace(-20, 20, 100)[..., None]
 
-    predict_mu0, predict_sigma0 = rw._predict(X_test)
+    #predict_mu0, predict_sigma0 = rw._predict(X_test)
     predict_mu1, predict_sigma1= morw._predict(X_test)
 
-    print predict_mu0.shape
-    print predict_mu1.shape
-    print predict_sigma0.shape
-    print predict_sigma1.shape
-
-
     for i in range(predict_mu1.shape[-1]):
+        '''
         plt.figure()
         plt.errorbar(X_test, predict_mu0[:, i:i+1], yerr=np.sqrt(predict_sigma0[:, i:i+1]), color='m', ecolor='g')
         plt.grid()
+        '''
 
+        '''
         plt.figure()
         plt.errorbar(X_test, predict_mu1[:, i:i+1], yerr=np.sqrt(predict_sigma1[:, i:i+1]), color='r', ecolor='b')
         plt.grid()
+        '''
 
-        plt.show()
-
-
-
-
+        plt.figure()
+        plt.plot(X.squeeze(), Y[:, i], 'r+', ms=20)
+        plt.plot(X_test.squeeze(), eval('f'+str(i))(X_test.squeeze()), 'b-')
+        plt.gca().fill_between(X_test.squeeze(), predict_mu1[:, i]-3.*np.sqrt(predict_sigma1.squeeze()), predict_mu1[:, i]+3.*np.sqrt(predict_sigma1.squeeze()), color='#dddddd')
+        plt.plot(X_test.squeeze(), predict_mu1[:, i], 'r--', lw=2)
+        plt.grid()
+    plt.show()
 
 if __name__ == '__main__':
     main()
