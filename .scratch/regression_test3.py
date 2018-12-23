@@ -100,11 +100,14 @@ def main():
         for i in range(len(actions)):
             sample_state_action = np.concatenate([sample_state, np.tile(actions[i][None, ...], [no_samples, 1])], axis=-1)
             mu, sigma = morw._predict(sample_state_action)
-            sample_state = np.random.normal(loc=mu, scale=sigma)
+            sigma = np.tile(sigma, [1, mu.shape[-1]])
+            #sample_state = np.random.normal(loc=mu, scale=sigma)
+            sample_state = mu + np.sqrt(sigma) * np.random.standard_normal(size=sigma.shape)
             sample_states.append(sample_state)
 
             mu, sigma = rw._predict(sample_state_action)
-            sample_reward = np.random.normal(loc=mu, scale=sigma)
+            #sample_reward = np.random.normal(loc=mu, scale=sigma)
+            sample_reward = mu + np.sqrt(sigma) * np.random.standard_normal(size=sigma.shape)
             sample_rewards.append(sample_reward)
         sample_states = np.stack(sample_states, axis=1)
         sample_rewards = np.stack(sample_rewards, axis=1)

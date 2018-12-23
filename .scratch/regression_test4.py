@@ -49,9 +49,9 @@ def main():
     y = np.stack(next_states, axis=0)
     r = np.array(rewards)[..., None]
 
-    rws = [RegressionWrapper(env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=128*2) for _ in range(env.observation_space.shape[0])]
+    rws = [RegressionWrapper(env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=128*2, train_hp_iterations=2000) for _ in range(env.observation_space.shape[0])]
 
-    rwr = RegressionWrapper(env.observation_space.shape[0]+env.action_space.shape[0], 128*2)
+    rwr = RegressionWrapper(env.observation_space.shape[0]+env.action_space.shape[0], 128*2, train_hp_iterations=2000)
 
     for i in range(len(rws)):
         rws[i]._train_hyperparameters(X, y[..., i:i+1])
@@ -110,11 +110,13 @@ def main():
             sample_state_action = np.concatenate([sample_state, np.tile(actions[i][None, ...], [no_samples, 1])], axis=-1)
             mu, sigma = [np.concatenate(ele, axis=-1) for ele in zip(*[rws[i]._predict(sample_state_action) for i in range(env.observation_space.shape[0])])]
             #mu, sigma = morw._predict(sample_state_action)
-            sample_state = np.random.normal(loc=mu, scale=sigma)
+            #sample_state = np.random.normal(loc=mu, scale=sigma)
+            sample_state = mu + np.sqrt(sigma) * np.random.standard_normal(size=sigma.shape)
             sample_states.append(sample_state)
 
             mu, sigma = rwr._predict(sample_state_action)
-            sample_reward = np.random.normal(loc=mu, scale=sigma)
+            #sample_reward = np.random.normal(loc=mu, scale=sigma)
+            sample_reward = mu + np.sqrt(sigma) * np.random.standard_normal(size=sigma.shape)
             sample_rewards.append(sample_reward)
         sample_states = np.stack(sample_states, axis=1)
         sample_rewards = np.stack(sample_rewards, axis=1)
