@@ -24,7 +24,7 @@ B = B.transpose([0, 2, 1])
 
 start = time.time()
 for i in range(batch_size):
-    cholupdate(A[i], u[i, 0])
+    cholupdate(A[i], u[i, 0].copy())
 print time.time() - start
 
 start = time.time()

@@ -10,6 +10,7 @@ import sys
 sys.path.append('..')
 
 from utils import gather_data
+from choldate import cholupdate
 
 class RegressionWrapper2(RegressionWrapper):
     def __init__(self, input_dim, basis_dim, length_scale=1., signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=2000, matern_param=np.inf):
@@ -44,6 +45,19 @@ class RegressionWrapper2(RegressionWrapper):
     def _update_hyperstate(self, X, y, update_hyperstate):
         if update_hyperstate:
             basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, self.length_scale, self.signal_sd)
+
+            self.Llower_tiled = self.Llower_tiled.transpose([0, 2, 1])
+            assert len(self.Llower_tiled) == len(basis)
+            for i in range(len(self.Llower_tiled)):
+                cholupdate(self.Llower_tiled[i], basis[i].copy())
+            self.Llower_tiled = self.Llower_tiled.transpose([0, 2, 1])
+
+            self.Xy_tiled += np.matmul(basis[:, None, :].transpose([0, 2, 1,]), y[:, None, :])
+
+    '''
+    def _update_hyperstate(self, X, y, update_hyperstate):
+        if update_hyperstate:
+            basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, self.length_scale, self.signal_sd)
             basis = np.expand_dims(basis, axis=1)
             y = y[..., np.newaxis]
             XX_tiled_new = self.XX_tiled + np.matmul(np.transpose(basis, [0, 2, 1]), basis)
@@ -64,6 +78,7 @@ class RegressionWrapper2(RegressionWrapper):
             self.XX_tiled = np.stack(XX_tiled, axis=0)
             self.Xy_tiled = np.stack(Xy_tiled, axis=0)
             self.Llower_tiled = np.stack(Llower_tiled, axis=0)
+    '''
 
 class RegressionWrapperReward2(RegressionWrapperReward):
     def __init__(self, environment, input_dim, basis_dim, length_scale=1., signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=2000, matern_param=np.inf):
@@ -98,6 +113,19 @@ class RegressionWrapperReward2(RegressionWrapperReward):
     def _update_hyperstate(self, X, y, update_hyperstate):
         if update_hyperstate:
             basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, self.length_scale, self.signal_sd)
+
+            self.Llower_tiled = self.Llower_tiled.transpose([0, 2, 1])
+            assert len(self.Llower_tiled) == len(basis)
+            for i in range(len(self.Llower_tiled)):
+                cholupdate(self.Llower_tiled[i], basis[i].copy())
+            self.Llower_tiled = self.Llower_tiled.transpose([0, 2, 1])
+
+            self.Xy_tiled += np.matmul(basis[:, None, :].transpose([0, 2, 1,]), y[:, None, :])
+
+    '''
+    def _update_hyperstate(self, X, y, update_hyperstate):
+        if update_hyperstate:
+            basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, self.length_scale, self.signal_sd)
             basis = np.expand_dims(basis, axis=1)
             y = y[..., np.newaxis]
             XX_tiled_new = self.XX_tiled + np.matmul(np.transpose(basis, [0, 2, 1]), basis)
@@ -118,6 +146,7 @@ class RegressionWrapperReward2(RegressionWrapperReward):
             self.XX_tiled = np.stack(XX_tiled, axis=0)
             self.Xy_tiled = np.stack(Xy_tiled, axis=0)
             self.Llower_tiled = np.stack(Llower_tiled, axis=0)
+    '''
 
 def plotting_experiments():
     parser = argparse.ArgumentParser()
@@ -174,15 +203,17 @@ def plotting_experiments():
 
     for i in range(env.observation_space.shape[0]):
         predictors[i]._train_hyperparameters(states_actions, next_states[:, i:i+1])
-        predictors[i]._reset_statistics(states_actions, next_states[:, i:i+1], bool(args.update_hyperstate))
     predictors[-1]._train_hyperparameters(states_actions, rewards)
-    predictors[-1]._reset_statistics(states_actions, rewards, bool(args.update_hyperstate))
 
     while True:
+        for i in range(env.observation_space.shape[0]):
+            predictors[i]._reset_statistics(states_actions, next_states[:, i:i+1], bool(args.update_hyperstate))
+        predictors[-1]._reset_statistics(states_actions, rewards, bool(args.update_hyperstate))
+
         if args.environment == 'MountainCarContinuous-v0':
             states2, actions2, rewards2, next_states2 = get_mcc_policy(env, hit_wall=bool(args.test_hit_wall), reach_goal=bool(args.test_reach_goal), train=False)
         else:
-            states2, actions2, rewards2, next_states2 = gather_data(env, 1, unpack=True)
+            states2, actions2, rewards2, next_states2 = gather_data(env, 1, unpack=True, test=True)
         states_actions2 = np.concatenate([states2, actions2], axis=-1)
 
         plt.figure()
@@ -221,9 +252,9 @@ def plotting_experiments():
             state = np.clip(state, env.observation_space.low, env.observation_space.high)
             traj.append(np.copy(state))
 
-        for i in range(env.observation_space.shape[0]):
-            predictors[i]._update_hyperstate(state_action, state[:, i:i+1], bool(args.update_hyperstate))
-        predictors[-1]._update_hyperstate(state_action, reward, bool(args.update_hyperstate))
+            for i in range(env.observation_space.shape[0]):
+                predictors[i]._update_hyperstate(state_action, state[:, i:i+1], bool(args.update_hyperstate))
+            predictors[-1]._update_hyperstate(state_action, reward, bool(args.update_hyperstate))
 
         traj_reward = np.stack(traj_reward, axis=-1)
         traj = np.stack(traj, axis=-1)

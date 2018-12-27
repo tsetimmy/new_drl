@@ -44,18 +44,18 @@ def main():
             if done:
                 break
 
-    X = np.concatenate([np.stack(states, axis=0), np.stack(actions, axis=0)], axis=-1)
-    y = np.stack(next_states, axis=0)
-    r = np.array(rewards)[..., None]
+    X_train = np.concatenate([np.stack(states, axis=0), np.stack(actions, axis=0)], axis=-1)
+    y_train = np.stack(next_states, axis=0)
+    r_train = np.array(rewards)[..., None]
 
     morw = MultiOutputRegressionWrapper(env.observation_space.shape[0]+env.action_space.shape[0], env.observation_space.shape[0], basis_dim=128*2)
     rw = RegressionWrapper(env.observation_space.shape[0]+env.action_space.shape[0], 128*2)
 
-    morw._train_hyperparameters(X, y)
-    morw._reset_statistics(X, y)
+    morw._train_hyperparameters(X_train, y_train)
+    morw._reset_statistics(X_train, y_train)
 
-    rw._train_hyperparameters(X, r)
-    rw._reset_statistics(X, r)
+    rw._train_hyperparameters(X_train, r_train)
+    rw._reset_statistics(X_train, r_train)
 
     while True:
         state = env.reset()
@@ -76,18 +76,18 @@ def main():
             if done:
                 break
 
-        X = np.concatenate([np.stack(states, axis=0), np.stack(actions, axis=0)], axis=-1)
-        y = np.stack(next_states, axis=0)
-        r = np.array(rewards)[..., None]
+        X_test = np.concatenate([np.stack(states, axis=0), np.stack(actions, axis=0)], axis=-1)
+        y_test = np.stack(next_states, axis=0)
+        r_test = np.array(rewards)[..., None]
 
-        mu0, sigma0 = morw._predict(X)
+        mu0, sigma0 = morw._predict(X_test)
         for i in range(env.observation_space.shape[0]):
             plt.figure()
-            plt.plot(np.arange(len(y[:, i])), y[:, i], 'b-')
+            plt.plot(np.arange(len(y_test[:, i])), y_test[:, i], 'b-')
             plt.errorbar(np.arange(len(mu0[:, i])), mu0[:, i], yerr=np.sqrt(sigma0.squeeze()), color='m', ecolor='g')
             plt.grid()
 
-        mu1, sigma1 = rw._predict(X)
+        mu1, sigma1 = rw._predict(X_test)
         plt.figure()
         plt.plot(np.arange(len(rewards)), rewards, 'b-')
         plt.errorbar(np.arange(len(mu1)), mu1, yerr=np.sqrt(sigma1), color='m', ecolor='g')
@@ -116,7 +116,7 @@ def main():
             plt.figure()
             for sample in sample_states[..., i]:
                 plt.plot(np.arange(len(sample)), sample, 'r-')
-            plt.plot(np.arange(len(y[:, i])), y[:, i], 'b-')
+            plt.plot(np.arange(len(y_test[:, i])), y_test[:, i], 'b-')
             plt.grid()
 
         plt.figure()

@@ -12,12 +12,14 @@ from custom_environments.generateANN_env import ANN
 from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
 from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
 
-from utils import gather_data, cholupdate2
+from utils import gather_data
 
 import gym
 import pybullet_envs
 import pickle
 import warnings
+
+from choldate import cholupdate
 
 def _basis(X, random_matrix, bias, basis_dim, length_scale, signal_sd):
     x_omega_plus_bias = np.matmul(X, (1./length_scale)*random_matrix) + bias
@@ -415,14 +417,33 @@ class Agent:
                 if self.learn_diff == 0: state_ = np.clip(state_, self.observation_space_low, self.observation_space_high)
                 state = np.clip(state, self.observation_space_low, self.observation_space_high)
 
+#                #Removable
+#                import copy
+#                Llowers2 = copy.deepcopy(Llowers)
+#                Xytr2 = copy.deepcopy(Xytr)
+#                XXtr2 = copy.deepcopy(XXtr)
+#                #Removable -END-
+
                 if self.update_hyperstate == 1 and self.policy_use_hyperstate == 1:
                     y = np.concatenate([state_, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
                     y = y[..., np.newaxis, np.newaxis]
                     for i in xrange(self.state_dim + self.learn_reward):
-                        #Llowers[i] = np.transpose(cholupdate2(np.transpose(Llowers[i], [0, 2, 1]), np.squeeze(bases[i], axis=1)), [0, 2, 1])
-                        #Xytr[i] += np.matmul(np.transpose(bases[i], [0, 2, 1]), y[:, i, ...])
-                        _, _, noise_sd, prior_sd = hyperparameters[i]
-                        XXtr[i], Xytr[i], Llowers[i] = self._update_hyperstate(XXtr[i], XXtr[i] + np.matmul(np.transpose(bases[i], [0, 2, 1]), bases[i]), Xytr[i], Xytr[i] + np.matmul(np.transpose(bases[i], [0, 2, 1]), y[:, i, ...]), Llowers[i], (noise_sd/prior_sd)**2)
+                        Llowers[i] = Llowers[i].transpose([0, 2, 1])
+                    for i in xrange(self.state_dim + self.learn_reward):
+                        for j in xrange(len(Llowers[i])):
+                            cholupdate(Llowers[i][j], bases[i][j, 0].copy())
+                        Xytr[i] += np.matmul(bases[i].transpose([0, 2, 1]), y[:, i, ...])
+
+#                        #Removable
+#                        _, _, noise_sd, prior_sd = hyperparameters[i]
+#                        XXtr2[i], Xytr2[i], Llowers2[i] = self._update_hyperstate(XXtr2[i], XXtr2[i] + np.matmul(np.transpose(bases[i], [0, 2, 1]), bases[i]), Xytr2[i], Xytr2[i] + np.matmul(np.transpose(bases[i], [0, 2, 1]), y[:, i, ...]), Llowers2[i], (noise_sd/prior_sd)**2)
+#                        print i
+#                        print np.allclose(Llowers[i], Llowers2[i].transpose([0, 2, 1]))
+#                        print np.allclose(Xytr[i], Xytr2[i])
+#                        #Removable -END-
+
+                    for i in xrange(self.state_dim + self.learn_reward):
+                        Llowers[i] = Llowers[i].transpose([0, 2, 1])
 
             rewards = np.concatenate(rewards, axis=-1)
             rewards = np.sum(rewards, axis=-1)
@@ -510,7 +531,29 @@ def solve_triangular(A, b):
 
     return results
 
-def update_hyperstate(agent, XX, hyperstate, hyperparameters, datum, dim, learn_diff):
+def update_hyperstate(agent, hyperstate, hyperparameters, datum, dim, learn_diff):
+    state, action, reward, next_state, _ = [np.atleast_2d(np.copy(dat)) for dat in datum]
+    Llowers, Xy = [list(ele) for ele in hyperstate]
+    assert len(Llowers) == len(hyperparameters)
+    assert len(Xy) == len(hyperparameters)
+    assert len(hyperparameters) == dim
+    state_action = np.concatenate([state, action], axis=-1)
+    y = np.concatenate([next_state - state if learn_diff else next_state, reward], axis=-1)[..., :dim]
+
+    for i in range(len(Llowers)):
+        Llowers[i] = Llowers[i].transpose([0, 2, 1])
+    for i, hp in zip(range(dim), hyperparameters):
+        length_scale, signal_sd, noise_sd, prior_sd = hp
+        basis = _basis(state_action, agent.random_matrices[i], agent.biases[i], agent.basis_dims[i], length_scale, signal_sd)
+        cholupdate(Llowers[i][0], basis[0].copy())
+        Xy[i] += np.matmul(basis[:, None, :].transpose([0, 2, 1]), y[:, None, :][..., i:i+1])
+    for i in range(len(Llowers)):
+        Llowers[i] = Llowers[i].transpose([0, 2, 1])
+
+    return [Llowers, Xy]
+
+'''
+def update_hyperstate_old(agent, XX, hyperstate, hyperparameters, datum, dim, learn_diff):
     state, action, reward, next_state, _ = [np.atleast_2d(np.copy(dat)) for dat in datum]
     Llowers, Xy = [list(ele) for ele in hyperstate]
     assert len(XX) == len(hyperparameters)
@@ -534,6 +577,7 @@ def update_hyperstate(agent, XX, hyperstate, hyperparameters, datum, dim, learn_
         #Llowers[i] = np.transpose(cholupdate2(np.transpose(Llowers[i], [0, 2, 1]), basis), [0, 2, 1,])
 
     return XX, [Llowers, Xy]
+'''
 
 def unpack(data_buffer):
     states, actions, rewards, next_states = [np.stack(ele, axis=0) for ele in zip(*data_buffer)[:-1]]
@@ -580,6 +624,7 @@ def main_loop():
     parser.add_argument("--learn-diff", type=int, choices=[0, 1], default=0)
     args = parser.parse_args()
 
+    print sys.argv
     print args
     from blr_regression2_sans_hyperstate import Agent2
     from blr_regression2_tf import Agent3
@@ -667,7 +712,8 @@ def main_loop():
                 action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate)[0]
                 next_state, reward, done, _ = env.step(action)
 
-                XX, hyperstate = update_hyperstate(agent, XX, hyperstate, hyperparameters, [state, action, reward, next_state, done], agent.state_dim+agent.learn_reward, args.learn_diff)
+                #hyperstate = update_hyperstate_old(agent, XX, hyperstate, hyperparameters, [state, action, reward, next_state, done], agent.state_dim+agent.learn_reward, args.learn_diff)
+                hyperstate = update_hyperstate(agent, hyperstate, hyperparameters, [state, action, reward, next_state, done], agent.state_dim+agent.learn_reward, args.learn_diff)
 
                 tmp_data_buffer.append([state, action, reward, next_state, done])
                 total_rewards += float(reward)

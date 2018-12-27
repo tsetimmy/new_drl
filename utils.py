@@ -359,8 +359,8 @@ def str2list(string):
 
     return l
 
-def gather_data(env, epochs, unpack=False):
-    if env.spec.id == 'Pendulum-v0':
+def gather_data(env, epochs, unpack=False, test=False):
+    if env.spec.id == 'Pendulum-v0' or test == True:
         data = []
         for epoch in range(epochs):
             state = env.reset()
@@ -377,7 +377,7 @@ def gather_data(env, epochs, unpack=False):
             states, actions, rewards, next_states = [np.stack(ele, axis=0) for ele in zip(*data)[:-1]]
             return states, actions, rewards[..., np.newaxis], next_states
     else:
-        return gather_data3(env, 10000, unpack)
+        return gather_data3(env, 1000, unpack)
 
 def gather_data3(env, data_points, unpack=False):
     data = []
