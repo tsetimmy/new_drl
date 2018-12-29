@@ -54,7 +54,7 @@ class RegressionWrapper2(RegressionWrapper):
                 cholupdate(self.Llower_tiled[i], basis[i].copy())
             self.Llower_tiled = self.Llower_tiled.transpose([0, 2, 1])
 
-            self.Xy_tiled += np.matmul(basis[:, None, :].transpose([0, 2, 1,]), y[:, None, :])
+            self.Xy_tiled += np.matmul(basis[:, None, :].transpose([0, 2, 1]), y[:, None, :])
 
     def _update_hyperstate2(self, X, y, update_hyperstate):
         if update_hyperstate:
@@ -86,6 +86,8 @@ def main():
     parser.add_argument("--environment", type=str, default='Pendulum-v0')
     parser.add_argument("--update_hyperstate", type=int, default=0)
     parser.add_argument("--train_hp_iterations", type=int, default=2000)
+    parser.add_argument("--basis_dim", type=int, default=256)
+    parser.add_argument("--basis_dim_reward", type=int, default=256)
     args = parser.parse_args()
 
     print args
@@ -121,9 +123,9 @@ def main():
     y_train = np.stack(next_states, axis=0)
     r_train = np.array(rewards)[..., None]
 
-    rws = [RegressionWrapper2(env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=128*2, train_hp_iterations=args.train_hp_iterations) for _ in range(env.observation_space.shape[0])]
+    rws = [RegressionWrapper2(env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=args.basis_dim, train_hp_iterations=args.train_hp_iterations) for _ in range(env.observation_space.shape[0])]
 
-    rwr = RegressionWrapper2(env.observation_space.shape[0]+env.action_space.shape[0], 128*2, train_hp_iterations=args.train_hp_iterations)
+    rwr = RegressionWrapper2(env.observation_space.shape[0]+env.action_space.shape[0], basis_dim=args.basis_dim_reward, train_hp_iterations=args.train_hp_iterations)
 
     for i in range(len(rws)):
         rws[i]._train_hyperparameters(X_train, y_train[..., i:i+1])
