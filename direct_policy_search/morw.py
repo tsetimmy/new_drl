@@ -3,9 +3,7 @@ import scipy.linalg as la
 from scipy.optimize import minimize
 import warnings
 
-import sys
-sys.path.append('..')
-from direct_policy_search.blr_regression2 import RegressionWrapper, _basis
+from blr_regression2 import RegressionWrapper, _basis
 
 import matplotlib.pyplot as plt
 

@@ -6,10 +6,10 @@ import argparse
 import matplotlib.pyplot as plt
 plt.rcParams.update({'figure.max_open_warning': 0})
 
+import sys
+sys.path.append('..')
+from direct_policy_search.blr_regression2 import RegressionWrapper
 from morw import MultiOutputRegressionWrapper
-#import sys
-#sys.path.append('..')
-#from direct_policy_search.blr_regression2 import RegressionWrapper
 from regression_test4 import RegressionWrapper2, _basis, solve_triangular
 from choldate import cholupdate
 
