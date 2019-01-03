@@ -1,6 +1,7 @@
 import numpy as np
 import scipy
 from scipy.optimize import minimize
+import scipy.linalg as spla
 import argparse
 
 import sys
@@ -109,11 +110,20 @@ class Agent:
             weights.append(w)
         return weights
 
-    def _forward(self, thetas, X, hyperstate):
+    def _forward(self, thetas, X, hyperstate_params):
         w1, w2, w3 = self._unpack(thetas, self.sizes)
 
         #Perform a simple random projection on the hyperstate.
         if self.policy_use_hyperstate == 1:
+            Llower_state, Xytr_state, Llower_reward, Xytr_reward = hyperstate_params
+
+            print Llower_state.reshape([len(Llower_state), -1]).shape
+            print Xytr_state.reshape([len(Xytr_state), -1]).shape
+            print Llower_reward.reshape([len(Llower_reward), -1]).shape
+            print Xytr_reward.reshape([len(Xytr_reward), -1]).shape
+            exit()
+
+            '''
             hyperstate = np.concatenate([np.concatenate([np.reshape(XXtr, [len(XXtr), -1]), np.reshape(Xytr, [len(Xytr), -1])], axis=-1) for XXtr, Xytr in zip(*hyperstate)], axis=-1)
             hyperstate = np.tanh(hyperstate/50000.)
             hyperstate_embedding = np.matmul(hyperstate, self.random_projection_matrix)
@@ -121,9 +131,12 @@ class Agent:
 
             state_hyperstate = np.concatenate([X, hyperstate_embedding], axis=-1)
             policy_net_input = self._add_bias(state_hyperstate)
+            '''
         else:
             policy_net_input = self._add_bias(X)
 
+        print 'here'
+        exit()
         h1 = np.tanh(np.matmul(policy_net_input, w1))
         h1 = self._add_bias(h1)
 
@@ -143,34 +156,46 @@ class Agent:
         return np.maximum(X, 0.)
 
     def _fit(self, cma_maxiter, X, XXtr_state, Xytr_state, hyperparameters_state, XXtr_reward, Xytr_reward, hyperparameters_reward, sess):
-        exit()#bookmark here; have to modify the _fit function.
         warnings.filterwarnings('ignore', message='.*scipy.linalg.solve\nIll-conditioned matrix detected. Result is not guaranteed to be accurate.\nReciprocal.*')
-        assert len(XXtr) == self.state_dim + self.learn_reward
-        assert len(Xytr) == self.state_dim + self.learn_reward
-        assert len(hyperparameters) == self.state_dim + self.learn_reward
+        assert XXtr_state.shape == (self.basis_dim_state, self.basis_dim_state)
+        assert Xytr_state.shape == (self.basis_dim_state, self.state_dim)
+        assert XXtr_reward.shape == (self.basis_dim_reward, self.basis_dim_reward)
+        assert Xytr_reward.shape == (self.basis_dim_reward, 1)
+        assert hyperparameters_state.shape == hyperparameters_reward.shape
 
         if self.use_mean_reward == 1: print 'Warning: use_mean_reward is set to True but this flag is not used by this function.'
 
-        X = np.copy(X)
-        XXtr = [np.copy(ele) for ele in XXtr]
-        Xytr = [np.copy(ele) for ele in Xytr]
-        hyperparameters = [np.copy(ele) for ele in hyperparameters]
+        #Copy the arrays (just to be safe no overwriting occurs).
+        X = X.copy()
+        XXtr_state = XXtr_state.copy()
+        Xytr_state = Xytr_state.copy()
+        hyperparameters_state = hyperparameters_state.copy()
+        XXtr_reward = XXtr_reward.copy()
+        Xytr_reward = Xytr_reward.copy()
+        hyperparameters_reward = hyperparameters_reward.copy()
 
         X = np.expand_dims(X, axis=1)
         X = np.tile(X, [1, self.no_samples, 1])
         X = np.reshape(X, [-1, self.state_dim])
 
-        Llowers = [scipy.linalg.cholesky((hp[-2]/hp[-1])**2*np.eye(basis_dim) + XX, lower=True) for hp, basis_dim, XX in zip(hyperparameters, self.basis_dims, XXtr)]
-        Llowers = [np.tile(ele[np.newaxis, ...], [len(X), 1, 1]) for ele in Llowers]
-        XXtr = [np.tile(ele[np.newaxis, ...], [len(X), 1, 1]) for ele in XXtr]
-        Xytr = [np.tile(ele[np.newaxis, ...], [len(X), 1, 1]) for ele in Xytr]
+        #State
+        Llower_state = spla.cholesky((hyperparameters_state[-2]/hyperparameters_state[-1])**2*np.eye(self.basis_dim_state) + XXtr_state, lower=True)
+        Llower_state = np.tile(Llower_state, [len(X), 1, 1])
 
-        self.noises = [(hp[2]/hp[3])**2*np.eye(basis_dim) for hp, basis_dim in zip(hyperparameters, self.basis_dims)]
+        XXtr_state = np.tile(XXtr_state, [len(X), 1, 1])
+        Xytr_state = np.tile(Xytr_state, [len(X), 1, 1])
+
+        #Reward
+        Llower_reward = spla.cholesky((hyperparameters_reward[-2]/hyperparameters_reward[-1])**2*np.eye(self.basis_dim_reward) + XXtr_reward, lower=True)
+        Llower_reward = np.tile(Llower_reward, [len(X), 1, 1])
+
+        XXtr_reward = np.tile(XXtr_reward, [len(X), 1, 1])
+        Xytr_reward = np.tile(Xytr_reward, [len(X), 1, 1])
 
         import cma
         options = {'maxiter': cma_maxiter, 'verb_disp': 1, 'verb_log': 0}
         print 'Before calling cma.fmin'
-        res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), [np.copy(ele) for ele in Llowers], [np.copy(ele) for ele in XXtr], [np.copy(ele) for ele in Xytr], None, [np.copy(ele) for ele in hyperparameters], sess), options=options)
+        res = cma.fmin(self._loss, self.thetas, 2., args=(X.copy(), Llower_state.copy(), XXtr_state.copy(), Xytr_state.copy(), hyperparameters_state, Llower_reward.copy(), XXtr_reward.copy(), Xytr_reward.copy(), hyperparameters_reward, sess), options=options)
         self.thetas = np.copy(res[0])
 
     def _predict(self, Llower, Xytr, basis, noise_sd):
@@ -195,44 +220,62 @@ class Agent:
         pred_mu = np.squeeze(pred_mu, axis=-1)
         return pred_mu, pred_sigma
 
-    def _loss(self, thetas, X, Llowers, XXtr, Xytr, A=[], hyperparameters=None, sess=None):
+    def _loss(self, thetas, X, Llower_state, XXtr_state, Xytr_state, hyperparameters_state, Llower_reward, XXtr_reward, Xytr_reward, hyperparameters_reward, sess=None):
         rng_state = np.random.get_state()
+        X = X.copy()
+        Llower_state = Llower_state.copy()
+        XXtr_state = XXtr_state.copy()
+        Xytr_state = Xytr_state.copy()
+        hyperparameters_state = hyperparameters_state.copy()
+        Llower_reward = Llower_reward.copy()
+        XXtr_reward = XXtr_reward.copy()
+        Xytr_reward = Xytr_reward.copy()
+        hyperparameters_reward = hyperparameters_reward.copy()
+
+        print Llower_state.shape
+        print Xytr_state.shape
+        print Llower_reward.shape
+        print Xytr_reward.shape
+        '''
         X = np.copy(X)
         Llowers = [np.copy(ele) for ele in Llowers]
         XXtr = [np.copy(ele) for ele in XXtr]
         Xytr = [np.copy(ele) for ele in Xytr]
         hyperparameters = [np.copy(ele) for ele in hyperparameters]
-        try:
-            np.random.seed(2)
+        '''
+        #try:
+        np.random.seed(2)
 
-            rewards = []
-            state = X
-            for unroll_step in xrange(self.unroll_steps):
-                action = self._forward(thetas, state, hyperstate=[Llowers, Xytr])
-                reward, basis_reward = self._reward(state, action, sess, Llowers[-1], Xytr[-1], hyperparameters[-1])
-                rewards.append((self.discount_factor**unroll_step)*reward)
-                state_action = np.concatenate([state, action], axis=-1)
+        rewards = []
+        state = X
+        for unroll_step in xrange(self.unroll_steps):
+            #action = self._forward(thetas, state, hyperstate=[Llowers, Xytr])
+            action = self._forward(thetas, state, hyperstate_params=[Llower_state, Xytr_state, Llower_reward, Xytr_reward])
+            exit()
+            reward, basis_reward = self._reward(state, action, sess, Llowers[-1], Xytr[-1], hyperparameters[-1])
+            rewards.append((self.discount_factor**unroll_step)*reward)
+            state_action = np.concatenate([state, action], axis=-1)
 
-                means = []
-                covs = []
-                bases = []
-                for i in xrange(self.state_dim):
-                    length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
-                    basis = _basis(state_action, self.random_matrices[i], self.biases[i], self.basis_dims[i], length_scale, signal_sd)
-                    basis = np.expand_dims(basis, axis=1)
-                    bases.append(basis)
-                    pred_mu, pred_sigma = self._predict(Llowers[i], Xytr[i], basis, noise_sd)
-                    means.append(pred_mu)
-                    covs.append(pred_sigma)
-                means = np.concatenate(means, axis=-1)
-                covs = np.concatenate(covs, axis=-1)
+            means = []
+            covs = []
+            bases = []
+            for i in xrange(self.state_dim):
+                length_scale, signal_sd, noise_sd, prior_sd = hyperparameters[i]
+                basis = _basis(state_action, self.random_matrices[i], self.biases[i], self.basis_dims[i], length_scale, signal_sd)
+                basis = np.expand_dims(basis, axis=1)
+                bases.append(basis)
+                pred_mu, pred_sigma = self._predict(Llowers[i], Xytr[i], basis, noise_sd)
+                means.append(pred_mu)
+                covs.append(pred_sigma)
+            means = np.concatenate(means, axis=-1)
+            covs = np.concatenate(covs, axis=-1)
 
-                bases.append(basis_reward)
+            bases.append(basis_reward)
 
-                state_ = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(means, covs)], axis=0)
-                state = state + state_ if self.learn_diff else state_
-                if self.learn_diff == 0: state_ = np.clip(state_, self.observation_space_low, self.observation_space_high)
-                state = np.clip(state, self.observation_space_low, self.observation_space_high)
+            state_ = np.stack([np.random.multivariate_normal(mean=mean, cov=np.diag(cov)) for mean, cov in zip(means, covs)], axis=0)
+            state = state + state_ if self.learn_diff else state_
+            if self.learn_diff == 0: state_ = np.clip(state_, self.observation_space_low, self.observation_space_high)
+            state = np.clip(state, self.observation_space_low, self.observation_space_high)
 
 #                #Removable
 #                import copy
@@ -241,15 +284,15 @@ class Agent:
 #                XXtr2 = copy.deepcopy(XXtr)
 #                #Removable -END-
 
-                if self.update_hyperstate == 1 and self.policy_use_hyperstate == 1:
-                    y = np.concatenate([state_, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
-                    y = y[..., np.newaxis, np.newaxis]
-                    for i in xrange(self.state_dim + self.learn_reward):
-                        Llowers[i] = Llowers[i].transpose([0, 2, 1])
-                    for i in xrange(self.state_dim + self.learn_reward):
-                        for j in xrange(len(Llowers[i])):
-                            cholupdate(Llowers[i][j], bases[i][j, 0].copy())
-                        Xytr[i] += np.matmul(bases[i].transpose([0, 2, 1]), y[:, i, ...])
+            if self.update_hyperstate == 1 and self.policy_use_hyperstate == 1:
+                y = np.concatenate([state_, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
+                y = y[..., np.newaxis, np.newaxis]
+                for i in xrange(self.state_dim + self.learn_reward):
+                    Llowers[i] = Llowers[i].transpose([0, 2, 1])
+                for i in xrange(self.state_dim + self.learn_reward):
+                    for j in xrange(len(Llowers[i])):
+                        cholupdate(Llowers[i][j], bases[i][j, 0].copy())
+                    Xytr[i] += np.matmul(bases[i].transpose([0, 2, 1]), y[:, i, ...])
 
 #                        #Removable
 #                        _, _, noise_sd, prior_sd = hyperparameters[i]
@@ -259,18 +302,18 @@ class Agent:
 #                        print np.allclose(Xytr[i], Xytr2[i])
 #                        #Removable -END-
 
-                    for i in xrange(self.state_dim + self.learn_reward):
-                        Llowers[i] = Llowers[i].transpose([0, 2, 1])
+                for i in xrange(self.state_dim + self.learn_reward):
+                    Llowers[i] = Llowers[i].transpose([0, 2, 1])
 
-            rewards = np.concatenate(rewards, axis=-1)
-            rewards = np.sum(rewards, axis=-1)
-            loss = -np.mean(rewards)
-            np.random.set_state(rng_state)
-            return loss
-        except Exception as e:
-            np.random.set_state(rng_state)
-            print e, 'Returning 10e100'
-            return 10e100
+        rewards = np.concatenate(rewards, axis=-1)
+        rewards = np.sum(rewards, axis=-1)
+        loss = -np.mean(rewards)
+        np.random.set_state(rng_state)
+        return loss
+        #except Exception as e:
+            #np.random.set_state(rng_state)
+            #print e, 'Returning 10e100'
+            #return 10e100
 
     def _update_hyperstate(self, XXold, XXnew, Xyold, Xynew, Llowerold, var_ratio):
         var_diag = var_ratio*np.eye(XXnew.shape[-1])
@@ -451,8 +494,6 @@ def main_loop():
                                      no_samples=args.no_samples,
                                      discount_factor=args.discount_factor,
 
-                                     
-
                                      random_matrix_state=regression_wrapper_state.random_matrix,
                                      bias_state=regression_wrapper_state.bias,
                                      basis_dim_state=regression_wrapper_state.basis_dim,
@@ -461,7 +502,6 @@ def main_loop():
                                      random_matrix_reward=regression_wrapper_reward.random_matrix,
                                      bias_reward=regression_wrapper_reward.bias,
                                      basis_dim_reward=regression_wrapper_reward.basis_dim,
-
 
                                      #random_matrices=[rw.random_matrix for rw in regression_wrappers],
                                      #biases=[rw.bias for rw in regression_wrappers],
@@ -495,9 +535,10 @@ def main_loop():
             rewards_train = rewards.copy()
 
             if flag == False:
-                regression_wrapper_state._train_hyperparameters(states_actions, next_states_train)
+                #TODO: uncomment train hyperparameters
+                #regression_wrapper_state._train_hyperparameters(states_actions, next_states_train)
                 regression_wrapper_state._reset_statistics(states_actions, next_states_train)
-                regression_wrapper_reward._train_hyperparameters(states_actions, rewards_train)
+                #regression_wrapper_reward._train_hyperparameters(states_actions, rewards_train)
                 regression_wrapper_reward._reset_statistics(states_actions, rewards_train)
             else:
                 regression_wrapper_state._update(states_actions, next_states_train)
