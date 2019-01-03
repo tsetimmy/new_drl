@@ -116,27 +116,20 @@ class Agent:
         #Perform a simple random projection on the hyperstate.
         if self.policy_use_hyperstate == 1:
             Llower_state, Xytr_state, Llower_reward, Xytr_reward = hyperstate_params
-
-            print Llower_state.reshape([len(Llower_state), -1]).shape
-            print Xytr_state.reshape([len(Xytr_state), -1]).shape
-            print Llower_reward.reshape([len(Llower_reward), -1]).shape
-            print Xytr_reward.reshape([len(Xytr_reward), -1]).shape
-            exit()
-
-            '''
-            hyperstate = np.concatenate([np.concatenate([np.reshape(XXtr, [len(XXtr), -1]), np.reshape(Xytr, [len(Xytr), -1])], axis=-1) for XXtr, Xytr in zip(*hyperstate)], axis=-1)
+            hyperstate = np.concatenate([Llower_state.reshape([len(Llower_state), -1]),
+                                         Xytr_state.reshape([len(Xytr_state), -1]),
+                                         Llower_reward.reshape([len(Llower_reward), -1]),
+                                         Xytr_reward.reshape([len(Xytr_reward), -1])],
+                                         axis=-1)
             hyperstate = np.tanh(hyperstate/50000.)
             hyperstate_embedding = np.matmul(hyperstate, self.random_projection_matrix)
             hyperstate_embedding = np.tanh(hyperstate_embedding)
 
             state_hyperstate = np.concatenate([X, hyperstate_embedding], axis=-1)
             policy_net_input = self._add_bias(state_hyperstate)
-            '''
         else:
             policy_net_input = self._add_bias(X)
 
-        print 'here'
-        exit()
         h1 = np.tanh(np.matmul(policy_net_input, w1))
         h1 = self._add_bias(h1)
 
@@ -232,10 +225,6 @@ class Agent:
         Xytr_reward = Xytr_reward.copy()
         hyperparameters_reward = hyperparameters_reward.copy()
 
-        print Llower_state.shape
-        print Xytr_state.shape
-        print Llower_reward.shape
-        print Xytr_reward.shape
         '''
         X = np.copy(X)
         Llowers = [np.copy(ele) for ele in Llowers]
@@ -249,9 +238,9 @@ class Agent:
         rewards = []
         state = X
         for unroll_step in xrange(self.unroll_steps):
-            #action = self._forward(thetas, state, hyperstate=[Llowers, Xytr])
             action = self._forward(thetas, state, hyperstate_params=[Llower_state, Xytr_state, Llower_reward, Xytr_reward])
-            exit()
+            print action
+            exit()#TODO: bookmark; here.
             reward, basis_reward = self._reward(state, action, sess, Llowers[-1], Xytr[-1], hyperparameters[-1])
             rewards.append((self.discount_factor**unroll_step)*reward)
             state_action = np.concatenate([state, action], axis=-1)
