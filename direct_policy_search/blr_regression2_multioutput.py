@@ -149,7 +149,6 @@ class Agent:
         return np.maximum(X, 0.)
 
     def _fit(self, cma_maxiter, X, XXtr_state, Xytr_state, hyperparameters_state, XXtr_reward, Xytr_reward, hyperparameters_reward, sess):
-        return None#TODO: have to remove this.
         warnings.filterwarnings('ignore', message='.*scipy.linalg.solve\nIll-conditioned matrix detected. Result is not guaranteed to be accurate.\nReciprocal.*')
         assert XXtr_state.shape == (self.basis_dim_state, self.basis_dim_state)
         assert Xytr_state.shape == (self.basis_dim_state, self.state_dim)
@@ -311,33 +310,28 @@ class Agent:
             reward = mu + np.sqrt(sigma) * np.random.standard_normal(size=mu.shape)
         return reward, basis
 
-def update_hyperstate(agent, hyperstate_params, datum, learn_diff):
+def update_hyperstate(agent, hyperstate_params, hyperparameters_state, hyperparameters_reward, datum, learn_diff):
     state, action, reward, next_state, _ = [np.atleast_2d(np.copy(dat)) for dat in datum]
     Llower_state, Xy_state, Llower_reward, Xy_reward = hyperstate_params
 
     state_action = np.concatenate([state, action], axis=-1)
     state_ = next_state - state if learn_diff else next_state
 
-def update_hyperstate(agent, hyperstate, hyperparameters, datum, dim, learn_diff):
-    state, action, reward, next_state, _ = [np.atleast_2d(np.copy(dat)) for dat in datum]
-    Llowers, Xy = [list(ele) for ele in hyperstate]
-    assert len(Llowers) == len(hyperparameters)
-    assert len(Xy) == len(hyperparameters)
-    assert len(hyperparameters) == dim
-    state_action = np.concatenate([state, action], axis=-1)
-    y = np.concatenate([next_state - state if learn_diff else next_state, reward], axis=-1)[..., :dim]
+    basis_state = _basis(state_action, agent.random_matrix_state, agent.bias_state, agent.basis_dim_state, hyperparameters_state[0], hyperparameters_state[1])
+    Llower_state = Llower_state.transpose([0, 2, 1])
+    for i in range(len(Llower_state)):
+        cholupdate(Llower_state[i], basis_state[i].copy())
+    Llower_state = Llower_state.transpose([0, 2, 1])
+    Xy_state += np.matmul(basis_state[..., None, :].transpose([0, 2, 1]), state_[..., None, :])
 
-    for i in range(len(Llowers)):
-        Llowers[i] = Llowers[i].transpose([0, 2, 1])
-    for i, hp in zip(range(dim), hyperparameters):
-        length_scale, signal_sd, noise_sd, prior_sd = hp
-        basis = _basis(state_action, agent.random_matrices[i], agent.biases[i], agent.basis_dims[i], length_scale, signal_sd)
-        cholupdate(Llowers[i][0], basis[0].copy())
-        Xy[i] += np.matmul(basis[:, None, :].transpose([0, 2, 1]), y[:, None, :][..., i:i+1])
-    for i in range(len(Llowers)):
-        Llowers[i] = Llowers[i].transpose([0, 2, 1])
+    basis_reward = _basis(state_action, agent.random_matrix_reward, agent.bias_reward, agent.basis_dim_reward, hyperparameters_reward[0], hyperparameters_reward[1])
+    Llower_reward = Llower_reward.transpose([0, 2, 1])
+    for i in range(len(Llower_reward)):
+        cholupdate(Llower_reward[i], basis_reward[i].copy())
+    Llower_reward = Llower_reward.transpose([0, 2, 1])
+    Xy_reward += np.matmul(basis_reward[..., None, :].transpose([0, 2, 1]), reward[..., None, :])
 
-    return [Llowers, Xy]
+    return [Llower_state, Xy_state, Llower_reward, Xy_reward]
 
 def main_loop():
     parser = argparse.ArgumentParser()
@@ -352,7 +346,7 @@ def main_loop():
     parser.add_argument("--hidden-dim", type=int, default=32)
     parser.add_argument("--rffm-seed", type=int, default=1)
     parser.add_argument("--Agent", type=str, choices=['', '2'], default='')
-    parser.add_argument("--fit-function", type=str, choices=['_fit', '_fit_cma'], default='_fit')
+    #parser.add_argument("--fit-function", type=str, choices=['_fit', '_fit_cma'], default='_fit')
     parser.add_argument("--learn-reward", type=int, choices=[0, 1], default=1)
     parser.add_argument("--max-train-hp-datapoints", type=int, default=20000)
     parser.add_argument("--matern-param-reward", type=float, default=np.inf)
@@ -366,6 +360,7 @@ def main_loop():
 
     print sys.argv
     print args
+    from blr_regression2_sans_hyperstate_multioutput import Agent2
 
     env = gym.make(args.environment)
 
@@ -442,10 +437,9 @@ def main_loop():
             rewards_train = rewards.copy()
 
             if flag == False:
-                #TODO: uncomment train hyperparameters
-                #regression_wrapper_state._train_hyperparameters(states_actions, next_states_train)
+                regression_wrapper_state._train_hyperparameters(states_actions, next_states_train)
                 regression_wrapper_state._reset_statistics(states_actions, next_states_train)
-                #regression_wrapper_reward._train_hyperparameters(states_actions, rewards_train)
+                regression_wrapper_reward._train_hyperparameters(states_actions, rewards_train)
                 regression_wrapper_reward._reset_statistics(states_actions, rewards_train)
             else:
                 regression_wrapper_state._update(states_actions, next_states_train)
@@ -458,15 +452,15 @@ def main_loop():
             #Fit policy network.
             #XX, Xy, hyperparameters = zip(*[[rw.XX, rw.Xy, rw.hyperparameters] for rw in regression_wrappers])
             #eval('agent.'+args.fit_function)(args.cma_maxiter, np.copy(init_states), [np.copy(ele) for ele in XX], [np.copy(ele) for ele in Xy], [np.copy(ele) for ele in hyperparameters], sess)
-            eval('agent.'+args.fit_function)(args.cma_maxiter,
-                                             init_states.copy(),
-                                             regression_wrapper_state.XX.copy(),
-                                             regression_wrapper_state.Xy.copy(),
-                                             regression_wrapper_state.hyperparameters.copy(),
-                                             regression_wrapper_reward.XX.copy(),
-                                             regression_wrapper_reward.Xy.copy(),
-                                             regression_wrapper_reward.hyperparameters.copy(),
-                                             sess)
+            agent._fit(args.cma_maxiter,
+                       init_states.copy(),
+                       regression_wrapper_state.XX.copy(),
+                       regression_wrapper_state.Xy.copy(),
+                       regression_wrapper_state.hyperparameters.copy(),
+                       regression_wrapper_reward.XX.copy(),
+                       regression_wrapper_reward.Xy.copy(),
+                       regression_wrapper_reward.hyperparameters.copy(),
+                       sess)
 
             #Get hyperstate & hyperparameters
             hyperstate_params = [regression_wrapper_state.Llower.copy()[None, ...],
@@ -480,9 +474,12 @@ def main_loop():
                 action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate_params)[0]
                 next_state, reward, done, _ = env.step(action)
 
-                hyperstate_params = update_hyperstate(agent, hyperstate_params, [state, action, reward, next_state], args.learn_diff)
-                exit()
-                #hyperstate = update_hyperstate(agent, hyperstate, hyperparameters, [state, action, reward, next_state, done], agent.state_dim+agent.learn_reward, args.learn_diff)
+                hyperstate_params = update_hyperstate(agent,
+                                                      hyperstate_params,
+                                                      regression_wrapper_state.hyperparameters.copy(),
+                                                      regression_wrapper_reward.hyperparameters.copy(),
+                                                      [state, action, reward, next_state, done],
+                                                      args.learn_diff)
 
                 tmp_data_buffer.append([state, action, reward, next_state, done])
                 total_rewards += float(reward)

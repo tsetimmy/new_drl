@@ -612,7 +612,7 @@ def main_loop():
     parser.add_argument("--hidden-dim", type=int, default=32)
     parser.add_argument("--rffm-seed", type=int, default=1)
     parser.add_argument("--Agent", type=str, choices=['', '2', '3'], default='')
-    parser.add_argument("--fit-function", type=str, choices=['_fit', '_fit_cma', '_fit_random_search'], default='_fit')
+    #parser.add_argument("--fit-function", type=str, choices=['_fit', '_fit_cma', '_fit_random_search'], default='_fit')
     parser.add_argument("--learn-reward", type=int, choices=[0, 1], default=1)
     parser.add_argument("--max-train-hp-datapoints", type=int, default=20000)
     parser.add_argument("--matern-param-reward", type=float, default=np.inf)
@@ -700,7 +700,7 @@ def main_loop():
 
             #Fit policy network.
             XX, Xy, hyperparameters = zip(*[[rw.XX, rw.Xy, rw.hyperparameters] for rw in regression_wrappers])
-            eval('agent.'+args.fit_function)(args.cma_maxiter, np.copy(init_states), [np.copy(ele) for ele in XX], [np.copy(ele) for ele in Xy], [np.copy(ele) for ele in hyperparameters], sess)
+            agent._fit(args.cma_maxiter, np.copy(init_states), [np.copy(ele) for ele in XX], [np.copy(ele) for ele in Xy], [np.copy(ele) for ele in hyperparameters], sess)
 
             #Get hyperstate & hyperparameters
             hyperstate = zip(*[[scipy.linalg.cholesky(np.copy(rw.XX)+(rw.noise_sd/rw.prior_sd)**2*np.eye(rw.basis_dim), lower=True)[np.newaxis, ...], np.copy(rw.Xy)[np.newaxis, ...]] for rw in regression_wrappers])

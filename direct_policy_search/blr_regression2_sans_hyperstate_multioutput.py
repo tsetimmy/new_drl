@@ -2,15 +2,17 @@ import numpy as np
 import scipy
 from scipy.optimize import minimize
 import warnings
-from blr_regression2 import Agent, _basis
+from blr_regression2_multioutput import Agent, _basis
 
 class Agent2(Agent):
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
-                 action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrices, biases, basis_dims,
-                 hidden_dim=32, learn_reward=0, use_mean_reward=0, update_hyperstate=1, policy_use_hyperstate=1, learn_diff=0):
+                 action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrix_state,
+                 bias_state, basis_dim_state, random_matrix_reward, bias_reward, basis_dim_reward, hidden_dim=32,
+                 learn_reward=0, use_mean_reward=0, update_hyperstate=1, policy_use_hyperstate=1, learn_diff=0):
         Agent.__init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
-                       action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrices, biases, basis_dims,
-                       hidden_dim, learn_reward, use_mean_reward, update_hyperstate, policy_use_hyperstate, learn_diff)
+                       action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrix_state,
+                       bias_state, basis_dim_state, random_matrix_reward, bias_reward, basis_dim_reward, hidden_dim, learn_reward,
+                       use_mean_reward, update_hyperstate, policy_use_hyperstate, learn_diff)
         self._init_thetas2()
 
     def _init_thetas2(self):
@@ -29,6 +31,7 @@ class Agent2(Agent):
         np.testing.assert_equal(w1, self.w1)
         np.testing.assert_equal(w2, self.w2)
         np.testing.assert_equal(w3, self.w3)
+        print 'bookmark; here'; exit()
 
         if self.learn_reward == 0 and self.use_mean_reward == 1:
             print 'Warning: flags learn_reward is False but use_mean_reward is True.'
