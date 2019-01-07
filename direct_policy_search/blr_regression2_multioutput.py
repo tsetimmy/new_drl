@@ -210,7 +210,6 @@ class Agent:
         return mu, sigma
 
     def _loss(self, thetas, X, Llower_state, XXtr_state, Xytr_state, hyperparameters_state, Llower_reward, XXtr_reward, Xytr_reward, hyperparameters_reward, sess=None):
-        rng_state = np.random.get_state()
         X = X.copy()
         Llower_state = Llower_state.copy()
         XXtr_state = XXtr_state.copy()
@@ -221,7 +220,7 @@ class Agent:
             XXtr_reward = XXtr_reward.copy()
             Xytr_reward = Xytr_reward.copy()
             hyperparameters_reward = hyperparameters_reward.copy()
-
+        rng_state = np.random.get_state()
         #try:
         np.random.seed(2)
 
@@ -238,7 +237,7 @@ class Agent:
             basis_state = _basis(state_action, self.random_matrix_state, self.bias_state, self.basis_dim_state, length_scale, signal_sd)
             basis_state = basis_state[:, None, ...]
             mu, sigma = self._predict(Llower_state, Xytr_state, basis_state, noise_sd)
-            state_ = mu + np.sqrt(sigma) * np.random.normal(size=mu.shape)
+            state_ = mu + np.sqrt(sigma) * np.random.standard_normal(size=mu.shape)
 
             if self.learn_diff:
                 state_tmp = state.copy()
@@ -273,26 +272,6 @@ class Agent:
             #np.random.set_state(rng_state)
             #print e, 'Returning 10e100'
             #return 10e100
-
-    def _update_hyperstate(self, XXold, XXnew, Xyold, Xynew, Llowerold, var_ratio):
-        var_diag = var_ratio*np.eye(XXnew.shape[-1])
-        XX = []
-        Xy = []
-        Llower = []
-        for i in range(len(XXnew)):
-            try:
-                tmp = scipy.linalg.cholesky(XXnew[i] + var_diag, lower=True)
-                XX.append(XXnew[i].copy())
-                Xy.append(Xynew[i].copy())
-                Llower.append(tmp.copy())
-            except Exception as e:
-                XX.append(XXold[i].copy())
-                Xy.append(Xyold[i].copy())
-                Llower.append(Llowerold[i].copy())
-        XX = np.stack(XX, axis=0)
-        Xy = np.stack(Xy, axis=0)
-        Llower = np.stack(Llower, axis=0)
-        return XX, Xy, Llower
 
     def _reward(self, state, action, state_action, sess, Llower, Xy, hyperparameters):
         basis = None
