@@ -26,11 +26,14 @@ from blr_regression2 import _basis, RegressionWrapperReward, solve_triangular, u
 
 from morw import MultiOutputRegressionWrapper
 
+import uuid
+import os
+
 class Agent:
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                  action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrix_state, bias_state,
                  basis_dim_state, random_matrix_reward, bias_reward, basis_dim_reward, hidden_dim=32, learn_reward=0,
-                 use_mean_reward=0, update_hyperstate=1, policy_use_hyperstate=1, learn_diff=0):
+                 use_mean_reward=0, update_hyperstate=1, policy_use_hyperstate=1, learn_diff=0, dump_model=0):
         #assert environment in ['Pendulum-v0', 'MountainCarContinuous-v0']
         assert x_dim == state_dim + action_dim
         assert len(action_space_low.shape) == 1
@@ -62,6 +65,11 @@ class Agent:
         self.update_hyperstate = update_hyperstate
         self.policy_use_hyperstate = policy_use_hyperstate
         self.learn_diff = learn_diff
+
+        self.dump_model = dump_model
+
+        self.uid = str(uuid.uuid4())
+        self.epoch = 0
 
         if self.environment == 'Pendulum-v0' and self.learn_reward == 0:
             #self.reward_function = real_env_pendulum_reward()
@@ -200,6 +208,14 @@ class Agent:
                                                           hyperparameters_reward if self.learn_reward else None,
                                                           sess), options=options)
         self.thetas = np.copy(res[0])
+        if self.dump_model:
+            print 'Unique identifier:', self.uid
+            directory = './models/'
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+            with open(directory+self.uid+'_epoch:'+str(self.epoch)+'.p', 'wb') as fp:
+                pickle.dump(self.thetas, fp)
+            self.epoch += 1
 
     def _predict(self, Llower, Xytr, basis, noise_sd):
         LinvXT = solve_triangular(Llower, basis.transpose([0, 2, 1]))
@@ -334,6 +350,7 @@ def main_loop():
     parser.add_argument("--policy_use_hyperstate", type=int, default=1)
     parser.add_argument("--cma_maxiter", type=int, default=1000)
     parser.add_argument("--learn_diff", type=int, choices=[0, 1], default=0)
+    parser.add_argument("--dump_model", type=int, choices=[0, 1], default=0)
     args = parser.parse_args()
 
     print sys.argv
@@ -392,7 +409,8 @@ def main_loop():
                                      use_mean_reward=args.use_mean_reward,
                                      update_hyperstate=args.update_hyperstate,
                                      policy_use_hyperstate=args.policy_use_hyperstate,
-                                     learn_diff=args.learn_diff)
+                                     learn_diff=args.learn_diff,
+                                     dump_model=args.dump_model)
 
 
     #I have to work on the classes before working on the code below.

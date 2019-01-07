@@ -4,16 +4,19 @@ from scipy.optimize import minimize
 import scipy.linalg as spla
 import warnings
 from blr_regression2_multioutput import Agent, _basis
+import uuid
+import os
+import pickle
 
 class Agent2(Agent):
     def __init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                  action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrix_state,
                  bias_state, basis_dim_state, random_matrix_reward, bias_reward, basis_dim_reward, hidden_dim=32,
-                 learn_reward=0, use_mean_reward=0, update_hyperstate=1, policy_use_hyperstate=1, learn_diff=0):
+                 learn_reward=0, use_mean_reward=0, update_hyperstate=1, policy_use_hyperstate=1, learn_diff=0, dump_model=0):
         Agent.__init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                        action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrix_state,
                        bias_state, basis_dim_state, random_matrix_reward, bias_reward, basis_dim_reward, hidden_dim, learn_reward,
-                       use_mean_reward, update_hyperstate, policy_use_hyperstate, learn_diff)
+                       use_mean_reward, update_hyperstate, policy_use_hyperstate, learn_diff, dump_model)
         self._init_thetas2()
 
     def _init_thetas2(self):
@@ -131,6 +134,14 @@ class Agent2(Agent):
                                                           hyperparameters_reward.copy() if self.learn_reward else None,
                                                           sess), options=options)
         self.thetas = np.copy(res[0])
+        if self.dump_model:
+            print 'Unique identifier:', self.uid
+            directory = './models/'
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+            with open(directory+self.uid+'_epoch:'+str(self.epoch)+'.p', 'wb') as fp:
+                pickle.dump(self.thetas, fp)
+            self.epoch += 1
 
     def _reward(self, state, action, state_action, sess, Llower, Xy, hyperparameters):
         if self.environment == 'Pendulum-v0' and self.learn_reward == 0:
