@@ -424,7 +424,7 @@ class Agent:
 #                XXtr2 = copy.deepcopy(XXtr)
 #                #Removable -END-
 
-                if self.update_hyperstate == 1 and self.policy_use_hyperstate == 1:
+                if self.update_hyperstate == 1 or self.policy_use_hyperstate == 1:
                     y = np.concatenate([state_, reward], axis=-1)[..., :self.state_dim + self.learn_reward]
                     y = y[..., np.newaxis, np.newaxis]
                     for i in xrange(self.state_dim + self.learn_reward):

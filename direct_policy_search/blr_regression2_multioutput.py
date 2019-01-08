@@ -263,7 +263,7 @@ class Agent:
                 state_ = np.clip(state_, self.observation_space_low, self.observation_space_high)
                 state = state_.copy()
 
-            if self.update_hyperstate == 1 and self.policy_use_hyperstate == 1:
+            if self.update_hyperstate == 1 or self.policy_use_hyperstate == 1:
                 #Update state hyperstate
                 Llower_state = Llower_state.transpose([0, 2, 1])
                 for i in range(len(Llower_state)):
