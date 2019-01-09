@@ -249,7 +249,7 @@ class Agent:
             reward, basis_reward = self._reward(state, action, state_action, sess, Llower_reward, Xytr_reward, hyperparameters_reward)
             rewards.append((self.discount_factor**unroll_step)*reward)
 
-            length_scale, signal_sd, noise_sd, prior_sd = hyperparameters_reward
+            length_scale, signal_sd, noise_sd, prior_sd = hyperparameters_state
             basis_state = _basis(state_action, self.random_matrix_state, self.bias_state, self.basis_dim_state, length_scale, signal_sd)
             basis_state = basis_state[:, None, ...]
             mu, sigma = self._predict(Llower_state, Xytr_state, basis_state, noise_sd)

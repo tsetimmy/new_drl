@@ -11,6 +11,8 @@ class Agent2(Agent):
         Agent.__init__(self, environment, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
                        action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrices, biases, basis_dims,
                        hidden_dim, learn_reward, use_mean_reward, update_hyperstate, policy_use_hyperstate, learn_diff)
+        del self.update_hyperstate
+        del self.policy_use_hyperstate
         self._init_thetas2()
 
     def _init_thetas2(self):

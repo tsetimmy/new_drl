@@ -17,6 +17,8 @@ class Agent2(Agent):
                        action_space_low, action_space_high, unroll_steps, no_samples, discount_factor, random_matrix_state,
                        bias_state, basis_dim_state, random_matrix_reward, bias_reward, basis_dim_reward, hidden_dim, learn_reward,
                        use_mean_reward, update_hyperstate, policy_use_hyperstate, learn_diff, dump_model)
+        del self.update_hyperstate
+        del self.policy_use_hyperstate
         self._init_thetas2()
 
     def _init_thetas2(self):
