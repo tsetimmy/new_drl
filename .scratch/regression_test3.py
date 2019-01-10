@@ -82,6 +82,8 @@ def main():
         while True:
             action = np.random.uniform(low=env.action_space.low, high=env.action_space.high)
             next_state, reward, done, _ = env.step(action)
+            if env.spec.id == 'InvertedPendulumBulletEnv-v0':
+                reward = next_state[2]
             states.append(state)
             actions.append(action)
             rewards.append(reward)
@@ -91,6 +93,16 @@ def main():
             state = next_state.copy()
 
             if done:
+                if args.environment == 'InvertedPendulumBulletEnv-v0':
+                    for _ in range(10):
+                        action = np.random.uniform(low=env.action_space.low, high=env.action_space.high)
+                        next_state, _, done, _ = env.step(action)
+                        states.append(state)
+                        actions.append(action)
+                        rewards.append(next_state[2])
+                        next_states.append(next_state)
+                        data_points += 1
+                        state = next_state.copy()
                 break
 
     X_train = np.concatenate([np.stack(states, axis=0), np.stack(actions, axis=0)], axis=-1)
@@ -115,6 +127,8 @@ def main():
         while True:
             action = np.random.uniform(low=env.action_space.low, high=env.action_space.high)
             next_state, reward, done, _ = env.step(action)
+            if env.spec.id == 'InvertedPendulumBulletEnv-v0':
+                reward = next_state[2]
             states.append(state)
             actions.append(action)
             rewards.append(reward)
@@ -123,6 +137,16 @@ def main():
             state = next_state.copy()
 
             if done:
+                if args.environment == 'InvertedPendulumBulletEnv-v0':
+                    for _ in range(10):
+                        action = np.random.uniform(low=env.action_space.low, high=env.action_space.high)
+                        next_state, _, done, _ = env.step(action)
+                        states.append(state)
+                        actions.append(action)
+                        rewards.append(next_state[2])
+                        next_states.append(next_state)
+                        data_points += 1
+                        state = next_state.copy()
                 break
 
         X_test = np.concatenate([np.stack(states, axis=0), np.stack(actions, axis=0)], axis=-1)

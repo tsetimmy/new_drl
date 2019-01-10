@@ -469,6 +469,8 @@ def main_loop():
                 #env.render()
                 action = agent._forward(agent.thetas, state[np.newaxis, ...], hyperstate_params)[0]
                 next_state, reward, done, _ = env.step(action)
+                if env.spec.id == 'InvertedPendulumBulletEnv-v0':
+                    reward = next_state[2]
 
                 hyperstate_params = update_hyperstate(agent,
                                                       hyperstate_params,
@@ -482,6 +484,13 @@ def main_loop():
                 state = np.copy(next_state)
                 if done:
                     print 'epoch:', epoch, 'total_rewards:', total_rewards
+                    #This for reward shaping...
+                    if env.spec.id == 'InvertedPendulumBulletEnv-v0':
+                        for _ in range(10):
+                            action = np.random.uniform(low=env.action_space.low, high=env.action_space.high)
+                            next_state, _, done, _ = env.step(action)
+                            tmp_data_buffer.append([state, action, next_state[2], next_state, done])
+                            state = next_state.copy()
                     data_buffer.extend(scrub_data(args.environment, tmp_data_buffer, False))
                     break
 

@@ -368,7 +368,7 @@ def gather_data(env, epochs, unpack=False, test=False):
                 action = np.random.uniform(low=env.action_space.low, high=env.action_space.high)
                 next_state, reward, done, _ = env.step(action)
                 data.append([state, action, reward, next_state, done])
-                state = np.copy(next_state)
+                state = next_state.copy()
                 if done:
                     break
         if unpack == False:
@@ -386,9 +386,19 @@ def gather_data3(env, data_points, unpack=False):
         while True:
             action = np.random.uniform(low=env.action_space.low, high=env.action_space.high)
             next_state, reward, done, _ = env.step(action)
+            if env.spec.id == 'InvertedPendulumBulletEnv-v0':
+                rewards = next_state[2]
             data.append([state, action, reward, next_state, done])
-            state = np.copy(next_state)
-            if done: break
+            state = next_state.copy()
+            if done:
+                #This for reward shaping...
+                if env.spec.id == 'InvertedPendulumBulletEnv-v0':
+                    for _ in range(10):
+                        action = np.random.uniform(low=env.action_space.low, high=env.action_space.high)
+                        next_state, _, done, _ = env.step(action)
+                        data.append([state, action, next_state[2], next_state, done])
+                        state = next_state.copy()
+                break
         if len(data) >= data_points: break
     if unpack == False:
         return data
