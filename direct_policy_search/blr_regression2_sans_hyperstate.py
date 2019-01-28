@@ -57,6 +57,7 @@ class Agent2(Agent):
                     #tmp = (noise_sd/prior_sd)**2*np.eye(self.basis_dims[i]) + XX[i]
                     #pred_sigma = noise_sd**2 + np.sum(np.multiply(basis, noise_sd**2*scipy.linalg.solve(tmp, basis.T, sym_pos=True).T), axis=-1, keepdims=True)
                     #pred_mu = np.matmul(basis, scipy.linalg.solve(tmp, Xy[i], sym_pos=True))
+                    #TODO: fix this.
                     LinvXT = scipy.linalg.solve_triangular(Llowers[i], basis.T, lower=True)
                     pred_sigma = np.sum(np.square(LinvXT), axis=0)*noise_sd**2+noise_sd**2
                     pred_sigma = pred_sigma[..., np.newaxis]
@@ -130,6 +131,7 @@ class Agent2(Agent):
                 pred_sigma = np.zeros([len(basis), 1])
             else:
                 #pred_sigma = noise_sd**2 + np.sum(np.multiply(basis, noise_sd**2*scipy.linalg.solve(tmp, basis.T, sym_pos=True).T), axis=-1, keepdims=True)
+                #TODO: fix this.
                 LinvXT = scipy.linalg.solve_triangular(Llower, basis.T, lower=True)
                 pred_sigma = np.sum(np.square(LinvXT), axis=0)*noise_sd**2+noise_sd**2
                 pred_sigma = pred_sigma[..., np.newaxis]

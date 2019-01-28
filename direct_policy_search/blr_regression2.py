@@ -135,6 +135,7 @@ class RegressionWrapper:
     def _predict(self, X):
         basis = _basis(X, self.random_matrix, self.bias, self.basis_dim, self.length_scale, self.signal_sd)
 
+        #TODO: fix this.
         predict_sigma = np.sum(np.square(scipy.linalg.solve_triangular(self.Llower, basis.T, lower=True)), axis=0) * self.noise_sd**2 + self.noise_sd**2
         predict_sigma = predict_sigma[..., np.newaxis]
         tmp0 = scipy.linalg.solve_triangular(self.Llower, basis.T, lower=True).T
@@ -370,6 +371,7 @@ class Agent:
         return pred_mu, pred_sigma
         '''
 
+        #TODO:fix this.
         LinvXT = solve_triangular(Llower, np.transpose(basis, [0, 2, 1]))
         pred_sigma = np.sum(np.square(LinvXT), axis=1)*noise_sd**2+noise_sd**2
         tmp0 = np.transpose(solve_triangular(Llower, np.transpose(basis, [0, 2, 1])), [0, 2, 1])

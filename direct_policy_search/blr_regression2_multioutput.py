@@ -218,6 +218,7 @@ class Agent:
             self.epoch += 1
 
     def _predict(self, Llower, Xytr, basis, noise_sd):
+        #TODO: fix this.
         LinvXT = solve_triangular(Llower, basis.transpose([0, 2, 1]))
         sigma = np.sum(np.square(LinvXT), axis=1)*noise_sd**2+noise_sd**2
         tmp0 = solve_triangular(Llower, basis.transpose([0, 2, 1])).transpose([0, 2, 1])
