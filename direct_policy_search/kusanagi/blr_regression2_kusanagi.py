@@ -30,6 +30,7 @@ class RegressionWrapper:
         self.prior_sd = prior_sd
         self.hyperparameters = np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd])
         self.c = 1e-6
+        #self.c = 0.
 
         self.rffm_seed = rffm_seed
         self.train_hp_iterations = train_hp_iterations

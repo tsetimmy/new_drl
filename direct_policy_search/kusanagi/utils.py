@@ -11,6 +11,7 @@ def get_data(env, max_steps, action_high):
     state = env.reset()
     steps = 0
     while True:
+        #env.render()
         action = np.random.random(env.action_space.shape) * (action_high - action_low) + action_low
 
         next_state, cost, done, _ = env.step(action)

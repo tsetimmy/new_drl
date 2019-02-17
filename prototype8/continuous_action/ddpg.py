@@ -1,6 +1,7 @@
 import numpy as np
 
 import gym
+import pybullet_envs
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import tflearn
