@@ -11,7 +11,6 @@ import warnings
 import cma
 from choldate import cholupdate
 
-from utils import get_data3
 from kusanagi.shell import experiment_utils, cartpole, double_cartpole, pendulum
 from functools import partial
 
@@ -127,29 +126,6 @@ class RegressionWrapper:
         predict_mu = np.matmul(tmp0, tmp1)
 
         return predict_mu, predict_sigma
-
-class RegressionWrapperReward(RegressionWrapper):
-    def __init__(self, environment, input_dim, basis_dim, length_scale=1., signal_sd=1., noise_sd=5e-4, prior_sd=1., rffm_seed=1, train_hp_iterations=2000, matern_param=np.inf):
-        #self.input_dim2 = input_dim
-        #self.feature_dim0 = 512
-        #self.feature_dim1 = 512
-        #self.environment = environment
-        #self.random_projection_matrix0 = np.random.normal(loc=0., scale=1./np.sqrt(self.feature_dim0), size=[self.input_dim2 + 1, self.feature_dim0])
-        #self.random_projection_matrix1 = np.random.normal(loc=0., scale=1./np.sqrt(self.feature_dim1), size=[self.feature_dim0 + 1, self.feature_dim1])
-        #RegressionWrapper.__init__(self, self.feature_dim1, basis_dim, length_scale, signal_sd, noise_sd, prior_sd, rffm_seed, train_hp_iterations, matern_param)
-
-        self.environment = environment
-        RegressionWrapper.__init__(self, input_dim, basis_dim, length_scale, signal_sd, noise_sd, prior_sd, rffm_seed, train_hp_iterations, matern_param)
-
-    def _train_hyperparameters(self, X, y):
-        if self.environment == 'MountainCarContinuous-v0':
-            self.length_scale = 1.
-            self.signal_sd = 2.3
-            self.noise_sd = 1.
-            self.prior_sd = 500.
-            self.hyperparameters = np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd])
-        else:
-            RegressionWrapper._train_hyperparameters(self, X, y)
 
 class Agent:
     def __init__(self, env, x_dim, y_dim, state_dim, action_dim, observation_space_low, observation_space_high,
@@ -481,6 +457,7 @@ def main_loop():
                                      learn_diff=args.learn_diff)
 
     flag = False
+    from utils import get_data3
     data_buffer = get_data3(env, trials=args.gather_data_epochs, max_steps=max_steps, maxA=maxA)
 
     init_states = np.stack([env.reset() for _ in range(args.train_policy_batch_size)], axis=0)

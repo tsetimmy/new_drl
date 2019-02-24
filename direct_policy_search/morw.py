@@ -3,7 +3,7 @@ import scipy.linalg as la
 from scipy.optimize import minimize
 import warnings
 
-from blr_regression2 import RegressionWrapper, _basis
+from other_utils import RegressionWrapper, _basis
 
 import matplotlib.pyplot as plt
 
@@ -43,7 +43,7 @@ class MultiOutputRegressionWrapper(RegressionWrapper):
         self.noise_sd = np.sqrt(self.noise_sd**2 + self.c*self.prior_sd**2)
         self.prior_sd = np.abs(self.prior_sd)
         self.hyperparameters = np.array([self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd])
-        print self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd
+        print(self.length_scale, self.signal_sd, self.noise_sd, self.prior_sd)
 
     def _log_marginal_likelihood(self, thetas, X, y):
         try:
@@ -64,16 +64,16 @@ class MultiOutputRegressionWrapper(RegressionWrapper):
 
             s, logdet = np.linalg.slogdet(np.eye(self.basis_dim) + (prior_sd/noise_sd2)**2*XX)
             if s != 1:
-                print 'logdet is <= 0. Returning 10e100.'
+                print('logdet is <= 0. Returning 10e100.')
                 return 10e100
 
             lml = .5*(-N*np.log(noise_sd2**2)*self.output_dim - logdet*self.output_dim + (-np.sum(np.square(y)) + tmp)/noise_sd2**2)
             loss = -lml
             return loss
         except Exception as e:
-            print '------------'
-            print e, 'Returning 10e100.'
-            print '************'
+            print('------------')
+            print(e, 'Returning 10e100.')
+            print('************')
             return 10e100
 
     def _predict(self, X):
