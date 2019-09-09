@@ -111,7 +111,7 @@ def main():
     for i in range(len(u)):
         for j in range(len(thdot)):
             for k in range(len(th)):
-                print counter
+                print(counter)
                 counter += 1
                 a, b, c = get_next(th[k], thdot[j], u[i])
                 costh.append(a)

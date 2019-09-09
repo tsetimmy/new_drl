@@ -9,8 +9,8 @@ import pickle
 import sys
 sys.path.append('..')
 from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward, real_env_pendulum_state
-from environment_reward_functions import mountain_car_continuous_reward_function
-from environment_state_functions import mountain_car_continuous_state_function
+#from environment_reward_functions import mountain_car_continuous_reward_function
+#from environment_state_functions import mountain_car_continuous_state_function
 
 import uuid
 
@@ -72,7 +72,7 @@ def main():
     #parser.add_argument("--goal-position", type=float, default=-.4)
     args = parser.parse_args()
 
-    print args
+    print(args)
 
     env = gym.make(args.env)
     ann = ANN(env.observation_space.shape[0]+env.action_space.shape[0], 1, train_weights=True)
@@ -99,7 +99,7 @@ def main():
                 targets = rewards[i:i+args.batch_size, ...]
                 loss, _ = sess.run([ann.loss, ann.opt], feed_dict={ann.inputs:inputs, ann.targets:targets})
                 if it % 1000 == 0:
-                    print 'iterations:', it, 'i:', i, 'loss:', loss
+                    print('iterations:', it, 'i:', i, 'loss:', loss)
 
         #print sess.run(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))
         #saver.save(sess, './weights/pendulum_reward.ckpt')

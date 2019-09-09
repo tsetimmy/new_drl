@@ -1,0 +1,9 @@
+python blr_regression2_kusanagi_multioutput.py --env=cartpole --hidden_dim=8 --gather_data_epochs=1 --Agent='' --cma_maxiter=1000 --train_policy_batch_size=7 |tee ./cartpole_trial0.txt
+python blr_regression2_kusanagi_multioutput.py --env=cartpole --hidden_dim=8 --gather_data_epochs=1 --Agent='' --cma_maxiter=1000 --train_policy_batch_size=7 |tee ./cartpole_trial1.txt
+python blr_regression2_kusanagi_multioutput.py --env=cartpole --hidden_dim=8 --gather_data_epochs=1 --Agent='' --cma_maxiter=1000 --train_policy_batch_size=7 |tee ./cartpole_trial2.txt
+python blr_regression2_kusanagi_multioutput.py --env=double_cartpole --hidden_dim=8 --gather_data_epochs=1 --Agent='' --cma_maxiter=1000 --train_policy_batch_size=7 |tee ./double_cartpole_trial0.txt
+python blr_regression2_kusanagi_multioutput.py --env=double_cartpole --hidden_dim=8 --gather_data_epochs=1 --Agent='' --cma_maxiter=1000 --train_policy_batch_size=7 |tee ./double_cartpole_trial1.txt
+python blr_regression2_kusanagi_multioutput.py --env=double_cartpole --hidden_dim=8 --gather_data_epochs=1 --Agent='' --cma_maxiter=1000 --train_policy_batch_size=7 |tee ./double_cartpole_trial2.txt
+python blr_regression2_kusanagi_multioutput.py --env=pendulum --hidden_dim=8 --gather_data_epochs=1 --Agent='' --cma_maxiter=1000 --train_policy_batch_size=7 |tee ./pendulum_trial0.txt
+python blr_regression2_kusanagi_multioutput.py --env=pendulum --hidden_dim=8 --gather_data_epochs=1 --Agent='' --cma_maxiter=1000 --train_policy_batch_size=7 |tee ./pendulum_trial1.txt
+python blr_regression2_kusanagi_multioutput.py --env=pendulum --hidden_dim=8 --gather_data_epochs=1 --Agent='' --cma_maxiter=1000 --train_policy_batch_size=7 |tee ./pendulum_trial2.txt

@@ -112,7 +112,7 @@ def main():
 
                 state = np.copy(next_state)
                 if done:
-                    print 'epoch:', epoch, 'total_rewards:', total_rewards
+                    print('epoch:', epoch, 'total_rewards:', total_rewards)
                     break
 
 def main2():

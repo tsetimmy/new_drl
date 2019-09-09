@@ -8,6 +8,7 @@ plt.rcParams.update({'figure.max_open_warning': 0})
 
 import sys
 sys.path.append('..')
+sys.path.append('../direct_policy_search')
 from direct_policy_search.blr_regression2 import RegressionWrapper
 from direct_policy_search.morw import MultiOutputRegressionWrapper
 from regression_test4 import RegressionWrapper2, _basis, solve_triangular
@@ -64,7 +65,7 @@ def main():
     parser.add_argument("--basis_dim_reward", type=int, default=256)
     args = parser.parse_args()
 
-    print args
+    print(args)
 
     no_data_points = 1000
     no_samples = 50
@@ -159,6 +160,7 @@ def main():
             plt.plot(np.arange(len(y_test[:, i])), y_test[:, i], 'b-')
             plt.errorbar(np.arange(len(mu0[:, i])), mu0[:, i], yerr=np.sqrt(sigma0.squeeze()), color='m', ecolor='g')
             plt.grid()
+            plt.savefig('state'+str(i)+'.pdf')
 
         mu1, sigma1 = rw._predict(X_test, False)
         plt.figure()
@@ -166,6 +168,7 @@ def main():
         plt.errorbar(np.arange(len(mu1)), mu1, yerr=np.sqrt(sigma1), color='m', ecolor='g')
         plt.grid()
         plt.title('rewards')
+        plt.savefig('reward.pdf')
 
         sample_states = []
         sample_rewards = []
@@ -195,6 +198,7 @@ def main():
                 plt.plot(np.arange(len(sample)), sample, 'r-')
             plt.plot(np.arange(len(y_test[:, i])), y_test[:, i], 'b-')
             plt.grid()
+            plt.savefig('state_traj'+str(i)+'.pdf')
 
         plt.figure()
         for sample in sample_rewards.squeeze():
@@ -202,8 +206,10 @@ def main():
         plt.plot(np.arange(len(rewards)), rewards, 'b-')
         plt.grid()
         plt.title('rewards')
+        plt.savefig('reward_traj.pdf')
 
-        plt.show()
+        #plt.show()
+        exit()
 
 if __name__ == '__main__':
     main()

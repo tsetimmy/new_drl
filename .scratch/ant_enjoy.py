@@ -9,6 +9,9 @@ import gym
 import numpy as np
 import pybullet_envs
 import time
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use("TkAgg")
 
 def relu(x):
     return np.maximum(x, 0)
@@ -28,6 +31,7 @@ class SmallReactivePolicy:
         return x
 
 def main():
+    plt.figure()
     pybullet.connect(pybullet.DIRECT)
     env = gym.make("AntBulletEnv-v0")
     env.render(mode="human")
@@ -46,9 +50,51 @@ def main():
         ep_data = []
         total_rewards = 0.
         
+        states = []
         while 1:
             time.sleep(1./60.)
             a = pi.act(obs)
+            #a = env.action_space.sample()
+            states.append(obs)
+
+            '''
+            states.append(obs)
+            snp = np.stack(states, axis=0)
+            idx = 0
+            for i in range(7):
+                for j in range(4):
+                    plt.subplot(7, 4, idx+1)
+                    plt.cla()
+                    plt.plot(np.arange(len(snp[:, idx])), snp[:, idx])
+                    plt.grid()
+                    idx += 1
+            plt.draw()
+            plt.pause(.0001/60.0)
+            '''
+
+            '''
+            states.append(obs)
+            snp = np.stack(states, axis=0)
+            print (snp.shape)
+            idx = 0
+            for i in range(4):
+                plt.subplot(1, 4, idx+1)
+                plt.cla()
+                if i == 0:
+                    plt.plot(np.arange(len(snp[:, 24])), snp[:, 24])
+                elif i == 1:
+                    plt.plot(np.arange(len(snp[:, 25])), snp[:, 25])
+                elif i == 2:
+                    plt.plot(np.arange(len(snp[:, 26])), snp[:, 26])
+                elif i == 3:
+                    plt.plot(np.arange(len(snp[:, 27])), snp[:, 27])
+                plt.grid()
+                idx += 1
+            plt.draw()
+            plt.pause(.0001/60.0)
+            '''
+
+
 
             next_obs, r, done, _ = env.step(a)
             ep_data.append([obs, a, r, next_obs])
@@ -71,7 +117,28 @@ def main():
             else:
                 restart_delay -= 1
                 if restart_delay==0: break
-        print 'Total rewards:', total_rewards
+        snp = np.stack(states, axis=0)
+        print (snp.shape)
+        idx = 0
+        for i in range(7):
+            for j in range(4):
+                #plt.subplot(7, 4, idx+1)
+                #plt.cla()
+                #plt.plot(np.arange(len(snp[:, idx])), snp[:, idx])
+                #plt.grid()
+                #idx += 1
+
+                plt.figure()
+                plt.plot(np.arange(len(snp[:, idx])), snp[:, idx])
+                plt.grid()
+                plt.savefig('states'+str(idx)+'.pdf')
+                idx += 1
+        #plt.show()
+        #plt.draw()
+        #plt.pause(.0001/60.0)
+
+        exit()
+        print('Total rewards:', total_rewards)
         print("Here is the ep_len:", ep_len)
         '''
         state, action, reward, next_state = zip(*ep_data)

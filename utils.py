@@ -4,9 +4,9 @@ import tensorflow as tf
 import blosc
 import random
 #from prototype11.atari_environment_wrapper import atari_environment
-from custom_environments.cart import Cart
-from custom_environments.cartpole import CartPole
-from custom_environments.pygames import ple_wrapper
+#from custom_environments.cart import Cart
+#from custom_environments.cartpole import CartPole
+#from custom_environments.pygames import ple_wrapper
 import gym
 #from matplotlib import pyplot as plt
 #import pylab
@@ -457,7 +457,7 @@ def get_mcc_policy(env, hit_wall=True, reach_goal=True, train=True):
     seed_state = np.concatenate([np.random.uniform(low=-.6, high=-.4, size=1), np.zeros(1)])[np.newaxis, ...]
     i = 0
     while True:
-        print 'Finding... iteration:', i
+        print('Finding... iteration:', i)
         i += 1
         states = []
         rewards = []
@@ -488,7 +488,7 @@ def get_mcc_policy(env, hit_wall=True, reach_goal=True, train=True):
         if found_length > 0: break
 
     if not(train == True and reach_goal == True): found_length = None
-    print 'Found! Length:', found_length
+    print('Found! Length:', found_length)
 
     states = np.concatenate(states, axis=0)[:found_length, ...]
     actions = np.copy(policy[..., np.newaxis])[:found_length, ...]

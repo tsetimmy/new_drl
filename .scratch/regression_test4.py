@@ -10,6 +10,7 @@ plt.rcParams.update({'figure.max_open_warning': 0})
 #from morw import MultiOutputRegressionWrapper
 import sys
 sys.path.append('..')
+sys.path.append('../direct_policy_search')
 
 from direct_policy_search.blr_regression2 import RegressionWrapper, _basis, solve_triangular
 from choldate import cholupdate
@@ -72,7 +73,7 @@ class RegressionWrapper2(RegressionWrapper):
                     Xy_tiled.append(Xy_new.copy())
                     Llower_tiled.append(tmp.copy())
                 except Exception as e:
-                    print e
+                    print(e)
                     XX_tiled.append(XX_old.copy())
                     Xy_tiled.append(Xy_old.copy())
                     Llower_tiled.append(Llower_old.copy())
@@ -90,7 +91,7 @@ def main():
     parser.add_argument("--basis_dim_reward", type=int, default=256)
     args = parser.parse_args()
 
-    print args
+    print(args)
 
     no_data_points = 1000
     no_samples = 50

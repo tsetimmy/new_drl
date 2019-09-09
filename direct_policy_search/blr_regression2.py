@@ -9,11 +9,11 @@ sys.path.append('..')
 import tensorflow as tf
 from custom_environments.generateANN_env import ANN
 #from custom_environments.environment_state_functions import mountain_car_continuous_state_function
-from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
+#from custom_environments.environment_reward_functions import mountain_car_continuous_reward_function
 from prototype8.dmlac.real_env_pendulum import real_env_pendulum_reward
 
 from utils import gather_data
-from othere_utils import RegressionWrapper, _basis
+from other_utils import RegressionWrapper, _basis
 
 import gym
 import pybullet_envs
@@ -211,7 +211,7 @@ class Agent:
         assert len(Xytr) == self.state_dim + self.learn_reward
         assert len(hyperparameters) == self.state_dim + self.learn_reward
 
-        if self.use_mean_reward == 1: print 'Warning: use_mean_reward is set to True but this flag is not used by this function.'
+        if self.use_mean_reward == 1: print('Warning: use_mean_reward is set to True but this flag is not used by this function.')
 
         X = np.copy(X)
         XXtr = [np.copy(ele) for ele in XXtr]
@@ -231,7 +231,7 @@ class Agent:
 
         import cma
         options = {'maxiter': cma_maxiter, 'verb_disp': 1, 'verb_log': 0}
-        print 'Before calling cma.fmin'
+        print('Before calling cma.fmin')
         res = cma.fmin(self._loss, self.thetas, 2., args=(np.copy(X), [np.copy(ele) for ele in Llowers], [np.copy(ele) for ele in XXtr], [np.copy(ele) for ele in Xytr], None, [np.copy(ele) for ele in hyperparameters], sess), options=options)
         self.thetas = np.copy(res[0])
 
@@ -332,7 +332,7 @@ class Agent:
             return loss
         except Exception as e:
             np.random.set_state(rng_state)
-            print e, 'Returning 10e100'
+            print(e, 'Returning 10e100')
             return 10e100
 
     def _update_hyperstate(self, XXold, XXnew, Xyold, Xynew, Llowerold, var_ratio):
@@ -474,7 +474,7 @@ def scrub_data(environment, data_buffer, warn):
                 rewards = rewards[:i, ...]
                 next_states = next_states[:i, ...]
                 dones = dones[:i, ...]
-                if warn: print 'Warning: training data is cut short because the cart hit the left wall!'
+                if warn: print('Warning: training data is cut short because the cart hit the left wall!')
                 break
         data_buffer = zip(states, actions, rewards, next_states, dones)
     return data_buffer
@@ -503,8 +503,8 @@ def main_loop():
     parser.add_argument("--learn_diff", type=int, choices=[0, 1], default=0)
     args = parser.parse_args()
 
-    print sys.argv
-    print args
+    print(sys.argv)
+    print(args)
     from blr_regression2_sans_hyperstate import Agent2
     from blr_regression2_tf import Agent3
 
@@ -598,7 +598,7 @@ def main_loop():
                 total_rewards += float(reward)
                 state = np.copy(next_state)
                 if done:
-                    print 'epoch:', epoch, 'total_rewards:', total_rewards
+                    print('epoch:', epoch, 'total_rewards:', total_rewards)
                     data_buffer.extend(scrub_data(args.environment, tmp_data_buffer, False))
                     break
 

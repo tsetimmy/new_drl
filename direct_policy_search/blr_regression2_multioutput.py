@@ -164,7 +164,7 @@ class Agent:
         assert Xytr_reward.shape == (self.basis_dim_reward, 1)
         assert hyperparameters_state.shape == hyperparameters_reward.shape
 
-        if self.use_mean_reward == 1: print 'Warning: use_mean_reward is set to True but this flag is not used by this function.'
+        if self.use_mean_reward == 1: print('Warning: use_mean_reward is set to True but this flag is not used by this function.')
 
         #Copy the arrays (just to be safe no overwriting occurs).
         X = X.copy()
@@ -196,7 +196,7 @@ class Agent:
 
         import cma
         options = {'maxiter': cma_maxiter, 'verb_disp': 1, 'verb_log': 0}
-        print 'Before calling cma.fmin'
+        print('Before calling cma.fmin')
         res = cma.fmin(self._loss, self.thetas, 2., args=(X.copy(),
                                                           Llower_state.copy(),
                                                           XXtr_state.copy(),
@@ -209,7 +209,7 @@ class Agent:
                                                           sess), options=options)
         self.thetas = np.copy(res[0])
         if self.dump_model:
-            print 'Unique identifier:', self.uid
+            print('Unique identifier:', self.uid)
             directory = './models/'
             if not os.path.exists(directory):
                 os.makedirs(directory)
@@ -354,8 +354,8 @@ def main_loop():
     parser.add_argument("--dump_model", type=int, choices=[0, 1], default=0)
     args = parser.parse_args()
 
-    print sys.argv
-    print args
+    print(sys.argv)
+    print(args)
     from blr_regression2_sans_hyperstate_multioutput import Agent2
 
     env = gym.make(args.environment)
@@ -427,37 +427,39 @@ def main_loop():
             weights = pickle.load(open('../custom_environments/weights/pendulum_reward.p', 'rb'))
             sess.run(agent.assign_ops0, feed_dict=dict(zip(agent.placeholders_reward, weights)))
         for epoch in range(1000):
-            #Train hyperparameters and update systems model.
-            states_actions, states, rewards, next_states = unpack(data_buffer)
+            if epoch == 0:
+                #Train hyperparameters and update systems model.
+                states_actions, states, rewards, next_states = unpack(data_buffer)
 
-            next_states_train = next_states.copy() - states.copy() if args.learn_diff else next_states.copy()
-            rewards_train = rewards.copy()
+                next_states_train = next_states.copy() - states.copy() if args.learn_diff else next_states.copy()
+                rewards_train = rewards.copy()
 
-            if flag == False:
-                regression_wrapper_state._train_hyperparameters(states_actions, next_states_train)
-                regression_wrapper_state._reset_statistics(states_actions, next_states_train)
-                regression_wrapper_reward._train_hyperparameters(states_actions, rewards_train)
-                regression_wrapper_reward._reset_statistics(states_actions, rewards_train)
-            else:
-                regression_wrapper_state._update(states_actions, next_states_train)
-                regression_wrapper_reward._update(states_actions, rewards_train)
+                if flag == False:
+                    regression_wrapper_state._train_hyperparameters(states_actions, next_states_train)
+                    regression_wrapper_state._reset_statistics(states_actions, next_states_train)
+                    regression_wrapper_reward._train_hyperparameters(states_actions, rewards_train)
+                    regression_wrapper_reward._reset_statistics(states_actions, rewards_train)
+                else:
+                    regression_wrapper_state._update(states_actions, next_states_train)
+                    regression_wrapper_reward._update(states_actions, rewards_train)
 
-            if len(data_buffer) >= args.max_train_hp_datapoints: flag = True
-            if flag: data_buffer = []
-            tmp_data_buffer = []
+                if len(data_buffer) >= args.max_train_hp_datapoints: flag = True
+                if flag: data_buffer = []
+                tmp_data_buffer = []
 
             #Fit policy network.
             #XX, Xy, hyperparameters = zip(*[[rw.XX, rw.Xy, rw.hyperparameters] for rw in regression_wrappers])
             #eval('agent.'+args.fit_function)(args.cma_maxiter, np.copy(init_states), [np.copy(ele) for ele in XX], [np.copy(ele) for ele in Xy], [np.copy(ele) for ele in hyperparameters], sess)
-            agent._fit(args.cma_maxiter,
-                       init_states.copy(),
-                       regression_wrapper_state.XX.copy(),
-                       regression_wrapper_state.Xy.copy(),
-                       regression_wrapper_state.hyperparameters.copy(),
-                       regression_wrapper_reward.XX.copy(),
-                       regression_wrapper_reward.Xy.copy(),
-                       regression_wrapper_reward.hyperparameters.copy(),
-                       sess)
+            if epoch == 0:
+                agent._fit(args.cma_maxiter,
+                           init_states.copy(),
+                           regression_wrapper_state.XX.copy(),
+                           regression_wrapper_state.Xy.copy(),
+                           regression_wrapper_state.hyperparameters.copy(),
+                           regression_wrapper_reward.XX.copy(),
+                           regression_wrapper_reward.Xy.copy(),
+                           regression_wrapper_reward.hyperparameters.copy(),
+                           sess)
 
             #Get hyperstate & hyperparameters
             hyperstate_params = [regression_wrapper_state.Llower.copy()[None, ...],
@@ -484,7 +486,7 @@ def main_loop():
                 total_rewards += float(reward)
                 state = np.copy(next_state)
                 if done:
-                    print 'epoch:', epoch, 'total_rewards:', total_rewards
+                    print('epoch:', epoch, 'total_rewards:', total_rewards)
                     #This for reward shaping...
                     if env.spec.id == 'InvertedPendulumBulletEnv-v0':
                         for _ in range(10):

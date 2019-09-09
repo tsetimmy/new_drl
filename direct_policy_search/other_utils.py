@@ -1,4 +1,7 @@
 import numpy as np
+import warnings
+import scipy
+from scipy.optimize import minimize
 
 def _basis(X, random_matrix, bias, basis_dim, length_scale, signal_sd):
     x_omega_plus_bias = np.matmul(X, (1./length_scale)*random_matrix) + bias
